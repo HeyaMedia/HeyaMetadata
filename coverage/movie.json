@@ -1,0 +1,338 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "movie.identity.canonical_title",
+      "kind": "movie",
+      "category": "fact",
+      "description": "A stable display title is selected without making the title part of canonical identity.",
+      "providers": ["tmdb", "omdb", "tvdb"],
+      "projection": {"document": "detail", "path": "display.title"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603", "imdb": "tt0133093"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.identity.original_title",
+      "kind": "movie",
+      "category": "fact",
+      "description": "The original-language title remains available separately from the display title.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.titles"},
+      "references": [{"name": "Spirited Away", "external_ids": {"tmdb": "129", "imdb": "tt0245429"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.identity.localized_titles",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Localized, translated, native-script, and regional titles retain language, country, type, and provenance.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.titles"},
+      "references": [{"name": "Spirited Away", "external_ids": {"tmdb": "129", "imdb": "tt0245429"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.identity.aliases",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Alternative and regional names are searchable and retain source metadata.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.aliases"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.identity.external_ids",
+      "kind": "movie",
+      "category": "relationship",
+      "description": "Active external identifier claims resolve to the opaque movie ID and retain claim provenance.",
+      "providers": ["tmdb", "tvdb", "omdb"],
+      "projection": {"document": "detail", "path": "external_ids"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603", "imdb": "tt0133093"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.classification.kind",
+      "kind": "movie",
+      "category": "fact",
+      "description": "The entity is classified as a movie independently of any provider media-type label.",
+      "providers": ["system", "tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "kind"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "movie.classification.animation",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Animation classification is retained without changing the canonical movie boundary.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.attributes"},
+      "references": [{"name": "Spirited Away", "external_ids": {"tmdb": "129"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.classification.genres",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Provider genres remain available as normalized, provenance-bearing classifications.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.genres"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.classification.tags_keywords",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Tags and keywords remain distinguishable and retain provider identifiers when supplied.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.keywords"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.classification.countries_languages",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Origin countries, original language, and spoken languages are exposed independently.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.languages"},
+      "references": [{"name": "Spirited Away", "external_ids": {"tmdb": "129"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.text.tagline",
+      "kind": "movie",
+      "category": "fact",
+      "description": "The selected tagline retains its source and locale where known.",
+      "providers": ["tmdb"],
+      "projection": {"document": "detail", "path": "data.tagline"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.text.overview",
+      "kind": "movie",
+      "category": "fact",
+      "description": "A preferred overview is selected deterministically with fallback and provenance.",
+      "providers": ["tmdb", "omdb"],
+      "projection": {"document": "detail", "path": "data.overview"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603", "imdb": "tt0133093"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.text.localized_overviews",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Localized overviews retain language and source and remain distinct from generated translations.",
+      "providers": ["tmdb"],
+      "projection": {"document": "detail", "path": "data.overviews"},
+      "references": [{"name": "Spirited Away", "external_ids": {"tmdb": "129"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.release.primary_date_year",
+      "kind": "movie",
+      "category": "fact",
+      "description": "The display release date and year are derived from retained release events.",
+      "providers": ["tmdb", "omdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.release"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.release.regional_events",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Regional theatrical, digital, physical, festival, and premiere dates are retained as typed events.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.release.events"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.release.certifications",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Content certifications are keyed by country and associated release event where possible.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.certifications"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.release.status",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Normalized and raw lifecycle status are available with provenance.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.status"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.numbers.runtime",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Runtime is exposed in minutes with its provider provenance.",
+      "providers": ["tmdb", "tvdb", "omdb"],
+      "projection": {"document": "detail", "path": "data.runtime_minutes"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.numbers.budget_revenue",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Budget and revenue preserve amount, currency assumption, source, and unknown-versus-zero semantics.",
+      "providers": ["tmdb"],
+      "projection": {"document": "detail", "path": "data.financials"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.numbers.popularity",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Provider popularity signals retain provider-specific meaning and are not mislabeled as ratings.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.popularity"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.ratings.all_sources",
+      "kind": "movie",
+      "category": "fact",
+      "description": "TMDB, IMDb, Rotten Tomatoes, and Metacritic ratings retain raw scale, value, and vote count.",
+      "providers": ["tmdb", "omdb"],
+      "projection": {"document": "detail", "path": "data.ratings"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603", "imdb": "tt0133093"}, "expected_providers": ["tmdb", "omdb"]}]
+    },
+    {
+      "id": "movie.relationships.studios",
+      "kind": "movie",
+      "category": "relationship",
+      "description": "Production-company relationships include ordering, provider identity, artwork, and provenance where available.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.studios"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.relationships.cast",
+      "kind": "movie",
+      "category": "relationship",
+      "description": "Ordered cast credits point to canonical people when resolved and never merge people by name alone.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.credits.cast"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.relationships.crew",
+      "kind": "movie",
+      "category": "relationship",
+      "description": "Crew credits retain person, department, job, ordering, and provenance.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.credits.crew"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.relationships.collection",
+      "kind": "movie",
+      "category": "relationship",
+      "description": "Franchise collection identity, overview, artwork, and ordered member movies are reachable.",
+      "providers": ["tmdb"],
+      "projection": {"document": "detail", "path": "data.collection"},
+      "references": [{"name": "The Lord of the Rings: The Fellowship of the Ring", "external_ids": {"tmdb": "120", "imdb": "tt0120737"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.relationships.recommendations",
+      "kind": "movie",
+      "category": "relationship",
+      "description": "Recommendations resolve to canonical entities when possible and retain unresolved provider targets otherwise.",
+      "providers": ["tmdb"],
+      "projection": {"document": "detail", "path": "data.recommendations"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.links.homepage",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Official homepage links retain source and observation provenance.",
+      "providers": ["tmdb", "tvdb"],
+      "projection": {"document": "detail", "path": "data.links"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.links.videos",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Trailers, teasers, clips, and featurettes retain host key, locale, official flag, date, type, and source.",
+      "providers": ["tmdb", "youtube"],
+      "projection": {"document": "detail", "path": "data.videos"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
+    },
+    {
+      "id": "movie.artwork.candidates",
+      "kind": "movie",
+      "category": "fact",
+      "description": "Poster, backdrop, logo, banner, clear-art, thumbnail, and disc-art candidates retain locale, dimensions, scores, and source.",
+      "providers": ["tmdb", "tvdb", "fanart"],
+      "projection": {"document": "detail", "path": "data.images"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb", "fanart"]}]
+    },
+    {
+      "id": "movie.artwork.opaque_ids",
+      "kind": "movie",
+      "category": "capability",
+      "description": "Every image candidate receives an opaque image ID before lazy materialization; upstream URLs are never public proxy inputs.",
+      "providers": ["system"],
+      "projection": {"document": "detail", "path": "data.images[].id"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "movie.provenance.field_scopes",
+      "kind": "movie",
+      "category": "capability",
+      "description": "Selected facts and relationships expose winning normalized records at documented logical scopes.",
+      "providers": ["system"],
+      "projection": {"document": "detail", "path": "provenance"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "movie.freshness.provider_state",
+      "kind": "movie",
+      "category": "capability",
+      "description": "Per-provider success, failure, last observation, staleness, and refresh state are visible without exposing raw payloads.",
+      "providers": ["system"],
+      "projection": {"document": "detail", "path": "freshness.providers"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "movie.api.resolve_external_id",
+      "kind": "movie",
+      "category": "capability",
+      "description": "A normalized TMDB, IMDb, or TVDB claim resolves to one opaque movie ID or an explicit conflict.",
+      "providers": ["system"],
+      "projection": {"document": "resolve", "path": "entity_id"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603", "imdb": "tt0133093"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "movie.api.missing_job_response",
+      "kind": "movie",
+      "category": "capability",
+      "description": "A missing movie uses bounded waiting and otherwise returns a typed 202 job resource with durable status.",
+      "providers": ["system"],
+      "projection": {"document": "job", "path": "status"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "movie.search.names_filters",
+      "kind": "movie",
+      "category": "capability",
+      "description": "Exact, prefix, alias, localized, external-ID, and trigram search support movie filters and stable-ID round trips.",
+      "providers": ["system"],
+      "projection": {"document": "search", "path": "results"},
+      "references": [{"name": "Spirited Away", "external_ids": {"tmdb": "129", "imdb": "tt0245429"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "movie.change_feed.public_projection",
+      "kind": "movie",
+      "category": "capability",
+      "description": "A committed public movie projection change becomes observable through a gap-free durable cursor.",
+      "providers": ["system"],
+      "projection": {"document": "change", "path": "sequence"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "movie.failure.partial_providers",
+      "kind": "movie",
+      "category": "capability",
+      "description": "Secondary-provider failure preserves usable canonical metadata and records retryable provider state.",
+      "providers": ["system", "tmdb", "tvdb", "omdb", "fanart"],
+      "projection": {"document": "detail", "path": "freshness.providers"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["system"]}]
+    }
+  ]
+}
