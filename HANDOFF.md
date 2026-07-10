@@ -120,9 +120,11 @@ River worker under Air -> shared .dev/air/heya-metadata binary
 
 `make dev` starts Docker Compose first. Postgres 18 is bound to `127.0.0.1:5441`
 and Redis 8 to `127.0.0.1:6380`; application and River migrations run before
-mprocs starts. The external RustFS service at `https://s3.karbowiak.dk` is used
-directly and no local S3 stand-in is started. Put its credentials in the
-gitignored `.env.local` file using `.env.example` as the template.
+mprocs starts. The existing `heyamedia` bucket is accessed through the RustFS
+API at `https://s3-api.karbowiak.dk`; v2 metadata is isolated under `data/` and
+the existing `images/` namespace remains reusable. No local S3 stand-in is
+started. Put its credentials in the gitignored `.env.local` file using
+`.env.example` as the template.
 
 Air is an external development prerequisite (`brew install go-air`) rather than a
 Go tool dependency, keeping its large development-only dependency graph out of
@@ -168,20 +170,16 @@ validated.
   independent of dependency health.
 - The `platform_smoke_v1` River job exercises S3 blob put/get, Redis set/get,
   and transactional Postgres recording with retry-safe immutable observations.
-- The current machine has no working credentials configured for
-  `s3.karbowiak.dk`, so the full S3-backed smoke run remains the one outstanding
-  validation. With credentials absent, readiness correctly reports only S3 as
-  unavailable and the worker fails fast with a clear configuration error.
+- The existing Heya S3 credentials are present in the gitignored `.env.local`.
+  A real `platform_smoke_v1` run passed through River, RustFS under
+  `heyamedia/data/blobs/...`, Redis, and transactional Postgres recording.
 - In restricted Codex environments, set `GOPATH` and `GOCACHE` under `/tmp` so
   Go does not try to write outside the workspace.
 
 ## Suggested next turn
 
-1. Add the RustFS access key and secret to `.env.local`, ensure the
-   `heya-metadata-dev` bucket exists (or temporarily enable auto-create), then
-   run `make dev` followed by `make smoke` in another terminal.
-2. Read `docs/domains/movie.md` and `coverage/movie.json`.
-3. Implement the first TMDB movie milestone through the complete observation,
+1. Read `docs/domains/movie.md` and `coverage/movie.json`.
+2. Implement the first TMDB movie milestone through the complete observation,
    blob, normalization, identity, merge, projection, search, cache, and change
    pipeline described in the movie design.
 

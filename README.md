@@ -25,8 +25,9 @@ make dev
 
 `make dev` starts the local Postgres and Redis containers, applies application
 and River migrations, builds the shared Go binary, and then opens mprocs. S3 is
-the existing RustFS service at `https://s3.karbowiak.dk`; it is deliberately not
-emulated by another local container.
+the existing `heyamedia` bucket through `https://s3-api.karbowiak.dk`; v2's
+metadata lives under `data/` while the existing `images/` keys remain reusable.
+It is deliberately not emulated by another local container.
 
 Open <http://127.0.0.1:3030>. The development stack has one stable public
 origin and two private hot-reloading services:

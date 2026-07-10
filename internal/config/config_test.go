@@ -40,9 +40,10 @@ func validConfig() Config {
 		DatabaseURL: "postgres://heya_metadata:password@127.0.0.1:5441/heya_metadata",
 		RedisURL:    "redis://127.0.0.1:6380/0",
 		S3: S3Config{
-			Endpoint: "https://s3.karbowiak.dk",
-			Region:   "auto",
-			Bucket:   "heya-metadata-dev",
+			Endpoint: "https://s3-api.karbowiak.dk",
+			Region:   "us-east-1",
+			Bucket:   "heyamedia",
+			Prefix:   "data",
 		},
 	}
 }

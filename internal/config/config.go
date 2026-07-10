@@ -23,6 +23,7 @@ type S3Config struct {
 	Endpoint         string
 	Region           string
 	Bucket           string
+	Prefix           string
 	AccessKeyID      string
 	SecretAccessKey  string
 	PathStyle        bool
@@ -66,9 +67,10 @@ func Load() (Config, error) {
 		DatabaseURL: env("HEYA_METADATA_DATABASE_URL", "postgres://heya_metadata:heya_metadata_dev@127.0.0.1:5441/heya_metadata?sslmode=disable"),
 		RedisURL:    env("HEYA_METADATA_REDIS_URL", "redis://127.0.0.1:6380/0"),
 		S3: S3Config{
-			Endpoint:         env("HEYA_METADATA_S3_ENDPOINT", "https://s3.karbowiak.dk"),
-			Region:           env("HEYA_METADATA_S3_REGION", "auto"),
-			Bucket:           env("HEYA_METADATA_S3_BUCKET", "heya-metadata-dev"),
+			Endpoint:         env("HEYA_METADATA_S3_ENDPOINT", "https://s3-api.karbowiak.dk"),
+			Region:           env("HEYA_METADATA_S3_REGION", "us-east-1"),
+			Bucket:           env("HEYA_METADATA_S3_BUCKET", "heyamedia"),
+			Prefix:           env("HEYA_METADATA_S3_PREFIX", "data"),
 			AccessKeyID:      env("HEYA_METADATA_S3_ACCESS_KEY_ID", ""),
 			SecretAccessKey:  env("HEYA_METADATA_S3_SECRET_ACCESS_KEY", ""),
 			PathStyle:        pathStyle,
@@ -130,8 +132,8 @@ func (c Config) Validate() error {
 	if err != nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Host == "" {
 		return fmt.Errorf("HEYA_METADATA_S3_ENDPOINT must be an absolute HTTP(S) URL")
 	}
-	if c.S3.Region == "" || c.S3.Bucket == "" {
-		return fmt.Errorf("HEYA_METADATA_S3_REGION and HEYA_METADATA_S3_BUCKET are required")
+	if c.S3.Region == "" || c.S3.Bucket == "" || c.S3.Prefix == "" {
+		return fmt.Errorf("HEYA_METADATA_S3_REGION, HEYA_METADATA_S3_BUCKET, and HEYA_METADATA_S3_PREFIX are required")
 	}
 	if (c.S3.AccessKeyID == "") != (c.S3.SecretAccessKey == "") {
 		return fmt.Errorf("HEYA_METADATA_S3_ACCESS_KEY_ID and HEYA_METADATA_S3_SECRET_ACCESS_KEY must be set together")

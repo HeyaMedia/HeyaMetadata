@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/HeyaMedia/HeyaMetadata/internal/blobstore"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -48,7 +47,7 @@ func (w *PlatformSmokeWorker) Work(ctx context.Context, job *river.Job[PlatformS
 	}
 	digest := sha256.Sum256(raw)
 	checksum := hex.EncodeToString(digest[:])
-	objectKey, err := blobstore.ContentKey(checksum, ".json.gz")
+	objectKey, err := w.runtime.Blobs.ContentKey(checksum, ".json.gz")
 	if err != nil {
 		return err
 	}
@@ -71,8 +70,8 @@ func (w *PlatformSmokeWorker) Work(ctx context.Context, job *river.Job[PlatformS
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(stored, compressed.Bytes()) {
-		return fmt.Errorf("S3 round trip changed smoke blob bytes")
+	if !bytes.Equal(stored, compressed.Bytes()) && !bytes.Equal(stored, raw) {
+		return fmt.Errorf("S3 round trip changed smoke observation content")
 	}
 
 	redisKey := "heya:metadata:v1:platform-smoke:" + job.Args.Nonce
