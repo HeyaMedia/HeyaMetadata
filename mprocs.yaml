@@ -2,6 +2,7 @@
 #
 #   http://127.0.0.1:3030  stable dev proxy (open this in the browser)
 #   http://127.0.0.1:3031  Go API, rebuilt and restarted by Air
+#   worker                 separate River worker, restarted from API builds
 #   http://127.0.0.1:3032  Nuxt/Vite with HMR
 #
 # The proxy routes /api and /api/* to Go and everything else, including the
@@ -12,5 +13,7 @@ procs:
     shell: "make dev-front"
   api:
     shell: "make dev-go"
+  worker:
+    shell: "make dev-worker"
   web:
     shell: "make dev-web"

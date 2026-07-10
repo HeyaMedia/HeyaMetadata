@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,14 +26,44 @@ func TestHealthEndpoints(t *testing.T) {
 				t.Fatalf("status: got %d, want %d", response.Code, http.StatusOK)
 			}
 
-			var body Health
-			if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
-				t.Fatalf("decode response: %v", err)
-			}
-			if body.Status != "ok" || body.Service != "heya-metadata" || body.Version != "v0.0.1-test" {
-				t.Fatalf("unexpected body: %+v", body)
+			if path == "/api/v2/health/live" {
+				var body Health
+				if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+					t.Fatalf("decode response: %v", err)
+				}
+				if body.Status != "ok" || body.Service != "heya-metadata" || body.Version != "v0.0.1-test" {
+					t.Fatalf("unexpected body: %+v", body)
+				}
 			}
 		})
+	}
+}
+
+type readinessCheckerFunc func(context.Context) map[string]error
+
+func (function readinessCheckerFunc) Check(ctx context.Context) map[string]error {
+	return function(ctx)
+}
+
+func TestReadinessReportsDependencyFailure(t *testing.T) {
+	t.Parallel()
+
+	checker := readinessCheckerFunc(func(context.Context) map[string]error {
+		return map[string]error{"postgres": nil, "redis": fmt.Errorf("offline")}
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/v2/health/ready", nil)
+	response := httptest.NewRecorder()
+	NewWithReadiness("test", checker).Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: got %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+	var body Readiness
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "not_ready" || body.Dependencies["redis"].Status != "unavailable" {
+		t.Fatalf("unexpected readiness body: %+v", body)
 	}
 }
 

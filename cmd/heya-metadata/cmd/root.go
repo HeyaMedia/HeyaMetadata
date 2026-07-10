@@ -31,6 +31,9 @@ var rootCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 		ui.Init(jsonOutput, noColor)
 
+		if err := config.LoadEnvFiles(); err != nil {
+			return err
+		}
 		loaded, err := config.Load()
 		if err != nil {
 			return err
@@ -67,6 +70,9 @@ func init() {
 
 	rootCmd.AddCommand(newServeCommand())
 	rootCmd.AddCommand(newDevProxyCommand())
+	rootCmd.AddCommand(newMigrateCommand())
+	rootCmd.AddCommand(newWorkerCommand())
+	rootCmd.AddCommand(newSmokeCommand())
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newOpenAPICommand())
 }

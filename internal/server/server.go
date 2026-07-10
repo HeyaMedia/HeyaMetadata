@@ -18,6 +18,10 @@ type Server struct {
 }
 
 func New(version string) *Server {
+	return NewWithReadiness(version, nil)
+}
+
+func NewWithReadiness(version string, checker ReadinessChecker) *Server {
 	mux := http.NewServeMux()
 	config := huma.DefaultConfig("Heya Metadata API", apiVersion)
 	config.Info.Description = "Canonical, provenance-aware metadata for Heya media servers."
@@ -27,7 +31,7 @@ func New(version string) *Server {
 	config.DocsRenderer = huma.DocsRendererScalar
 
 	api := humago.New(mux, config)
-	registerHealth(api, version)
+	registerHealth(api, version, checker)
 
 	return &Server{handler: mux, api: api}
 }

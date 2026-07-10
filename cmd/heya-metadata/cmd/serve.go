@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/buildinfo"
+	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/server"
 	"github.com/spf13/cobra"
 )
@@ -38,7 +39,13 @@ func newServeCommand() *cobra.Command {
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
-			application := server.New(buildinfo.Version)
+			runtime, err := platform.Open(ctx, cfg)
+			if err != nil {
+				return err
+			}
+			defer runtime.Close()
+
+			application := server.NewWithReadiness(buildinfo.Version, runtime)
 			httpServer := &http.Server{
 				Addr:              cfg.Address(),
 				Handler:           application.Handler(),

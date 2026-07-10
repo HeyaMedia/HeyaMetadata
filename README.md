@@ -9,7 +9,7 @@ the [movie vertical slice](./docs/domains/movie.md), backed by the executable
 
 ## Development
 
-Requires Go 1.26.4 or newer, Bun,
+Requires Go 1.26.4 or newer, Bun, Docker,
 [mprocs](https://github.com/pvolok/mprocs), and
 [Air](https://github.com/air-verse/air). On macOS:
 
@@ -18,8 +18,15 @@ brew install mprocs go-air
 ```
 
 ```bash
+cp .env.example .env.local
+# Add the RustFS access key and secret to .env.local.
 make dev
 ```
+
+`make dev` starts the local Postgres and Redis containers, applies application
+and River migrations, builds the shared Go binary, and then opens mprocs. S3 is
+the existing RustFS service at `https://s3.karbowiak.dk`; it is deliberately not
+emulated by another local container.
 
 Open <http://127.0.0.1:3030>. The development stack has one stable public
 origin and two private hot-reloading services:
@@ -28,6 +35,7 @@ origin and two private hot-reloading services:
 | --- | --- | --- |
 | `3030` | `heya-metadata dev-proxy` | Stable browser-facing proxy |
 | `3031` | Go API under Air | Rebuilds and restarts on Go changes |
+| — | River worker under Air | Restarts from the same rebuilt Go binary |
 | `3032` | Nuxt/Vite | Frontend HMR |
 
 The proxy sends `/api` and `/api/*` to Go and everything else to Nuxt. It stays
@@ -50,11 +58,36 @@ Run individual processes in separate terminals when needed:
 ```bash
 make dev-front
 make dev-go
+make dev-worker
 make dev-web
 ```
 
 `make dev` checks ports `3030`–`3032` and refuses to kill an existing
 listener. Stop the reported process before retrying.
+
+### Platform services
+
+Postgres listens on `127.0.0.1:5441` and Redis on `127.0.0.1:6380`. Their data
+is retained in named Docker volumes. Common commands are:
+
+```bash
+make infra-up       # start Postgres/Redis and apply all migrations
+make infra-status
+make migrate-status
+make worker         # run the River worker without Air
+make smoke          # verify River + Postgres + Redis + S3 end to end
+make infra-down
+```
+
+The smoke command enqueues a real River job and waits for the separate worker.
+It writes an immutable, gzip-compressed, content-addressed observation to S3,
+round-trips a temporary Redis value, and records the observation and completion
+atomically in Postgres.
+
+The API's liveness endpoint only reports whether the process is alive.
+Readiness probes Postgres, Redis, and S3 concurrently and returns `503` if any
+dependency is unavailable. Dependency error details stay in debug logs rather
+than the public response.
 
 ### Development cache
 
@@ -94,7 +127,13 @@ Useful commands:
 ```bash
 go run ./cmd/heya-metadata version
 go run ./cmd/heya-metadata openapi-spec --format yaml
+go run ./cmd/heya-metadata migrate up
+go run ./cmd/heya-metadata migrate status
+go run ./cmd/heya-metadata worker
+go run ./cmd/heya-metadata smoke
 go test ./...
 ```
 
-Configuration is read from environment variables. See [`.env.example`](./.env.example).
+Configuration is read from process environment variables after `.env.local`
+and `.env` are loaded; process variables always win. See
+[`.env.example`](./.env.example). Never commit the S3 credentials.

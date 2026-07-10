@@ -46,8 +46,8 @@ clean-slate revision was approved by both.
 ## Current filesystem state
 
 The repository is initialized on `main`. The initial CLI/server scaffold is a
-passing baseline, the first domain-design milestone is present, and the local
-development process topology is established.
+passing baseline, the first domain-design milestone is present, and the core
+platform foundation is implemented and locally validated.
 
 Created files:
 
@@ -78,7 +78,15 @@ coverage/README.md
 docs/domains/movie.md
 AGENTS.md
 .air.toml
+.air.worker.toml
+compose.yaml
 mprocs.yaml
+internal/blobstore/s3.go
+internal/jobs/client.go
+internal/jobs/smoke.go
+internal/migrations/migrations.go
+internal/migrations/sql/0001_platform.sql
+internal/platform/runtime.go
 internal/devproxy/proxy.go
 web/package.json
 web/nuxt.config.ts
@@ -87,13 +95,17 @@ tools/dev/check-ports.sh
 tools/dev/prune-go-cache.sh
 ```
 
-The intended initial command surface is:
+The current command surface is:
 
 ```text
 heya-metadata
 heya-metadata serve
 heya-metadata version
 heya-metadata openapi-spec
+heya-metadata migrate up
+heya-metadata migrate status
+heya-metadata worker
+heya-metadata smoke
 ```
 
 `heya-metadata dev-proxy` is a hidden development command used by `make dev`.
@@ -102,7 +114,15 @@ The development topology is:
 ```text
 :3030 stable dev proxy -> /api* -> :3031 Go API under Air
                        -> /*    -> :3032 Nuxt/Vite
+
+River worker under Air -> shared .dev/air/heya-metadata binary
 ```
+
+`make dev` starts Docker Compose first. Postgres 18 is bound to `127.0.0.1:5441`
+and Redis 8 to `127.0.0.1:6380`; application and River migrations run before
+mprocs starts. The external RustFS service at `https://s3.karbowiak.dk` is used
+directly and no local S3 stand-in is started. Put its credentials in the
+gitignored `.env.local` file using `.env.example` as the template.
 
 Air is an external development prerequisite (`brew install go-air`) rather than a
 Go tool dependency, keeping its large development-only dependency graph out of
@@ -134,19 +154,34 @@ validated.
   API shape was copied into v2.
 - The API docs use Scalar rather than Stoplight Elements.
 - `make dev` supervises the proxy, Air backend, and basic Nuxt 4 frontend with
-  mprocs. The frontend is intentionally a placeholder.
+  mprocs. It also supervises a separate River worker which restarts from the
+  same binary that API Air rebuilds. The frontend is intentionally a placeholder.
+- Docker Compose starts healthy PostgreSQL 18 and Redis 8 services with
+  persistent named volumes. PostgreSQL 18's volume is correctly rooted at
+  `/var/lib/postgresql`.
+- Embedded application migrations enable `pg_trgm` and `unaccent`, establish
+  immutable content-addressed blobs and provider observations, and include a
+  platform smoke ledger. River owns and applies its own schema migrations.
+- Running migrations twice is verified: the second run applies zero application
+  and zero River migrations.
+- Readiness probes Postgres, Redis, and S3 concurrently. Liveness remains
+  independent of dependency health.
+- The `platform_smoke_v1` River job exercises S3 blob put/get, Redis set/get,
+  and transactional Postgres recording with retry-safe immutable observations.
+- The current machine has no working credentials configured for
+  `s3.karbowiak.dk`, so the full S3-backed smoke run remains the one outstanding
+  validation. With credentials absent, readiness correctly reports only S3 as
+  unavailable and the worker fails fast with a clear configuration error.
 - In restricted Codex environments, set `GOPATH` and `GOCACHE` under `/tmp` so
   Go does not try to write outside the workspace.
 
 ## Suggested next turn
 
-1. Read this handoff and the architecture document.
+1. Add the RustFS access key and secret to `.env.local`, ensure the
+   `heya-metadata-dev` bucket exists (or temporarily enable auto-create), then
+   run `make dev` followed by `make smoke` in another terminal.
 2. Read `docs/domains/movie.md` and `coverage/movie.json`.
-3. Add local development infrastructure for Postgres, Redis, and an
-   S3-compatible RustFS stand-in, keeping API and worker processes separate.
-4. Establish migrations, required Postgres extensions, River, dependency-aware
-   readiness, and configuration validation.
-5. Implement the first TMDB movie milestone through the complete observation,
+3. Implement the first TMDB movie milestone through the complete observation,
    blob, normalization, identity, merge, projection, search, cache, and change
    pipeline described in the movie design.
 

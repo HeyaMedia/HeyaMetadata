@@ -3,7 +3,7 @@ GO_MODCACHE_DIR ?= $(CURDIR)/.cache/go-mod
 GO_CACHE_MAX_MB ?= 512
 GO := GOCACHE=$(GO_CACHE_DIR) GOMODCACHE=$(GO_MODCACHE_DIR) go
 
-.PHONY: build fmt test dev dev-front dev-go dev-web air-build web-install dev-cache-status dev-clean
+.PHONY: build fmt test infra-start infra-up infra-down infra-status migrate migrate-status worker smoke dev dev-front dev-go dev-worker dev-web air-build web-install dev-cache-status dev-clean
 
 build:
 	$(GO) build ./...
@@ -13,6 +13,30 @@ fmt:
 
 test:
 	$(GO) test ./...
+
+infra-start:
+	docker compose up -d --wait
+
+infra-up: infra-start
+	$(MAKE) migrate
+
+infra-down:
+	docker compose down
+
+infra-status:
+	docker compose ps
+
+migrate:
+	$(GO) run ./cmd/heya-metadata migrate up
+
+migrate-status:
+	$(GO) run ./cmd/heya-metadata migrate status
+
+worker:
+	$(GO) run ./cmd/heya-metadata worker
+
+smoke:
+	$(GO) run ./cmd/heya-metadata smoke
 
 # Stable public proxy :3030 + Air-managed Go API :3031 + Nuxt/Vite :3032.
 # Unlike the old Heya preflight, this refuses to kill an unrelated listener.
@@ -25,6 +49,8 @@ dev:
 	@tools/dev/check-ports.sh 3030 3031 3032
 	@test -d web/node_modules || $(MAKE) web-install
 	@mkdir -p .dev/bin .dev/air $(GO_CACHE_DIR) $(GO_MODCACHE_DIR)
+	@$(MAKE) infra-up
+	@$(MAKE) air-build
 	mprocs
 
 dev-front:
@@ -35,6 +61,10 @@ dev-front:
 dev-go:
 	@mkdir -p .dev/air $(GO_CACHE_DIR) $(GO_MODCACHE_DIR)
 	GOCACHE=$(GO_CACHE_DIR) GOMODCACHE=$(GO_MODCACHE_DIR) air
+
+dev-worker:
+	@mkdir -p .dev/air $(GO_CACHE_DIR) $(GO_MODCACHE_DIR)
+	GOCACHE=$(GO_CACHE_DIR) GOMODCACHE=$(GO_MODCACHE_DIR) air -c .air.worker.toml
 
 dev-web:
 	@ulimit -n 65536; cd web && bun run dev

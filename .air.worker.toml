@@ -1,0 +1,25 @@
+root = ".dev/air"
+tmp_dir = ".worker"
+
+[build]
+  # The API Air process owns compilation. This watcher only restarts the
+  # separate worker process when that one shared binary is atomically replaced.
+  cmd = "/usr/bin/true"
+  entrypoint = ["./heya-metadata", "worker"]
+  include_file = ["heya-metadata"]
+  include_ext = ["*"]
+  exclude_dir = [".worker"]
+  delay = 250
+  send_interrupt = true
+  kill_delay = 2000
+  stop_on_error = true
+
+[log]
+  time = false
+
+[misc]
+  clean_on_exit = true
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true
