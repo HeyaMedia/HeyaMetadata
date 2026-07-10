@@ -50,3 +50,22 @@ func TestOpenAPIDocumentContainsHealthRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestDocsUseScalar(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/docs", nil)
+	response := httptest.NewRecorder()
+	New("test").Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d", response.Code, http.StatusOK)
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, "@scalar/api-reference") {
+		t.Error("documentation page does not load Scalar")
+	}
+	if strings.Contains(body, "@stoplight/elements") {
+		t.Error("documentation page still loads Stoplight Elements")
+	}
+}

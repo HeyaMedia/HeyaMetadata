@@ -1,0 +1,29 @@
+root = "."
+tmp_dir = ".dev/air"
+
+[build]
+  # Always overwrite one path. While Go atomically replaces it, the running
+  # process can keep the previous inode open; Air never accumulates timestamped
+  # binaries from older rebuilds.
+  cmd = "make air-build"
+  entrypoint = ["./.dev/air/heya-metadata", "serve", "--host", "127.0.0.1", "--port", "3031"]
+  delay = 750
+  exclude_dir = [".cache", ".dev", ".git", "bin", "node_modules", "web"]
+  exclude_regex = ["_test\\.go$"]
+  exclude_unchanged = true
+  include_ext = ["go", "json"]
+  kill_delay = 2000
+  send_interrupt = true
+  stop_on_error = true
+
+[log]
+  time = false
+
+[misc]
+  # Only .dev/air is removed. The independently running proxy binary lives in
+  # .dev/bin, so Air cannot tear down the stable front door by accident.
+  clean_on_exit = true
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true

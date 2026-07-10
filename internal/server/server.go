@@ -24,6 +24,7 @@ func New(version string) *Server {
 	config.Servers = []*huma.Server{{URL: "http://localhost:3030", Description: "Local development"}}
 	config.OpenAPIPath = "/api/openapi"
 	config.DocsPath = "/api/docs"
+	config.DocsRenderer = huma.DocsRendererScalar
 
 	api := humago.New(mux, config)
 	registerHealth(api, version)

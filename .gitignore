@@ -1,4 +1,6 @@
 /bin/
+/.cache/
+/.dev/
 /.env
 /.env.local
 *.log

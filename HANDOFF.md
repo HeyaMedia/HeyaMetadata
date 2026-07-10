@@ -46,7 +46,8 @@ clean-slate revision was approved by both.
 ## Current filesystem state
 
 The repository is initialized on `main`. The initial CLI/server scaffold is a
-passing baseline, and the first domain-design milestone is present.
+passing baseline, the first domain-design milestone is present, and the local
+development process topology is established.
 
 Created files:
 
@@ -76,6 +77,14 @@ coverage/movie.json
 coverage/README.md
 docs/domains/movie.md
 AGENTS.md
+.air.toml
+mprocs.yaml
+internal/devproxy/proxy.go
+web/package.json
+web/nuxt.config.ts
+web/app/app.vue
+tools/dev/check-ports.sh
+tools/dev/prune-go-cache.sh
 ```
 
 The intended initial command surface is:
@@ -86,6 +95,21 @@ heya-metadata serve
 heya-metadata version
 heya-metadata openapi-spec
 ```
+
+`heya-metadata dev-proxy` is a hidden development command used by `make dev`.
+The development topology is:
+
+```text
+:3030 stable dev proxy -> /api* -> :3031 Go API under Air
+                       -> /*    -> :3032 Nuxt/Vite
+```
+
+Air is an external development prerequisite (`brew install go-air`) rather than a
+Go tool dependency, keeping its large development-only dependency graph out of
+the application module. It overwrites one binary path under `.dev/air`. Go's
+project-local build cache lives under `.cache/go-build` and is cleared after a
+successful Air build when it exceeds 512 MiB by default. The module download
+cache is separate under `.cache/go-mod`.
 
 The scaffold currently assumes:
 
@@ -108,6 +132,9 @@ validated.
   `go test ./...`.
 - The legacy movie path was inspected for semantic coverage. No legacy code or
   API shape was copied into v2.
+- The API docs use Scalar rather than Stoplight Elements.
+- `make dev` supervises the proxy, Air backend, and basic Nuxt 4 frontend with
+  mprocs. The frontend is intentionally a placeholder.
 - In restricted Codex environments, set `GOPATH` and `GOCACHE` under `/tmp` so
   Go does not try to write outside the workspace.
 

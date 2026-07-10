@@ -1,0 +1,16 @@
+{
+  "name": "heya-metadata-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --host 127.0.0.1 --port 3032",
+    "build": "nuxt build",
+    "preview": "nuxt preview --host 127.0.0.1 --port 3032",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "nuxt": "^4.4.8",
+    "vue": "^3.5.30",
+    "vue-router": "^4.6.4"
+  }
+}

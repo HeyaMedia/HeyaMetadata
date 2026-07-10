@@ -66,6 +66,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&logFormat, "log-format", "", "Log format: text or json")
 
 	rootCmd.AddCommand(newServeCommand())
+	rootCmd.AddCommand(newDevProxyCommand())
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newOpenAPICommand())
 }
