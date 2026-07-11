@@ -39,3 +39,14 @@ func TestLogicalNotFoundUsesShortNegativeReuse(t *testing.T) {
 		t.Fatalf("reuse: %+v", payload.ReuseDurationOverride)
 	}
 }
+
+func TestAlbumLookupUsesReleaseNotReleaseGroupMBID(t *testing.T) {
+	capability := New(config.LastFMConfig{}).Capability()
+	accepted := map[string]bool{}
+	for _, identifier := range capability.AcceptedIdentifiers {
+		accepted[identifier.Namespace] = true
+	}
+	if !accepted["release"] || accepted["release_group"] {
+		t.Fatalf("accepted identifiers: %+v", capability.AcceptedIdentifiers)
+	}
+}

@@ -17,9 +17,9 @@ import (
 
 var mbidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 var methods = map[string]string{
-	"artist":        "artist.getInfo",
-	"release_group": "album.getInfo",
-	"recording":     "track.getInfo",
+	"artist":    "artist.getInfo",
+	"release":   "album.getInfo",
+	"recording": "track.getInfo",
 }
 
 type Client struct {
@@ -53,7 +53,7 @@ func (c *Client) Capability() providers.Capability {
 		ResponseCache: providers.ResponseCachePolicy{ReuseDuration: 12 * time.Hour, NegativeDuration: time.Hour, RedisBodyDuration: time.Hour, MaxRedisBodyBytes: 4 * 1024 * 1024},
 		AcceptedIdentifiers: []providers.Identifier{
 			{Provider: "musicbrainz", Namespace: "artist"},
-			{Provider: "musicbrainz", Namespace: "release_group"},
+			{Provider: "musicbrainz", Namespace: "release"},
 			{Provider: "musicbrainz", Namespace: "recording"},
 		},
 		Provides: []providers.Scope{
@@ -67,7 +67,7 @@ func (c *Client) Capability() providers.Capability {
 func (c *Client) Collect(ctx context.Context, identifier providers.Identifier) ([]providers.Payload, error) {
 	method := methods[identifier.Namespace]
 	if identifier.Provider != "musicbrainz" || method == "" || !mbidPattern.MatchString(identifier.Value) {
-		return nil, fmt.Errorf("Last.fm collector requires a MusicBrainz artist, release-group, or recording MBID")
+		return nil, fmt.Errorf("Last.fm collector requires a MusicBrainz artist, release, or recording MBID")
 	}
 	mbid := strings.ToLower(identifier.Value)
 	payload, err := c.call(ctx, method, url.Values{"mbid": {mbid}, "autocorrect": {"1"}}, providers.Payload{
