@@ -245,3 +245,23 @@ use the fuzzy search endpoints but remain candidate evidence. The shared gate
 matches TVMaze's documented baseline of 20 calls per 10 seconds; exact show
 data is reusable for six hours and person data for 24 hours. All embed arrays,
 external-ID kinds, and queries participate in request identity.
+
+## Wikidata and Open Opus source collection
+
+Wikidata uses the stable Linked Data `Special:EntityData` JSON interface for a
+known Q- or P-entity and `wbsearchentities` only for discovery. It does not use
+SPARQL for single-entity reads or broad API harvesting. Every real request has
+the informative contact User-Agent required by Wikimedia etiquette and shares
+a serial one-request-per-second gate. Full entity statements, qualifiers,
+references, multilingual labels/descriptions, and sitelinks remain source
+evidence. Known entities are reusable for 24 hours, search for six, and missing
+entities/searches for one.
+
+Open Opus keeps composer and musical-work identity separate. A composer
+collection records the composer object and the complete all-genres work catalog
+as separate observations; work IDs fetch their own detail. Composer search and
+the combined composer/work omnisearch are available as discovery surfaces with
+explicit offsets and the documented four-character minimum. Open Opus always
+uses HTTP 200, so `status.success` and `status.rows` determine whether evidence
+is reusable. Its public-domain classical dataset uses 24-hour detail reuse and
+six-hour discovery reuse while raw observations still expire after 48 hours.

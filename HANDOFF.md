@@ -262,6 +262,12 @@ validated.
   follows with rich show embeds, plus people and search surfaces. Live AniDB
   anime `1`, TVMaze IMDb lookup, and a 146 KB embedded show response returned
   HTTP 200. XML observations now use `.xml.gz` content keys.
+- Wikidata and Open Opus source collectors are implemented. Wikidata separates
+  stable EntityData lookups from `wbsearchentities`, sends the required contact
+  User-Agent, and serializes calls at one per second. Open Opus separates
+  composers and works, collecting complete composer catalogs plus work detail
+  and discovery. Live Q42 EntityData was 309 KB, Beethoven's Open Opus catalog
+  was 52 KB, and representative search/detail calls returned HTTP 200.
 - Raw provider bytes use prefix-scoped RustFS lifecycle expiry:
   `data/ephemeral/24h/` expires after one day and `data/ephemeral/48h/` after
   two. TMDB uses the 48-hour tier. No rule matches `images/` or permanent data.

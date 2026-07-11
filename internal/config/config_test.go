@@ -33,6 +33,8 @@ func TestConfigValidateRejectsInvalidDependencyURLs(t *testing.T) {
 		"LastFM":      func(config *Config) { config.Providers.LastFM.BaseURL = "ws.audioscrobbler.com" },
 		"AniDB":       func(config *Config) { config.Providers.AniDB.BaseURL = "https://api.anidb.net/httpapi" },
 		"TVMaze":      func(config *Config) { config.Providers.TVMaze.BaseURL = "api.tvmaze.com" },
+		"Wikidata":    func(config *Config) { config.Providers.Wikidata.BaseURL = "wikidata.org" },
+		"OpenOpus":    func(config *Config) { config.Providers.OpenOpus.BaseURL = "api.openopus.org" },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -83,6 +85,8 @@ func validConfig() Config {
 			LastFM:      LastFMConfig{BaseURL: "https://ws.audioscrobbler.com/2.0/", RequestsPerSecond: 1},
 			AniDB:       AniDBConfig{BaseURL: "http://api.anidb.net:9001/httpapi", ClientVersion: 1},
 			TVMaze:      TVMazeConfig{BaseURL: "https://api.tvmaze.com", RequestsPerSecond: 2},
+			Wikidata:    WikidataConfig{BaseURL: "https://www.wikidata.org", RequestsPerSecond: 1, UserAgent: "HeyaMetadata/test"},
+			OpenOpus:    OpenOpusConfig{BaseURL: "https://api.openopus.org", RequestsPerSecond: 2},
 		},
 	}
 }

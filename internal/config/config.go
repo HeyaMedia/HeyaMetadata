@@ -48,6 +48,19 @@ type ProvidersConfig struct {
 	LastFM      LastFMConfig
 	AniDB       AniDBConfig
 	TVMaze      TVMazeConfig
+	Wikidata    WikidataConfig
+	OpenOpus    OpenOpusConfig
+}
+
+type WikidataConfig struct {
+	BaseURL           string
+	RequestsPerSecond float64
+	UserAgent         string
+}
+
+type OpenOpusConfig struct {
+	BaseURL           string
+	RequestsPerSecond float64
 }
 
 type AniDBConfig struct {
@@ -169,6 +182,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	wikidataRate, err := envFloat("HEYA_METADATA_WIKIDATA_REQUESTS_PER_SECOND", 1)
+	if err != nil {
+		return Config{}, err
+	}
+	openOpusRate, err := envFloat("HEYA_METADATA_OPENOPUS_REQUESTS_PER_SECOND", 2)
+	if err != nil {
+		return Config{}, err
+	}
 
 	config := Config{
 		Host:        env("HEYA_METADATA_HOST", "0.0.0.0"),
@@ -219,6 +240,11 @@ func Load() (Config, error) {
 			Client: env("HEYA_METADATA_ANIDB_CLIENT", ""), ClientVersion: anidbClientVersion, BaseURL: env("HEYA_METADATA_ANIDB_BASE_URL", "http://api.anidb.net:9001/httpapi"),
 		}, TVMaze: TVMazeConfig{
 			BaseURL: env("HEYA_METADATA_TVMAZE_BASE_URL", "https://api.tvmaze.com"), RequestsPerSecond: tvMazeRate,
+		}, Wikidata: WikidataConfig{
+			BaseURL: env("HEYA_METADATA_WIKIDATA_BASE_URL", "https://www.wikidata.org"), RequestsPerSecond: wikidataRate,
+			UserAgent: env("HEYA_METADATA_WIKIDATA_USER_AGENT", "HeyaMetadata/dev (https://github.com/HeyaMedia/HeyaMetadata)"),
+		}, OpenOpus: OpenOpusConfig{
+			BaseURL: env("HEYA_METADATA_OPENOPUS_BASE_URL", "https://api.openopus.org"), RequestsPerSecond: openOpusRate,
 		}},
 	}
 	if err := config.Validate(); err != nil {
@@ -351,6 +377,26 @@ func (c Config) Validate() error {
 	}
 	if c.Providers.TVMaze.RequestsPerSecond <= 0 || c.Providers.TVMaze.RequestsPerSecond > 1000 {
 		return fmt.Errorf("HEYA_METADATA_TVMAZE_REQUESTS_PER_SECOND must be greater than 0 and at most 1000")
+	}
+	for name, rawURL := range map[string]string{
+		"HEYA_METADATA_WIKIDATA_BASE_URL": c.Providers.Wikidata.BaseURL,
+		"HEYA_METADATA_OPENOPUS_BASE_URL": c.Providers.OpenOpus.BaseURL,
+	} {
+		parsed, parseErr := url.Parse(rawURL)
+		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" {
+			return fmt.Errorf("%s must be an absolute HTTPS URL", name)
+		}
+	}
+	if strings.TrimSpace(c.Providers.Wikidata.UserAgent) == "" {
+		return fmt.Errorf("HEYA_METADATA_WIKIDATA_USER_AGENT must not be empty")
+	}
+	for name, rate := range map[string]float64{
+		"HEYA_METADATA_WIKIDATA_REQUESTS_PER_SECOND": c.Providers.Wikidata.RequestsPerSecond,
+		"HEYA_METADATA_OPENOPUS_REQUESTS_PER_SECOND": c.Providers.OpenOpus.RequestsPerSecond,
+	} {
+		if rate <= 0 || rate > 1000 {
+			return fmt.Errorf("%s must be greater than 0 and at most 1000", name)
+		}
 	}
 	return nil
 }
