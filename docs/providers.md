@@ -119,3 +119,22 @@ but before shared persistence. OMDb “movie not found” responses receive a
 one-hour negative TTL; invalid-key, quota, malformed, and other logical failures
 are recorded but never reused. This prevents one caller's bad credential from
 poisoning the credential-independent shared cache.
+
+## TVDB refinement
+
+TVDB is unlocked from the IMDb claim through its remote-ID search. The search
+and `/movies/{id}/extended` response are separate cached observations; the
+search observation is supporting evidence for the normalized TVDB movie. Empty
+remote-ID searches use a one-hour negative TTL.
+
+TVDB authentication is prepared only when a network request is actually
+required, so a provider-cache hit never performs `/login`. The official token
+is valid for one month. Server-key tokens are retained in Redis for 25 days and
+keyed by a hash of the API key; request-scoped `X-Heya-TVDB-API-Key` tokens stay
+inside the ingestion job and are not shared. A 401 invalidates a cached token.
+
+The movie normalizer preserves TVDB aliases/translations, genres/tags, release
+and certification evidence, companies, identity claims, people credits, and
+typed artwork. TVDB `score` remains a provider popularity signal and is never
+presented as a rating. Identity candidates from every successful supplemental
+record participate in conflict detection and are attached as durable claims.

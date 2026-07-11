@@ -226,6 +226,12 @@ validated.
   Tomatoes 83/100, and Metacritic 73/100. A repeat added zero observations. A
   deliberately invalid caller key on Spirited Away produced a non-reusable 401;
   the following server-key refresh fetched 200 and cleared the provider failure.
+- TVDB is implemented and integrated for movies. IMDb `tt0133093` resolved to
+  TVDB movie `169`; remote search and extended detail are separate observations.
+  The Matrix projection now includes TVDB freshness, genres, companies, credits,
+  artwork, and a durable `tvdb.movie:169` external-ID claim. TVDB login is lazy,
+  server token reuse is 25 days, and request-scoped keys are supported through
+  `X-Heya-TVDB-API-Key` without sharing their bearer token.
 - Raw provider bytes use prefix-scoped RustFS lifecycle expiry:
   `data/ephemeral/24h/` expires after one day and `data/ephemeral/48h/` after
   two. TMDB uses the 48-hour tier. No rule matches `images/` or permanent data.
@@ -242,8 +248,8 @@ validated.
 
 ## Suggested next turn
 
-1. Add TVDB and Fanart.tv one at a time through the same capability-driven
-   pipeline, expanding passing entries in `coverage/movie.json`.
+1. Add Fanart.tv through the same capability-driven pipeline, expanding passing
+   entries in `coverage/movie.json`.
 2. Generalize supplemental-provider failure reporting in the public freshness
    document before several optional providers are active at once.
 

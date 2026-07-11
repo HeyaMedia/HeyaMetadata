@@ -36,9 +36,22 @@ func (c *HTTPClient) DoGuarded(ctx context.Context, request *http.Request, paylo
 // DoClassified applies classify after a network response but before shared
 // persistence/cache policy. Cached responses were classified when fetched.
 func (c *HTTPClient) DoClassified(ctx context.Context, request *http.Request, payload Payload, guard func() error, classify func(*Payload)) (Payload, error) {
-	fetch := func() (Payload, error) {
+	prepare := func(*http.Request) error {
 		if guard != nil {
-			if err := guard(); err != nil {
+			return guard()
+		}
+		return nil
+	}
+	return c.DoPrepared(ctx, request, payload, prepare, classify)
+}
+
+// DoPrepared runs prepare only for a real network request. It supports
+// providers whose authorization header requires a separate token exchange
+// without making cache hits perform that exchange.
+func (c *HTTPClient) DoPrepared(ctx context.Context, request *http.Request, payload Payload, prepare func(*http.Request) error, classify func(*Payload)) (Payload, error) {
+	fetch := func() (Payload, error) {
+		if prepare != nil {
+			if err := prepare(request); err != nil {
 				return Payload{}, err
 			}
 		}

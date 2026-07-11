@@ -38,6 +38,12 @@ type WorkerConfig struct {
 type ProvidersConfig struct {
 	TMDB TMDBConfig
 	OMDB OMDBConfig
+	TVDB TVDBConfig
+}
+
+type TVDBConfig struct {
+	APIKey  string
+	BaseURL string
 }
 
 type OMDBConfig struct {
@@ -101,6 +107,9 @@ func Load() (Config, error) {
 		}, OMDB: OMDBConfig{
 			APIKey:  env("HEYA_METADATA_OMDB_API_KEY", ""),
 			BaseURL: env("HEYA_METADATA_OMDB_BASE_URL", "https://www.omdbapi.com/"),
+		}, TVDB: TVDBConfig{
+			APIKey:  env("HEYA_METADATA_TVDB_API_KEY", ""),
+			BaseURL: env("HEYA_METADATA_TVDB_BASE_URL", "https://api4.thetvdb.com/v4"),
 		}},
 	}
 	if err := config.Validate(); err != nil {
@@ -173,6 +182,10 @@ func (c Config) Validate() error {
 	omdbURL, err := url.Parse(c.Providers.OMDB.BaseURL)
 	if err != nil || omdbURL.Scheme != "https" || omdbURL.Host == "" {
 		return fmt.Errorf("HEYA_METADATA_OMDB_BASE_URL must be an absolute HTTPS URL")
+	}
+	tvdbURL, err := url.Parse(c.Providers.TVDB.BaseURL)
+	if err != nil || tvdbURL.Scheme != "https" || tvdbURL.Host == "" {
+		return fmt.Errorf("HEYA_METADATA_TVDB_BASE_URL must be an absolute HTTPS URL")
 	}
 	return nil
 }

@@ -190,3 +190,8 @@ a 2/7/14/30-day refresh cadence.
 OMDb is the second movie collector and accepts `X-Heya-OMDB-API-Key` through the
 same mechanism. TMDB-discovered IMDb IDs unlock OMDb plot/runtime evidence and
 independent IMDb, Rotten Tomatoes, and Metacritic rating scales.
+
+TVDB follows the same discovered-ID path through IMDb remote-ID search and
+accepts `X-Heya-TVDB-API-Key`. Its extended movie evidence contributes durable
+TVDB identity, translations, classifications, companies, credits, releases,
+certifications, and artwork.

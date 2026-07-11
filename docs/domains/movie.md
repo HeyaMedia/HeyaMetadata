@@ -219,6 +219,11 @@ Fetch only when an accepted TVDB movie claim exists. Normalize aliases, genres,
 tags, companies, remote IDs, characters/people, content ratings, and artwork.
 TVDB remote IDs are claims and must pass namespace-specific normalization.
 
+The implemented path resolves the TVDB movie from the accepted IMDb ID using
+remote-ID search, then stores the extended movie separately. Login is lazy and
+server bearer tokens are shared for 25 days; caller-key tokens remain local to
+their job. Successful raw responses use 24-hour reuse and 48-hour retention.
+
 ### Fanart.tv
 
 Fetch using an accepted TMDB movie claim. Normalize artwork candidates by

@@ -24,6 +24,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/omdb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tmdb"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -88,9 +89,15 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 	if err != nil {
 		return Result{}, err
 	}
+	tvdbCapability := tvdb.New(s.runtime.Config.Providers.TVDB).Capability()
+	tvdbResolver, err := providercache.New(s.runtime, moviedomain.TVDBNormalizerVersion, tvdbCapability.RawRetention, tvdbCapability.ResponseCache, riverJobID)
+	if err != nil {
+		return Result{}, err
+	}
 	planner := mixer.New(
 		tmdb.NewCached(s.runtime.Config.Providers.TMDB, tmdbResolver, credentials.APIKey("tmdb")),
 		omdb.NewCached(s.runtime.Config.Providers.OMDB, omdbResolver, credentials.APIKey("omdb")),
+		tvdb.NewCached(s.runtime.Config.Providers.TVDB, tvdbResolver, credentials.APIKey("tvdb"), s.runtime.Redis),
 	)
 	knownIdentifiers := []providers.Identifier{identifier}
 	completed := map[string]bool{}
@@ -132,45 +139,79 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 
 	var supplemental []moviedomain.NormalizedRecordV1
 	var omdbFailure error
+	var tvdbFailure error
 	followUp := planner.BuildAvailable(knownIdentifiers, desired, completed)
 	for _, step := range followUp.Steps {
-		if step.Collector.Capability().Provider != "omdb" {
-			continue
+		switch step.Collector.Capability().Provider {
+		case "omdb":
+			providerPayloads, collectErr := step.Collector.Collect(ctx, step.Identifier)
+			if collectErr != nil {
+				omdbFailure = collectErr
+				continue
+			}
+			providerRecorded, recordErr := s.recordPayloads(ctx, providerPayloads, moviedomain.OMDBNormalizerVersion, step.Collector.Capability(), riverJobID)
+			if recordErr != nil || len(providerRecorded) == 0 {
+				omdbFailure = firstError(recordErr, "OMDb collector returned no observations")
+				continue
+			}
+			if providerRecorded[0].Payload.StatusCode != http.StatusOK {
+				omdbFailure = &providers.StatusError{Provider: "omdb", StatusCode: providerRecorded[0].Payload.StatusCode}
+				continue
+			}
+			if message, failed := omdb.ResponseError(providerRecorded[0].Payload.Body); failed {
+				omdbFailure = fmt.Errorf("OMDb response: %s", message)
+				continue
+			}
+			normalized, normalizeErr := omdb.Normalize(providerRecorded[0].Payload.Body, providerRecorded[0].ID, providerRecorded[0].Payload.ObservedAt)
+			if normalizeErr != nil {
+				omdbFailure = normalizeErr
+				continue
+			}
+			supplemental = append(supplemental, normalized)
+			completed["omdb"] = true
+		case "tvdb":
+			providerPayloads, collectErr := step.Collector.Collect(ctx, step.Identifier)
+			if collectErr != nil {
+				tvdbFailure = collectErr
+				continue
+			}
+			providerRecorded, recordErr := s.recordPayloads(ctx, providerPayloads, moviedomain.TVDBNormalizerVersion, step.Collector.Capability(), riverJobID)
+			if recordErr != nil || len(providerRecorded) < 2 {
+				tvdbFailure = firstError(recordErr, "TVDB has no movie for the IMDb title ID")
+				continue
+			}
+			for _, observation := range providerRecorded {
+				if observation.Payload.StatusCode != http.StatusOK {
+					tvdbFailure = &providers.StatusError{Provider: "tvdb", StatusCode: observation.Payload.StatusCode}
+					break
+				}
+			}
+			if tvdbFailure != nil {
+				continue
+			}
+			detail := providerRecorded[len(providerRecorded)-1]
+			supporting := make([]string, 0, len(providerRecorded)-1)
+			for _, observation := range providerRecorded[:len(providerRecorded)-1] {
+				supporting = append(supporting, observation.ID)
+			}
+			normalized, normalizeErr := tvdb.Normalize(detail.Payload.Body, detail.ID, supporting, detail.Payload.ObservedAt)
+			if normalizeErr != nil {
+				tvdbFailure = normalizeErr
+				continue
+			}
+			supplemental = append(supplemental, normalized)
+			completed["tvdb"] = true
 		}
-		omdbPayloads, collectErr := step.Collector.Collect(ctx, step.Identifier)
-		if collectErr != nil {
-			omdbFailure = collectErr
-			break
-		}
-		omdbRecorded, recordErr := s.recordPayloads(ctx, omdbPayloads, moviedomain.OMDBNormalizerVersion, step.Collector.Capability(), riverJobID)
-		if recordErr != nil {
-			omdbFailure = recordErr
-			break
-		}
-		if len(omdbRecorded) == 0 {
-			omdbFailure = fmt.Errorf("OMDb collector returned no observations")
-			break
-		}
-		if omdbRecorded[0].Payload.StatusCode != http.StatusOK {
-			omdbFailure = &providers.StatusError{Provider: "omdb", StatusCode: omdbRecorded[0].Payload.StatusCode}
-			break
-		}
-		if message, failed := omdb.ResponseError(omdbRecorded[0].Payload.Body); failed {
-			omdbFailure = fmt.Errorf("OMDb response: %s", message)
-			break
-		}
-		normalized, normalizeErr := omdb.Normalize(omdbRecorded[0].Payload.Body, omdbRecorded[0].ID, omdbRecorded[0].Payload.ObservedAt)
-		if normalizeErr != nil {
-			omdbFailure = normalizeErr
-			break
-		}
-		supplemental = append(supplemental, normalized)
-		completed["omdb"] = true
 	}
 	if omdbFailure != nil {
 		tmdbNormalized.PartialFailure = true
 		tmdbNormalized.Warnings = append(tmdbNormalized.Warnings, "omdb: "+omdbFailure.Error())
 		slog.Warn("supplemental movie provider failed", "provider", "omdb", "tmdb_id", tmdbID, "error", omdbFailure)
+	}
+	if tvdbFailure != nil {
+		tmdbNormalized.PartialFailure = true
+		tmdbNormalized.Warnings = append(tmdbNormalized.Warnings, "tvdb: "+tvdbFailure.Error())
+		slog.Warn("supplemental movie provider failed", "provider", "tvdb", "tmdb_id", tmdbID, "error", tvdbFailure)
 	}
 
 	normalizedID, err := s.recordNormalized(ctx, tmdbNormalized)
@@ -178,14 +219,14 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 		return Result{}, err
 	}
 	additionalNormalizedIDs := make([]string, 0, len(supplemental))
-	successfulRecords := []moviedomain.ProviderRecord{tmdbNormalized.ProviderRecord}
+	successfulRecords := []moviedomain.NormalizedRecordV1{tmdbNormalized}
 	for _, normalized := range supplemental {
 		id, recordErr := s.recordNormalized(ctx, normalized)
 		if recordErr != nil {
 			return Result{}, recordErr
 		}
 		additionalNormalizedIDs = append(additionalNormalizedIDs, id)
-		successfulRecords = append(successfulRecords, normalized.ProviderRecord)
+		successfulRecords = append(successfulRecords, normalized)
 	}
 
 	result, err = s.merge(ctx, normalizedID, additionalNormalizedIDs, tmdbNormalized, successfulRecords, riverJobID)
@@ -194,6 +235,9 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 	}
 	if omdbFailure != nil {
 		s.recordProviderFailure(ctx, result.EntityID, "omdb", omdbFailure)
+	}
+	if tvdbFailure != nil {
+		s.recordProviderFailure(ctx, result.EntityID, "tvdb", tvdbFailure)
 	}
 	if err := s.cache(ctx, result); err != nil {
 		return Result{}, err
@@ -218,6 +262,13 @@ func (s *Service) recordPayloads(ctx context.Context, payloads []providers.Paylo
 		recorded = append(recorded, observation)
 	}
 	return recorded, nil
+}
+
+func firstError(err error, fallback string) error {
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("%s", fallback)
 }
 
 func (s *Service) recordNormalized(ctx context.Context, normalized moviedomain.NormalizedRecordV1) (string, error) {
@@ -247,7 +298,7 @@ func (s *Service) recordNormalized(ctx context.Context, normalized moviedomain.N
 	return id, nil
 }
 
-func (s *Service) merge(ctx context.Context, normalizedID string, additionalNormalizedIDs []string, normalized moviedomain.NormalizedRecordV1, successfulRecords []moviedomain.ProviderRecord, riverJobID int64) (Result, error) {
+func (s *Service) merge(ctx context.Context, normalizedID string, additionalNormalizedIDs []string, normalized moviedomain.NormalizedRecordV1, successfulRecords []moviedomain.NormalizedRecordV1, riverJobID int64) (Result, error) {
 	tx, err := s.runtime.DB.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return Result{}, fmt.Errorf("begin movie merge: %w", err)
@@ -255,22 +306,26 @@ func (s *Service) merge(ctx context.Context, normalizedID string, additionalNorm
 	defer tx.Rollback(ctx)
 
 	entityIDs := map[string]bool{}
-	for _, candidate := range normalized.IdentityCandidates {
-		var entityID string
-		err := tx.QueryRow(ctx, `
+	var allCandidates []moviedomain.IdentityCandidate
+	for _, successful := range successfulRecords {
+		allCandidates = append(allCandidates, successful.IdentityCandidates...)
+		for _, candidate := range successful.IdentityCandidates {
+			var entityID string
+			err := tx.QueryRow(ctx, `
             SELECT entity_id FROM external_id_claims
             WHERE entity_kind = 'movie' AND provider = $1 AND namespace = $2
               AND normalized_value = $3 AND state = 'accepted'`,
-			candidate.Provider, candidate.Namespace, candidate.NormalizedValue,
-		).Scan(&entityID)
-		if err == nil {
-			entityIDs[entityID] = true
-		} else if err != pgx.ErrNoRows {
-			return Result{}, fmt.Errorf("resolve movie identity: %w", err)
+				candidate.Provider, candidate.Namespace, candidate.NormalizedValue,
+			).Scan(&entityID)
+			if err == nil {
+				entityIDs[entityID] = true
+			} else if err != pgx.ErrNoRows {
+				return Result{}, fmt.Errorf("resolve movie identity: %w", err)
+			}
 		}
 	}
 	if len(entityIDs) > 1 {
-		claims, _ := json.Marshal(normalized.IdentityCandidates)
+		claims, _ := json.Marshal(allCandidates)
 		if _, err := tx.Exec(ctx, `INSERT INTO external_id_conflicts (entity_kind, claims, normalized_record_id) VALUES ('movie', $1, $2)`, claims, normalizedID); err != nil {
 			return Result{}, fmt.Errorf("record movie identity conflict: %w", err)
 		}
@@ -309,8 +364,9 @@ func (s *Service) merge(ctx context.Context, normalizedID string, additionalNorm
 	if err := tx.QueryRow(ctx, `SELECT slug FROM entities WHERE id = $1 FOR UPDATE`, entityID).Scan(&slug); err != nil {
 		return Result{}, fmt.Errorf("lock canonical movie: %w", err)
 	}
-	for _, candidate := range normalized.IdentityCandidates {
-		commandTag, err := tx.Exec(ctx, `
+	for _, successful := range successfulRecords {
+		for _, candidate := range successful.IdentityCandidates {
+			commandTag, err := tx.Exec(ctx, `
             INSERT INTO external_id_claims (
                 entity_id, entity_kind, provider, namespace, normalized_value,
                 state, confidence, source_observation_id, first_observed_at, last_observed_at
@@ -319,14 +375,15 @@ func (s *Service) merge(ctx context.Context, normalizedID string, additionalNorm
             DO UPDATE SET last_observed_at = EXCLUDED.last_observed_at,
                           source_observation_id = EXCLUDED.source_observation_id
             WHERE external_id_claims.entity_id = EXCLUDED.entity_id`,
-			entityID, candidate.Provider, candidate.Namespace, candidate.NormalizedValue,
-			candidate.Confidence, normalized.ProviderRecord.PrimaryObservationID, normalized.ProviderRecord.ObservedAt,
-		)
-		if err != nil {
-			return Result{}, fmt.Errorf("attach external ID claim: %w", err)
-		}
-		if commandTag.RowsAffected() == 0 {
-			return Result{}, fmt.Errorf("external ID %s.%s:%s belongs to another movie", candidate.Provider, candidate.Namespace, candidate.NormalizedValue)
+				entityID, candidate.Provider, candidate.Namespace, candidate.NormalizedValue,
+				candidate.Confidence, successful.ProviderRecord.PrimaryObservationID, successful.ProviderRecord.ObservedAt,
+			)
+			if err != nil {
+				return Result{}, fmt.Errorf("attach external ID claim: %w", err)
+			}
+			if commandTag.RowsAffected() == 0 {
+				return Result{}, fmt.Errorf("external ID %s.%s:%s belongs to another movie", candidate.Provider, candidate.Namespace, candidate.NormalizedValue)
+			}
 		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE normalized_records SET entity_id = $1 WHERE id = $2`, entityID, normalizedID); err != nil {
@@ -480,7 +537,8 @@ func (s *Service) merge(ctx context.Context, normalizedID string, additionalNorm
 			return Result{}, fmt.Errorf("write movie search name: %w", err)
 		}
 	}
-	for _, providerRecord := range successfulRecords {
+	for _, successful := range successfulRecords {
+		providerRecord := successful.ProviderRecord
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO provider_refresh_states (entity_id, provider, last_attempt_at, last_success_at, last_observation_id, current_job_id, next_eligible_at)
 			VALUES ($1, $2, now(), now(), $3, $4, $5)
