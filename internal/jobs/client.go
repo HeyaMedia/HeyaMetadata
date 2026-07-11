@@ -18,6 +18,7 @@ func Workers(runtime *platform.Runtime) *river.Workers {
 	river.AddWorker(workers, NewMovieIngestWorker(runtime))
 	river.AddWorker(workers, NewBlobRetentionWorker(runtime))
 	river.AddWorker(workers, NewRefreshSchedulerWorker(runtime))
+	river.AddWorker(workers, NewSourceCollectWorker(runtime))
 	return workers
 }
 

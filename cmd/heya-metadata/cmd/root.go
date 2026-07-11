@@ -77,6 +77,7 @@ func init() {
 	rootCmd.AddCommand(newRetentionCommand())
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newOpenAPICommand())
+	rootCmd.AddCommand(newProviderCommand())
 }
 
 func configureLogger(levelName, format string) error {

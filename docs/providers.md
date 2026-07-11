@@ -265,3 +265,20 @@ explicit offsets and the documented four-character minimum. Open Opus always
 uses HTTP 200, so `status.success` and `status.rows` determine whether evidence
 is reusable. Its public-domain classical dataset uses 24-hour detail reuse and
 six-hour discovery reuse while raw observations still expire after 48 hours.
+
+## Pre-merge source execution
+
+The `source_collect_v1` River job makes every source adapter operational before
+its canonical domain is designed. A registry constructs the provider's cached
+collector, archives each returned payload, and records a durable
+`source_collection_runs` ledger containing its observation IDs and whether each
+was fetched or reused. Jobs are unique by collector plus logical identifier;
+interactive duplicates promote existing queued work rather than multiplying
+upstream traffic.
+
+`heya-metadata provider collect` exposes this workflow for development and
+operations. The collector provider and identifier provider are separate, so a
+Last.fm collector can consume a MusicBrainz artist MBID. Optional `--api-key`
+values are stored only behind the existing two-hour Redis credential reference
+and deleted by the worker. Cache reuse points to the original observation and
+does not create synthetic evidence.

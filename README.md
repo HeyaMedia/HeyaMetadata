@@ -116,6 +116,26 @@ eligible collectors as new external IDs are discovered. Provider-specific
 normalizers feed a deterministic domain combiner; consumers receive one merged
 canonical document rather than separate provider payloads.
 
+Providers whose canonical domain merge is not implemented yet still run through
+River, the shared exact-response cache, Postgres observations, and expiring S3
+evidence. The generic collector CLI takes the collector separately from the
+identifier source, which is useful for supplemental sources such as Last.fm:
+
+```bash
+go run ./cmd/heya-metadata provider collect \
+  --provider musicbrainz --namespace artist \
+  --value b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d
+
+go run ./cmd/heya-metadata provider collect \
+  --provider lastfm --id-provider musicbrainz --namespace artist \
+  --value b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d
+```
+
+`--api-key` hands a caller token to the worker through the same short-lived,
+opaque Redis reference used by the API; plaintext never enters River or
+Postgres. Supported source collectors are `anidb`, `apple`, `deezer`, `discogs`,
+`lastfm`, `musicbrainz`, `openopus`, `tvmaze`, and `wikidata`.
+
 Raw provider bytes are written beneath lifecycle-specific prefixes. RustFS
 expires `data/ephemeral/24h/` after one day and `data/ephemeral/48h/` after two
 days; neither rule can match `images/` or permanent data. TMDB currently uses

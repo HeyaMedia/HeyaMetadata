@@ -268,6 +268,16 @@ validated.
   composers and works, collecting complete composer catalogs plus work detail
   and discovery. Live Q42 EntityData was 309 KB, Beethoven's Open Opus catalog
   was 52 KB, and representative search/detail calls returned HTTP 200.
+- All nine pre-merge source collectors are registered behind the generic
+  `source_collect_v1` River job and `heya-metadata provider collect` CLI. The
+  durable run ledger records observation IDs plus fetched/reused counts, job
+  uniqueness ignores transient credentials, and `--api-key` uses the opaque
+  Redis handoff. Live River jobs archived 11 HTTP-200 observations across
+  MusicBrainz, Apple, Deezer, Discogs, Last.fm, TVMaze, Wikidata, and Open Opus;
+  an immediate MusicBrainz repeat reused its original observation, while a new
+  Open Opus work correctly reported `recorded=1 reused=0`. AniDB was not fetched
+  a second time because its official anti-flood policy forbids repeated daily
+  requests for the same anime.
 - Raw provider bytes use prefix-scoped RustFS lifecycle expiry:
   `data/ephemeral/24h/` expires after one day and `data/ephemeral/48h/` after
   two. TMDB uses the 48-hour tier. No rule matches `images/` or permanent data.
@@ -284,11 +294,11 @@ validated.
 
 ## Suggested next turn
 
-1. Establish the provider-agnostic evidence contract for music identity and
-   release data, then add MusicBrainz as its first collector without prematurely
-   fixing canonical merge precedence.
-2. Generalize supplemental-provider execution and failure reporting before the
-   movie/series provider count grows further.
+1. Write the canonical music identity boundaries and coverage catalog together:
+   artist, release group/album, release/edition, recording, release track,
+   classical work, and provider-specific catalog objects.
+2. Build the music normalizers and mixer from the now-live retained source
+   observations, deciding identity confidence and scalar precedence explicitly.
 
 The previous repositories may be inspected for provider knowledge and metadata
 coverage, but should not be copied as architectural constraints.
