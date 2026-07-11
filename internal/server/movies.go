@@ -14,6 +14,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/movies"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
+	"github.com/HeyaMedia/HeyaMetadata/internal/releasegroups"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -41,7 +42,7 @@ type resolutionInput struct {
 	DiscogsAPIKey string `header:"X-Heya-Discogs-API-Key" doc:"Optional request-scoped Discogs token; never persisted"`
 	LastFMAPIKey  string `header:"X-Heya-LastFM-API-Key" doc:"Optional request-scoped Last.fm API key; never persisted"`
 	Body          struct {
-		Kind      string `json:"kind" enum:"movie,artist"`
+		Kind      string `json:"kind" enum:"movie,artist,release_group"`
 		Provider  string `json:"provider" example:"tmdb"`
 		Namespace string `json:"namespace" example:"movie"`
 		Value     string `json:"value" example:"603"`
@@ -114,10 +115,12 @@ type changesOutput struct {
 func registerMovies(api huma.API, runtime *platform.Runtime) {
 	var service *movies.Service
 	var artistService *artists.Service
+	var releaseGroupService *releasegroups.Service
 	var client *river.Client[pgx.Tx]
 	if runtime != nil {
 		service = movies.NewService(runtime)
 		artistService = artists.NewService(runtime)
+		releaseGroupService = releasegroups.NewService(runtime)
 		var err error
 		client, err = jobs.NewClient(runtime, runtime.Config.Worker.MaxWorkers, false)
 		if err != nil {
@@ -142,6 +145,21 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 				if mbid, claimErr := artistService.MusicBrainzID(ctx, input.ID); claimErr == nil {
 					if credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey); credentialErr == nil {
 						_, _ = jobs.InsertArtist(ctx, runtime, client, jobs.ArtistIngestArgs{MusicBrainzID: mbid, CredentialRef: credentialRef, Reason: "stale_read"}, jobs.PriorityStaleRead)
+					}
+				}
+				document.Freshness.State = "stale"
+			}
+			return &entityOutput{Body: document}, nil
+		}
+		if kind == "release_group" {
+			document, fresh, err := releaseGroupService.Detail(ctx, input.ID)
+			if err != nil {
+				return nil, err
+			}
+			if !fresh {
+				if mbid, claimErr := releaseGroupService.MusicBrainzID(ctx, input.ID); claimErr == nil {
+					if credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey); credentialErr == nil {
+						_, _ = jobs.InsertReleaseGroup(ctx, runtime, client, jobs.ReleaseGroupIngestArgs{MusicBrainzID: mbid, CredentialRef: credentialRef, Reason: "stale_read"}, jobs.PriorityStaleRead)
 					}
 				}
 				document.Freshness.State = "stale"
@@ -195,8 +213,33 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			}
 			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.ArtistIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
+		if input.Body.Kind == "release_group" {
+			entityID, err := releaseGroupService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
+			if err == nil {
+				document, _, detailErr := releaseGroupService.Detail(ctx, entityID)
+				if detailErr != nil {
+					return nil, detailErr
+				}
+				return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: document}}, nil
+			}
+			if err != releasegroups.ErrNotFound {
+				return nil, err
+			}
+			if !strings.EqualFold(input.Body.Provider, "musicbrainz") || !strings.EqualFold(input.Body.Namespace, "release_group") {
+				return nil, huma.Error404NotFound("external ID is not known and no collector accepts it")
+			}
+			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
+			if credentialErr != nil {
+				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
+			}
+			inserted, insertErr := jobs.InsertReleaseGroup(ctx, runtime, client, jobs.ReleaseGroupIngestArgs{MusicBrainzID: strings.ToLower(input.Body.Value), CredentialRef: credentialRef, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
+			if insertErr != nil {
+				return nil, insertErr
+			}
+			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.ReleaseGroupIngestKind, State: string(inserted.Job.State)}}}, nil
+		}
 		if input.Body.Kind != "movie" {
-			return nil, huma.Error400BadRequest("kind must be movie or artist")
+			return nil, huma.Error400BadRequest("kind must be movie, artist, or release_group")
 		}
 		entityID, err := service.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
 		if err == nil {
@@ -273,6 +316,21 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			}
 			return &refreshOutput{Status: http.StatusAccepted, Body: jobResource{ID: inserted.Job.ID, Kind: jobs.ArtistIngestKind, State: string(inserted.Job.State)}}, nil
 		}
+		if kind == "release_group" {
+			mbid, err := releaseGroupService.MusicBrainzID(ctx, input.ID)
+			if err != nil {
+				return nil, huma.Error404NotFound("entity has no MusicBrainz release-group claim")
+			}
+			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
+			if credentialErr != nil {
+				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
+			}
+			inserted, err := jobs.InsertReleaseGroup(ctx, runtime, client, jobs.ReleaseGroupIngestArgs{MusicBrainzID: mbid, CredentialRef: credentialRef, Reason: "manual_refresh"}, jobs.PriorityInteractive)
+			if err != nil {
+				return nil, err
+			}
+			return &refreshOutput{Status: http.StatusAccepted, Body: jobResource{ID: inserted.Job.ID, Kind: jobs.ReleaseGroupIngestKind, State: string(inserted.Job.State)}}, nil
+		}
 		tmdbID, err := service.TMDBID(ctx, input.ID)
 		if err == movies.ErrNotFound {
 			return nil, huma.Error404NotFound("entity has no TMDB movie claim")
@@ -305,6 +363,9 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		_ = runtime.DB.QueryRow(ctx, `SELECT entity_id, error FROM movie_ingestion_runs WHERE river_job_id = $1`, input.ID).Scan(&entityID, &failure)
 		if entityID == nil && failure == nil {
 			_ = runtime.DB.QueryRow(ctx, `SELECT entity_id,error FROM artist_ingestion_runs WHERE river_job_id=$1`, input.ID).Scan(&entityID, &failure)
+		}
+		if entityID == nil && failure == nil {
+			_ = runtime.DB.QueryRow(ctx, `SELECT entity_id,error FROM release_group_ingestion_runs WHERE river_job_id=$1`, input.ID).Scan(&entityID, &failure)
 		}
 		if entityID != nil {
 			resource.EntityID = *entityID

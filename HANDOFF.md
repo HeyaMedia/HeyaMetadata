@@ -321,15 +321,29 @@ image MIME signatures, and stores content-addressed originals below
 `data/images/original/`. A live Beatles Discogs candidate was materialized and
 served as an immutable JPEG through its opaque image ID.
 
+The canonical release-group slice is also live. MusicBrainz owns the initial
+work-level identity and exposes its distinct release/edition IDs. Explicit
+MusicBrainz relations unlock Wikidata and a Discogs master; Wikidata authority
+claims then unlock Apple, Deezer, and Spotify album IDs without title matching.
+Apple and Deezer catalog albums remain provider editions beneath the canonical
+work. Discogs representative tracks remain provider-scoped and are not treated
+as MusicBrainz recordings.
+
+`release_group_ingest_v1`, `heya-metadata release-group ingest`, generic API
+resolution/refresh, mixed search, adaptive refresh, provenance, and change
+sequencing are wired. A live Abbey Road run combined five fetched providers
+into seven strong IDs, 28 editions, 52 provider-scoped tracks, and nine image
+candidates without partial failure. Last.fm's contract was corrected: its
+album lookup consumes a MusicBrainz release MBID, not a release-group MBID.
+
 ## Suggested next turn
 
 1. Add service-level integration tests for identity conflict quarantine,
    provider partial failure, refresh idempotency, and artist API resolution.
 2. Add bounded derived image variants (WebP/AVIF) and class-aware original
    retention before materializing high-volume profile catalogs.
-3. Start the release-group slice using the same boundaries: MusicBrainz release
-   group as the work-level spine, then explicit Discogs master and storefront
-   album mappings. Keep release/edition and release-track separate.
+3. Start the release/edition slice and fetch complete medium/track data so
+   MusicBrainz recordings and release tracks can be modeled separately.
 
 The previous repositories may be inspected for provider knowledge and metadata
 coverage, but should not be copied as architectural constraints.

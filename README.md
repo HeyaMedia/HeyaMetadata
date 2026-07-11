@@ -81,6 +81,7 @@ make worker         # run the River worker without Air
 make smoke          # verify River + Postgres + Redis + S3 end to end
 make movie-ingest TMDB_ID=603
 make artist-ingest MUSICBRAINZ_ID=b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d
+make release-group-ingest MUSICBRAINZ_ID=9162580e-5df4-32de-80cc-f45a8d8a9b1d
 make retention-sweep
 make infra-down
 ```
@@ -201,6 +202,7 @@ go run ./cmd/heya-metadata worker
 go run ./cmd/heya-metadata smoke
 go run ./cmd/heya-metadata movie ingest --tmdb 603
 go run ./cmd/heya-metadata artist ingest --musicbrainz b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d
+go run ./cmd/heya-metadata release-group ingest --musicbrainz 9162580e-5df4-32de-80cc-f45a8d8a9b1d
 go run ./cmd/heya-metadata retention sweep
 go test ./...
 ```
