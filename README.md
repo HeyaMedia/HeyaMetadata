@@ -186,3 +186,7 @@ accept an optional `X-Heya-TMDB-API-Key`; the plaintext key is held temporarily
 in Redis and is never stored in River or Postgres. Interactive work is promoted
 above stale-on-read and adaptive background refreshes; entity demand decays into
 a 2/7/14/30-day refresh cadence.
+
+OMDb is the second movie collector and accepts `X-Heya-OMDB-API-Key` through the
+same mechanism. TMDB-discovered IMDb IDs unlock OMDb plot/runtime evidence and
+independent IMDb, Rotten Tomatoes, and Metacritic rating scales.

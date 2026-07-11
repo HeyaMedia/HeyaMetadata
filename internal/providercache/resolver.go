@@ -115,7 +115,7 @@ func (r *Resolver) Resolve(ctx context.Context, template providers.Payload, fetc
 	}
 	payload.ObservationID = recorded.ID
 	payload.BlobChecksum = recorded.Checksum
-	if duration := r.policy.DurationForStatus(payload.StatusCode); duration > 0 {
+	if duration := r.policy.DurationForPayload(payload); duration > 0 {
 		p := pointer{ObservationID: recorded.ID, Checksum: recorded.Checksum, ObjectKey: recorded.ObjectKey, StatusCode: payload.StatusCode, Headers: safeHeaders(payload.Headers), ObservedAt: payload.ObservedAt, ReusableUntil: payload.ObservedAt.Add(duration)}
 		if err := r.remember(ctx, template.Provider, fingerprint, p, payload.Body); err != nil {
 			return providers.Payload{}, err

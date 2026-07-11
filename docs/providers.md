@@ -98,3 +98,24 @@ Search result impressions do not count as accesses; a detail fetch or resolved
 entity does. Future upstream search collectors should enqueue missing entities
 at interactive priority but only record demand when a user actually fetches the
 entity. Redis counter claims are restored if the Postgres flush fails.
+
+## OMDb refinement
+
+OMDb is the first supplemental collector. TMDB runs from a `tmdb.movie`
+identifier, its normalized IMDb claim is fed back to the planner, and OMDb then
+runs from `imdb.title`. Replanning skips completed providers but starts with the
+full desired scope set, so a supplemental source can add overlapping ratings or
+descriptions instead of being suppressed because TMDB supplied that scope.
+
+OMDb accepts `X-Heya-OMDB-API-Key` through the same transient credential map and
+falls back to `HEYA_METADATA_OMDB_API_KEY`. Exact successful responses are
+reusable for 24 hours, hot bodies for one hour, and raw evidence for 48 hours.
+The shorter reuse window reflects changing IMDb, Rotten Tomatoes, and
+Metacritic ratings.
+
+Some providers encode application failure inside an HTTP 200 body. Payloads can
+therefore override status-derived reuse after provider-specific classification
+but before shared persistence. OMDb “movie not found” responses receive a
+one-hour negative TTL; invalid-key, quota, malformed, and other logical failures
+are recorded but never reused. This prevents one caller's bad credential from
+poisoning the credential-independent shared cache.

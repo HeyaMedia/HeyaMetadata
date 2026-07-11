@@ -391,6 +391,17 @@ reuse (`reusable_until`) is independent from raw-blob retention (`expires_at`).
 Because no upstream request occurred, a cache reuse does not create a synthetic
 provider observation.
 
+Provider-specific classification may override reuse when an API transports a
+logical failure inside HTTP 200. The original HTTP status and body remain the
+observation; only `reusable_until` changes. Credential, quota, and malformed
+logical failures must not enter a credential-independent shared cache.
+
+Collection planning is iterative. Newly normalized external-ID claims are fed
+back into the planner, completed collectors are skipped, and newly unlocked
+supplemental collectors receive the full desired scope set. Overlapping evidence
+is intentional: a primary source satisfying “ratings” does not suppress other
+rating systems from a second source.
+
 Serving demand influences collection scheduling without influencing canonical
 truth. Detail fetches are buffered in Redis and periodically folded into a
 durable, decaying access score. Interactive misses and explicit refreshes have

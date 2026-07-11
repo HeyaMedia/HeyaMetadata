@@ -37,6 +37,12 @@ type WorkerConfig struct {
 
 type ProvidersConfig struct {
 	TMDB TMDBConfig
+	OMDB OMDBConfig
+}
+
+type OMDBConfig struct {
+	APIKey  string
+	BaseURL string
 }
 
 type TMDBConfig struct {
@@ -92,6 +98,9 @@ func Load() (Config, error) {
 			Token:    env("HEYA_METADATA_TMDB_TOKEN", ""),
 			BaseURL:  env("HEYA_METADATA_TMDB_BASE_URL", "https://api.themoviedb.org/3"),
 			Language: env("HEYA_METADATA_TMDB_LANGUAGE", "en-US"),
+		}, OMDB: OMDBConfig{
+			APIKey:  env("HEYA_METADATA_OMDB_API_KEY", ""),
+			BaseURL: env("HEYA_METADATA_OMDB_BASE_URL", "https://www.omdbapi.com/"),
 		}},
 	}
 	if err := config.Validate(); err != nil {
@@ -160,6 +169,10 @@ func (c Config) Validate() error {
 	}
 	if len(c.Providers.TMDB.Language) < 2 {
 		return fmt.Errorf("HEYA_METADATA_TMDB_LANGUAGE must begin with an ISO 639-1 language code")
+	}
+	omdbURL, err := url.Parse(c.Providers.OMDB.BaseURL)
+	if err != nil || omdbURL.Scheme != "https" || omdbURL.Host == "" {
+		return fmt.Errorf("HEYA_METADATA_OMDB_BASE_URL must be an absolute HTTPS URL")
 	}
 	return nil
 }

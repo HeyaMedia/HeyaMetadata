@@ -88,6 +88,9 @@ func TestOpenAPIDocumentContainsPublicRoutes(t *testing.T) {
 	if !strings.Contains(text, "X-Heya-TMDB-API-Key") {
 		t.Error("OpenAPI document does not expose request-scoped TMDB credentials")
 	}
+	if !strings.Contains(text, "X-Heya-OMDB-API-Key") {
+		t.Error("OpenAPI document does not expose request-scoped OMDb credentials")
+	}
 }
 
 func TestDocsUseScalar(t *testing.T) {

@@ -215,6 +215,17 @@ validated.
   2/7/14/30-day cadence bands, with cold or never-read entities settling at one
   month. A live detail read flushed successfully and moved the Matrix refresh
   cadence to two days; a real integration test proved priority promotion.
+- OMDb is now the second movie collector. The planner replans after TMDB
+  discovers an IMDb title ID, records a separate OMDb observation/normalized
+  record, and combines plot/runtime fallback plus independent IMDb, Rotten
+  Tomatoes, and Metacritic scales and provenance. OMDb success reuse is 24h,
+  not-found reuse is 1h, and application/authentication failures are not reused.
+- `X-Heya-OMDB-API-Key` uses the same transient Redis credential handoff. The
+  existing old-server OMDb key is present in the gitignored `.env.local`.
+- Live Matrix ingestion produced TMDB 8.25/10, IMDb 8.7/10 with votes, Rotten
+  Tomatoes 83/100, and Metacritic 73/100. A repeat added zero observations. A
+  deliberately invalid caller key on Spirited Away produced a non-reusable 401;
+  the following server-key refresh fetched 200 and cleared the provider failure.
 - Raw provider bytes use prefix-scoped RustFS lifecycle expiry:
   `data/ephemeral/24h/` expires after one day and `data/ephemeral/48h/` after
   two. TMDB uses the 48-hour tier. No rule matches `images/` or permanent data.
@@ -231,13 +242,10 @@ validated.
 
 ## Suggested next turn
 
-1. Add OMDb as the second movie collector using the TMDB cache/credential
-   blueprint, unlocked by accepted IMDb title
-   claims discovered by TMDB.
-2. Prove multi-provider combination with plot fallback and separate IMDb,
-   Rotten Tomatoes, and Metacritic rating scales and provenance.
-3. Add TVDB and Fanart.tv one at a time through the same capability-driven
+1. Add TVDB and Fanart.tv one at a time through the same capability-driven
    pipeline, expanding passing entries in `coverage/movie.json`.
+2. Generalize supplemental-provider failure reporting in the public freshness
+   document before several optional providers are active at once.
 
 The previous repositories may be inspected for provider knowledge and metadata
 coverage, but should not be copied as architectural constraints.

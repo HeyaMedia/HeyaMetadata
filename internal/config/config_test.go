@@ -23,6 +23,7 @@ func TestConfigValidateRejectsInvalidDependencyURLs(t *testing.T) {
 	tests := map[string]func(*Config){
 		"Redis": func(config *Config) { config.RedisURL = "http://127.0.0.1:6380" },
 		"S3":    func(config *Config) { config.S3.Endpoint = "s3.karbowiak.dk" },
+		"OMDb":  func(config *Config) { config.Providers.OMDB.BaseURL = "omdbapi.com" },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -45,8 +46,9 @@ func validConfig() Config {
 			Bucket:   "heyamedia",
 			Prefix:   "data",
 		},
-		Providers: ProvidersConfig{TMDB: TMDBConfig{
-			BaseURL: "https://api.themoviedb.org/3", Language: "en-US",
-		}},
+		Providers: ProvidersConfig{
+			TMDB: TMDBConfig{BaseURL: "https://api.themoviedb.org/3", Language: "en-US"},
+			OMDB: OMDBConfig{BaseURL: "https://www.omdbapi.com/"},
+		},
 	}
 }

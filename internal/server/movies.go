@@ -21,12 +21,14 @@ import (
 type entityInput struct {
 	ID         string `path:"id" format:"uuid"`
 	TMDBAPIKey string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
+	OMDBAPIKey string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
 }
 type entityOutput struct{ Body moviedomain.DetailDocument }
 
 type resolutionInput struct {
 	Prefer     string `header:"Prefer"`
 	TMDBAPIKey string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
+	OMDBAPIKey string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
 	Body       struct {
 		Kind      string `json:"kind" enum:"movie"`
 		Provider  string `json:"provider" example:"tmdb"`
@@ -123,7 +125,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		}
 		if !fresh {
 			if tmdbID, claimErr := service.TMDBID(ctx, input.ID); claimErr == nil {
-				if credentialRef, credentialErr := storeTMDBCredentials(ctx, runtime, input.TMDBAPIKey); credentialErr == nil {
+				if credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey); credentialErr == nil {
 					_, _ = jobs.InsertMovie(ctx, runtime, client, jobs.MovieIngestArgs{TMDBID: tmdbID, CredentialRef: credentialRef, Reason: "stale_read"}, jobs.PriorityStaleRead)
 				}
 			}
@@ -157,7 +159,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if parseErr != nil || tmdbID < 1 {
 			return nil, huma.Error400BadRequest("invalid TMDB movie ID")
 		}
-		credentialRef, credentialErr := storeTMDBCredentials(ctx, runtime, input.TMDBAPIKey)
+		credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey)
 		if credentialErr != nil {
 			return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
 		}
@@ -202,7 +204,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if err != nil {
 			return nil, err
 		}
-		credentialRef, credentialErr := storeTMDBCredentials(ctx, runtime, input.TMDBAPIKey)
+		credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey)
 		if credentialErr != nil {
 			return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
 		}
@@ -276,13 +278,19 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 	})
 }
 
-func storeTMDBCredentials(ctx context.Context, runtime *platform.Runtime, apiKey string) (string, error) {
-	apiKey = strings.TrimSpace(apiKey)
-	if apiKey == "" {
+func storeProviderCredentials(ctx context.Context, runtime *platform.Runtime, tmdbAPIKey, omdbAPIKey string) (string, error) {
+	apiKeys := map[string]string{}
+	if value := strings.TrimSpace(tmdbAPIKey); value != "" {
+		apiKeys["tmdb"] = value
+	}
+	if value := strings.TrimSpace(omdbAPIKey); value != "" {
+		apiKeys["omdb"] = value
+	}
+	if len(apiKeys) == 0 {
 		return "", nil
 	}
 	return providercredentials.Store(ctx, runtime.Redis, providercredentials.Credentials{
-		APIKeys: map[string]string{"tmdb": apiKey},
+		APIKeys: apiKeys,
 	})
 }
 

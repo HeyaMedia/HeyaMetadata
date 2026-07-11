@@ -81,7 +81,7 @@ func RecordObservation(
 	defer tx.Rollback(ctx)
 	expiresAt := payload.ObservedAt.Add(retention.Duration)
 	var reusableUntil *time.Time
-	if duration := cachePolicy.DurationForStatus(payload.StatusCode); duration > 0 {
+	if duration := cachePolicy.DurationForPayload(payload); duration > 0 {
 		value := payload.ObservedAt.Add(duration)
 		reusableUntil = &value
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/omdb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tmdb"
 	"github.com/jackc/pgx/v5"
 )
@@ -77,32 +78,34 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 		providers.ScopeCredits, providers.ScopeArtwork, providers.ScopeCollections,
 		providers.ScopeRecommendations,
 	}
-	capability := tmdb.New(s.runtime.Config.Providers.TMDB).Capability()
-	resolver, err := providercache.New(s.runtime, moviedomain.TMDBNormalizerVersion, capability.RawRetention, capability.ResponseCache, riverJobID)
+	tmdbCapability := tmdb.New(s.runtime.Config.Providers.TMDB).Capability()
+	tmdbResolver, err := providercache.New(s.runtime, moviedomain.TMDBNormalizerVersion, tmdbCapability.RawRetention, tmdbCapability.ResponseCache, riverJobID)
 	if err != nil {
 		return Result{}, err
 	}
-	planner := mixer.New(tmdb.NewCached(s.runtime.Config.Providers.TMDB, resolver, credentials.APIKey("tmdb")))
-	plan := planner.Build([]providers.Identifier{identifier}, desired)
+	omdbCapability := omdb.New(s.runtime.Config.Providers.OMDB).Capability()
+	omdbResolver, err := providercache.New(s.runtime, moviedomain.OMDBNormalizerVersion, omdbCapability.RawRetention, omdbCapability.ResponseCache, riverJobID)
+	if err != nil {
+		return Result{}, err
+	}
+	planner := mixer.New(
+		tmdb.NewCached(s.runtime.Config.Providers.TMDB, tmdbResolver, credentials.APIKey("tmdb")),
+		omdb.NewCached(s.runtime.Config.Providers.OMDB, omdbResolver, credentials.APIKey("omdb")),
+	)
+	knownIdentifiers := []providers.Identifier{identifier}
+	completed := map[string]bool{}
+	plan := planner.BuildAvailable(knownIdentifiers, desired, completed)
 	if len(plan.Steps) == 0 {
 		return Result{}, fmt.Errorf("no provider collector accepts TMDB movie IDs")
 	}
-	payloads, err := plan.Steps[0].Collector.Collect(ctx, plan.Steps[0].Identifier)
+	tmdbStep := plan.Steps[0]
+	payloads, err := tmdbStep.Collector.Collect(ctx, tmdbStep.Identifier)
 	if err != nil {
 		return Result{}, err
 	}
-	recorded := make([]ingest.RecordedObservation, 0, len(payloads))
-	retention := plan.Steps[0].Collector.Capability().RawRetention
-	for _, payload := range payloads {
-		if payload.ObservationID != "" {
-			recorded = append(recorded, ingest.RecordedObservation{ID: payload.ObservationID, Checksum: payload.BlobChecksum, Payload: payload})
-			continue
-		}
-		observation, err := ingest.RecordObservation(ctx, s.runtime, payload, moviedomain.TMDBNormalizerVersion, retention, plan.Steps[0].Collector.Capability().ResponseCache, riverJobID)
-		if err != nil {
-			return Result{}, err
-		}
-		recorded = append(recorded, observation)
+	recorded, err := s.recordPayloads(ctx, payloads, moviedomain.TMDBNormalizerVersion, tmdbStep.Collector.Capability(), riverJobID)
+	if err != nil {
+		return Result{}, err
 	}
 	if len(recorded) == 0 {
 		return Result{}, fmt.Errorf("TMDB collector returned no observations")
@@ -118,37 +121,79 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 			collectionBody = recorded[1].Payload.Body
 		}
 	}
-	normalized, err := tmdb.Normalize(recorded[0].Payload.Body, collectionBody, recorded[0].ID, supportingIDs, recorded[0].Payload.ObservedAt, s.runtime.Config.Providers.TMDB.Language)
+	tmdbNormalized, err := tmdb.Normalize(recorded[0].Payload.Body, collectionBody, recorded[0].ID, supportingIDs, recorded[0].Payload.ObservedAt, s.runtime.Config.Providers.TMDB.Language)
 	if err != nil {
 		return Result{}, err
 	}
-	normalizedJSON, err := json.Marshal(normalized)
-	if err != nil {
-		return Result{}, fmt.Errorf("encode normalized TMDB movie: %w", err)
-	}
-	supportingJSON, _ := json.Marshal(supportingIDs)
-	warningsJSON, _ := json.Marshal(normalized.Warnings)
-	var normalizedID string
-	if err := s.runtime.DB.QueryRow(ctx, `
-        INSERT INTO normalized_records (
-            entity_kind, provider, provider_namespace, provider_record_id,
-            primary_observation_id, supporting_observation_ids, normalizer_version,
-            schema_version, document, warnings, partial_failure, observed_at
-        ) VALUES ('movie', 'tmdb', 'movie', $1, $2, $3, $4, $5, $6, $7, $8, $9)
-        ON CONFLICT (primary_observation_id, normalizer_version, schema_version)
-        DO UPDATE SET document = EXCLUDED.document, warnings = EXCLUDED.warnings,
-                      partial_failure = EXCLUDED.partial_failure
-        RETURNING id`,
-		strconv.FormatInt(tmdbID, 10), recorded[0].ID, supportingJSON,
-		moviedomain.TMDBNormalizerVersion, moviedomain.NormalizedSchemaVersion,
-		normalizedJSON, warningsJSON, normalized.PartialFailure, normalized.ProviderRecord.ObservedAt,
-	).Scan(&normalizedID); err != nil {
-		return Result{}, fmt.Errorf("record normalized TMDB movie: %w", err)
+	completed["tmdb"] = true
+	for _, candidate := range tmdbNormalized.IdentityCandidates {
+		knownIdentifiers = append(knownIdentifiers, providers.Identifier{Provider: candidate.Provider, Namespace: candidate.Namespace, Value: candidate.NormalizedValue})
 	}
 
-	result, err = s.merge(ctx, normalizedID, normalized, riverJobID)
+	var supplemental []moviedomain.NormalizedRecordV1
+	var omdbFailure error
+	followUp := planner.BuildAvailable(knownIdentifiers, desired, completed)
+	for _, step := range followUp.Steps {
+		if step.Collector.Capability().Provider != "omdb" {
+			continue
+		}
+		omdbPayloads, collectErr := step.Collector.Collect(ctx, step.Identifier)
+		if collectErr != nil {
+			omdbFailure = collectErr
+			break
+		}
+		omdbRecorded, recordErr := s.recordPayloads(ctx, omdbPayloads, moviedomain.OMDBNormalizerVersion, step.Collector.Capability(), riverJobID)
+		if recordErr != nil {
+			omdbFailure = recordErr
+			break
+		}
+		if len(omdbRecorded) == 0 {
+			omdbFailure = fmt.Errorf("OMDb collector returned no observations")
+			break
+		}
+		if omdbRecorded[0].Payload.StatusCode != http.StatusOK {
+			omdbFailure = &providers.StatusError{Provider: "omdb", StatusCode: omdbRecorded[0].Payload.StatusCode}
+			break
+		}
+		if message, failed := omdb.ResponseError(omdbRecorded[0].Payload.Body); failed {
+			omdbFailure = fmt.Errorf("OMDb response: %s", message)
+			break
+		}
+		normalized, normalizeErr := omdb.Normalize(omdbRecorded[0].Payload.Body, omdbRecorded[0].ID, omdbRecorded[0].Payload.ObservedAt)
+		if normalizeErr != nil {
+			omdbFailure = normalizeErr
+			break
+		}
+		supplemental = append(supplemental, normalized)
+		completed["omdb"] = true
+	}
+	if omdbFailure != nil {
+		tmdbNormalized.PartialFailure = true
+		tmdbNormalized.Warnings = append(tmdbNormalized.Warnings, "omdb: "+omdbFailure.Error())
+		slog.Warn("supplemental movie provider failed", "provider", "omdb", "tmdb_id", tmdbID, "error", omdbFailure)
+	}
+
+	normalizedID, err := s.recordNormalized(ctx, tmdbNormalized)
 	if err != nil {
 		return Result{}, err
+	}
+	additionalNormalizedIDs := make([]string, 0, len(supplemental))
+	successfulRecords := []moviedomain.ProviderRecord{tmdbNormalized.ProviderRecord}
+	for _, normalized := range supplemental {
+		id, recordErr := s.recordNormalized(ctx, normalized)
+		if recordErr != nil {
+			return Result{}, recordErr
+		}
+		additionalNormalizedIDs = append(additionalNormalizedIDs, id)
+		successfulRecords = append(successfulRecords, normalized.ProviderRecord)
+	}
+
+	result, err = s.merge(ctx, normalizedID, additionalNormalizedIDs, tmdbNormalized, successfulRecords, riverJobID)
+	if err != nil {
+		return Result{}, err
+	}
+	if omdbFailure != nil {
+		s.recordProviderFailure(ctx, result.EntityID, "omdb", omdbFailure)
 	}
 	if err := s.cache(ctx, result); err != nil {
 		return Result{}, err
@@ -159,7 +204,50 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 	return result, nil
 }
 
-func (s *Service) merge(ctx context.Context, normalizedID string, normalized moviedomain.NormalizedRecordV1, riverJobID int64) (Result, error) {
+func (s *Service) recordPayloads(ctx context.Context, payloads []providers.Payload, normalizerVersion string, capability providers.Capability, riverJobID int64) ([]ingest.RecordedObservation, error) {
+	recorded := make([]ingest.RecordedObservation, 0, len(payloads))
+	for _, payload := range payloads {
+		if payload.ObservationID != "" {
+			recorded = append(recorded, ingest.RecordedObservation{ID: payload.ObservationID, Checksum: payload.BlobChecksum, Payload: payload})
+			continue
+		}
+		observation, err := ingest.RecordObservation(ctx, s.runtime, payload, normalizerVersion, capability.RawRetention, capability.ResponseCache, riverJobID)
+		if err != nil {
+			return nil, err
+		}
+		recorded = append(recorded, observation)
+	}
+	return recorded, nil
+}
+
+func (s *Service) recordNormalized(ctx context.Context, normalized moviedomain.NormalizedRecordV1) (string, error) {
+	document, err := json.Marshal(normalized)
+	if err != nil {
+		return "", fmt.Errorf("encode normalized %s movie: %w", normalized.ProviderRecord.Provider, err)
+	}
+	supporting, _ := json.Marshal(normalized.ProviderRecord.SupportingObservationIDs)
+	warnings, _ := json.Marshal(normalized.Warnings)
+	var id string
+	if err := s.runtime.DB.QueryRow(ctx, `
+		INSERT INTO normalized_records (
+			entity_kind, provider, provider_namespace, provider_record_id,
+			primary_observation_id, supporting_observation_ids, normalizer_version,
+			schema_version, document, warnings, partial_failure, observed_at
+		) VALUES ('movie', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		ON CONFLICT (primary_observation_id, normalizer_version, schema_version)
+		DO UPDATE SET document = EXCLUDED.document, warnings = EXCLUDED.warnings,
+		              partial_failure = EXCLUDED.partial_failure
+		RETURNING id`,
+		normalized.ProviderRecord.Provider, normalized.ProviderRecord.Namespace, normalized.ProviderRecord.Value,
+		normalized.ProviderRecord.PrimaryObservationID, supporting, normalized.ProviderRecord.NormalizerVersion,
+		normalized.ProviderRecord.SchemaVersion, document, warnings, normalized.PartialFailure, normalized.ProviderRecord.ObservedAt,
+	).Scan(&id); err != nil {
+		return "", fmt.Errorf("record normalized %s movie: %w", normalized.ProviderRecord.Provider, err)
+	}
+	return id, nil
+}
+
+func (s *Service) merge(ctx context.Context, normalizedID string, additionalNormalizedIDs []string, normalized moviedomain.NormalizedRecordV1, successfulRecords []moviedomain.ProviderRecord, riverJobID int64) (Result, error) {
 	tx, err := s.runtime.DB.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return Result{}, fmt.Errorf("begin movie merge: %w", err)
@@ -243,6 +331,11 @@ func (s *Service) merge(ctx context.Context, normalizedID string, normalized mov
 	}
 	if _, err := tx.Exec(ctx, `UPDATE normalized_records SET entity_id = $1 WHERE id = $2`, entityID, normalizedID); err != nil {
 		return Result{}, fmt.Errorf("attach normalized record: %w", err)
+	}
+	for _, additionalID := range additionalNormalizedIDs {
+		if _, err := tx.Exec(ctx, `UPDATE normalized_records SET entity_id = $1 WHERE id = $2`, entityID, additionalID); err != nil {
+			return Result{}, fmt.Errorf("attach supplemental normalized record: %w", err)
+		}
 	}
 
 	rows, err := tx.Query(ctx, `
@@ -387,14 +480,16 @@ func (s *Service) merge(ctx context.Context, normalizedID string, normalized mov
 			return Result{}, fmt.Errorf("write movie search name: %w", err)
 		}
 	}
-	if _, err := tx.Exec(ctx, `
-        INSERT INTO provider_refresh_states (entity_id, provider, last_attempt_at, last_success_at, last_observation_id, current_job_id, next_eligible_at)
-        VALUES ($1, 'tmdb', now(), now(), $2, $3, $4)
-        ON CONFLICT (entity_id, provider) DO UPDATE SET last_attempt_at = now(), last_success_at = now(),
-            last_observation_id = EXCLUDED.last_observation_id, failure_class = NULL, failure_message = NULL,
-            current_job_id = EXCLUDED.current_job_id, next_eligible_at = EXCLUDED.next_eligible_at`,
-		entityID, normalized.ProviderRecord.PrimaryObservationID, nullableJobID(riverJobID), projection.Detail.Freshness.FreshUntil); err != nil {
-		return Result{}, err
+	for _, providerRecord := range successfulRecords {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO provider_refresh_states (entity_id, provider, last_attempt_at, last_success_at, last_observation_id, current_job_id, next_eligible_at)
+			VALUES ($1, $2, now(), now(), $3, $4, $5)
+			ON CONFLICT (entity_id, provider) DO UPDATE SET last_attempt_at = now(), last_success_at = now(),
+				last_observation_id = EXCLUDED.last_observation_id, failure_class = NULL, failure_message = NULL,
+				current_job_id = EXCLUDED.current_job_id, next_eligible_at = EXCLUDED.next_eligible_at`,
+			entityID, providerRecord.Provider, providerRecord.PrimaryObservationID, nullableJobID(riverJobID), projection.Detail.Freshness.FreshUntil); err != nil {
+			return Result{}, err
+		}
 	}
 	changeType := "updated"
 	if created {
@@ -583,9 +678,29 @@ func nullableJobID(jobID int64) any {
 	return jobID
 }
 
-func (s *Service) markRefreshFailure(ctx context.Context, entityID, class string, err error) {
-	_, updateErr := s.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET last_attempt_at = now(), failure_class = $2, failure_message = $3 WHERE entity_id = $1 AND provider = 'tmdb'`, entityID, class, err.Error())
+func (s *Service) recordProviderFailure(ctx context.Context, entityID, provider string, err error) {
+	class := providerFailureClass(err)
+	_, updateErr := s.runtime.DB.Exec(ctx, `
+		INSERT INTO provider_refresh_states (entity_id, provider, last_attempt_at, failure_class, failure_message)
+		VALUES ($1, $2, now(), $3, $4)
+		ON CONFLICT (entity_id, provider) DO UPDATE SET
+			last_attempt_at = now(), failure_class = EXCLUDED.failure_class,
+			failure_message = EXCLUDED.failure_message`, entityID, provider, class, err.Error())
 	if updateErr != nil {
 		slog.Error("record refresh failure", "error", updateErr)
 	}
+}
+
+func providerFailureClass(err error) string {
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "not found") {
+		return "not_found"
+	}
+	if strings.Contains(message, "api key") || strings.Contains(message, "unauthorized") || strings.Contains(message, "401") {
+		return "authentication"
+	}
+	if strings.Contains(message, "rate") || strings.Contains(message, "429") {
+		return "rate_limited"
+	}
+	return "provider_error"
 }

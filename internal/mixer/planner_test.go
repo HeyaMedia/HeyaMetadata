@@ -27,4 +27,12 @@ func TestPlannerUnlocksProvidersFromKnownIdentifiers(t *testing.T) {
 	if len(second.Steps) != 1 || second.Steps[0].Collector.Capability().Provider != "omdb" || len(second.Missing) != 0 {
 		t.Fatalf("unexpected follow-up plan: %+v", second)
 	}
+	third := planner.BuildAvailable(
+		[]providers.Identifier{{Provider: "tmdb", Namespace: "movie", Value: "603"}, {Provider: "imdb", Namespace: "title", Value: "tt0133093"}},
+		[]providers.Scope{providers.ScopeIdentity, providers.ScopeTitles, providers.ScopeRatings},
+		map[string]bool{"tmdb": true},
+	)
+	if len(third.Steps) != 1 || third.Steps[0].Collector.Capability().Provider != "omdb" {
+		t.Fatalf("completed primary provider hid supplemental evidence: %+v", third)
+	}
 }

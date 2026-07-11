@@ -29,3 +29,13 @@ func TestResponseCachePolicyStatusDurations(t *testing.T) {
 		t.Fatalf("credentials failure must not be reusable: %s", got)
 	}
 }
+
+func TestPayloadReuseOverrideHandlesLogicalErrorsInsideHTTP200(t *testing.T) {
+	t.Parallel()
+	policy := ResponseCachePolicy{ReuseDuration: 24 * time.Hour}
+	zero := time.Duration(0)
+	payload := Payload{StatusCode: http.StatusOK, ReuseDurationOverride: &zero}
+	if got := policy.DurationForPayload(payload); got != 0 {
+		t.Fatalf("logical provider error was reusable for %s", got)
+	}
+}

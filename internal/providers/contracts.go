@@ -90,6 +90,17 @@ type Payload struct {
 	ObservationID     string
 	BlobChecksum      string
 	FromCache         bool
+	// ReuseDurationOverride lets a provider classify application-level errors
+	// that were transported as HTTP success. Nil uses the capability policy;
+	// a pointer to zero records the observation without reusing it.
+	ReuseDurationOverride *time.Duration
+}
+
+func (p ResponseCachePolicy) DurationForPayload(payload Payload) time.Duration {
+	if payload.ReuseDurationOverride != nil {
+		return *payload.ReuseDurationOverride
+	}
+	return p.DurationForStatus(payload.StatusCode)
 }
 
 func RequestFingerprint(provider, requestKey string) string {

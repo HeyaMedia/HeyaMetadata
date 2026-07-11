@@ -21,6 +21,13 @@ type Planner struct{ collectors []providers.Collector }
 func New(collectors ...providers.Collector) *Planner { return &Planner{collectors: collectors} }
 
 func (p *Planner) Build(identifiers []providers.Identifier, desired []providers.Scope) Plan {
+	return p.BuildAvailable(identifiers, desired, nil)
+}
+
+// BuildAvailable replans after earlier collectors discover identifiers. A
+// completed provider is skipped, allowing supplemental collectors to contribute
+// overlapping scopes instead of being hidden by the first source.
+func (p *Planner) BuildAvailable(identifiers []providers.Identifier, desired []providers.Scope, completed map[string]bool) Plan {
 	remaining := make(map[providers.Scope]bool, len(desired))
 	for _, scope := range desired {
 		remaining[scope] = true
@@ -28,6 +35,9 @@ func (p *Planner) Build(identifiers []providers.Identifier, desired []providers.
 	result := Plan{}
 	for _, collector := range p.collectors {
 		capability := collector.Capability()
+		if completed[capability.Provider] {
+			continue
+		}
 		identifier, ok := acceptedIdentifier(capability, identifiers)
 		if !ok {
 			continue

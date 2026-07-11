@@ -30,13 +30,23 @@ func (c *HTTPClient) Do(ctx context.Context, request *http.Request, payload Payl
 // DoGuarded runs guard only when an actual network request is necessary. This
 // lets a warm shared response be reused without requiring provider credentials.
 func (c *HTTPClient) DoGuarded(ctx context.Context, request *http.Request, payload Payload, guard func() error) (Payload, error) {
+	return c.DoClassified(ctx, request, payload, guard, nil)
+}
+
+// DoClassified applies classify after a network response but before shared
+// persistence/cache policy. Cached responses were classified when fetched.
+func (c *HTTPClient) DoClassified(ctx context.Context, request *http.Request, payload Payload, guard func() error, classify func(*Payload)) (Payload, error) {
 	fetch := func() (Payload, error) {
 		if guard != nil {
 			if err := guard(); err != nil {
 				return Payload{}, err
 			}
 		}
-		return c.doNetwork(ctx, request, payload)
+		result, err := c.doNetwork(ctx, request, payload)
+		if err == nil && classify != nil {
+			classify(&result)
+		}
+		return result, err
 	}
 	if c.resolver != nil {
 		return c.resolver.Resolve(ctx, payload, fetch)

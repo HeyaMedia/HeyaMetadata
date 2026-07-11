@@ -208,6 +208,11 @@ rating evidence. OMDb's IMDb, Rotten Tomatoes, and Metacritic values are
 separate rating systems with separate scales. An OMDb `Response: False` result
 is an observed provider miss, not malformed successful metadata.
 
+The implemented collector reuses successful responses for 24 hours while raw
+evidence remains in the 48-hour lifecycle tier. Movie-not-found is negative
+cached for one hour. Authentication, quota, malformed, and other logical errors
+are observed but never shared through the response cache.
+
 ### TVDB
 
 Fetch only when an accepted TVDB movie claim exists. Normalize aliases, genres,
