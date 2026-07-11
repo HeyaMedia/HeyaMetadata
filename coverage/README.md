@@ -19,5 +19,6 @@ For example, one localized-title entry covers its value, language, country,
 title type, and provenance. Add a separate entry when a fact has distinct
 identity, lifecycle, provider, or API behavior.
 
-The movie catalog is the first domain inventory. Other kinds get their own
-catalog only when their domain slice is designed.
+The movie and music catalogs are the first domain inventories. Music includes
+explicit boundary capabilities for release groups, releases, recordings,
+release tracks, and musical works before those projections are implemented.

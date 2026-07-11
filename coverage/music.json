@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "music.artist.identity.external_ids", "kind": "artist", "category": "relationship",
+      "description": "Explicit cross-provider artist IDs become provenance-bearing claims; names never create automatic identity.",
+      "providers": ["musicbrainz", "discogs", "deezer", "apple", "wikidata", "lastfm"],
+      "projection": {"document": "detail", "path": "external_ids"},
+      "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d", "discogs": "82730", "deezer": "1", "apple": "136975", "wikidata": "Q1299"}, "expected_providers": ["musicbrainz"]}]
+    },
+    {
+      "id": "music.artist.names.localized", "kind": "artist", "category": "fact",
+      "description": "Display, sort, legal, credited, translated, native-script, search-hint, and historical names retain locale and type.",
+      "providers": ["musicbrainz", "discogs", "wikidata", "apple", "deezer", "lastfm"],
+      "projection": {"document": "detail", "path": "data.names"},
+      "references": [{"name": "Björk", "external_ids": {"musicbrainz": "87e748f1-49d8-47d5-8e9a-66f7d9705886"}, "expected_providers": ["musicbrainz"]}]
+    },
+    {
+      "id": "music.artist.classification.type_gender", "kind": "artist", "category": "fact",
+      "description": "Person, group, orchestra, choir, character, and other source types remain distinct; gender is retained only when supplied.",
+      "providers": ["musicbrainz", "wikidata"],
+      "projection": {"document": "detail", "path": "data.classification"},
+      "references": [{"name": "Björk", "external_ids": {"musicbrainz": "87e748f1-49d8-47d5-8e9a-66f7d9705886"}, "expected_providers": ["musicbrainz"]}]
+    },
+    {
+      "id": "music.artist.lifecycle", "kind": "artist", "category": "fact",
+      "description": "Birth, death, formation, dissolution, begin/end areas, ended state, and partial date precision retain source provenance.",
+      "providers": ["musicbrainz", "wikidata", "discogs"],
+      "projection": {"document": "detail", "path": "data.lifecycle"},
+      "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"}, "expected_providers": ["musicbrainz"]}]
+    },
+    {
+      "id": "music.artist.areas", "kind": "artist", "category": "fact",
+      "description": "Country, primary area, begin area, and end area preserve provider IDs and ISO codes.",
+      "providers": ["musicbrainz", "wikidata"],
+      "projection": {"document": "detail", "path": "data.areas"},
+      "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"}, "expected_providers": ["musicbrainz"]}]
+    },
+    {
+      "id": "music.artist.biographies", "kind": "artist", "category": "fact",
+      "description": "Short descriptions and long biographies remain localized, markup-aware, and independently attributable.",
+      "providers": ["lastfm", "wikidata", "discogs"],
+      "projection": {"document": "detail", "path": "data.biographies"},
+      "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"}, "expected_providers": ["lastfm", "wikidata"]}]
+    },
+    {
+      "id": "music.artist.genres_tags", "kind": "artist", "category": "fact",
+      "description": "Genres and free-form tags retain provider counts/weights instead of being flattened into an unscored universal list.",
+      "providers": ["musicbrainz", "lastfm", "apple", "deezer", "discogs", "wikidata"],
+      "projection": {"document": "detail", "path": "data.genres"},
+      "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"}, "expected_providers": ["musicbrainz", "lastfm"]}]
+    },
+    {
+      "id": "music.artist.links", "kind": "artist", "category": "fact",
+      "description": "Official, social, streaming, purchase, lyrics, encyclopedia, and database links retain relationship type and source.",
+      "providers": ["musicbrainz", "wikidata", "discogs", "apple", "deezer", "lastfm"],
+      "projection": {"document": "detail", "path": "data.links"},
+      "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"}, "expected_providers": ["musicbrainz"]}]
+    },
+    {
+      "id": "music.artist.images", "kind": "artist", "category": "fact",
+      "description": "Portrait, fanart, logo, background, and provider avatar candidates receive opaque IDs and retain provenance.",
+      "providers": ["wikidata", "discogs", "deezer", "fanart", "lastfm", "apple"],
+      "projection": {"document": "detail", "path": "data.images"},
+      "references": [{"name": "Björk", "external_ids": {"musicbrainz": "87e748f1-49d8-47d5-8e9a-66f7d9705886"}, "expected_providers": ["deezer", "wikidata"]}]
+    },
+    {
+      "id": "music.artist.popularity", "kind": "artist", "category": "fact",
+      "description": "Listeners, plays, fans, followers, provider rank, and catalog counts remain separate provider-specific metrics.",
+      "providers": ["lastfm", "deezer", "discogs", "apple", "musicbrainz"],
+      "projection": {"document": "detail", "path": "data.metrics"},
+      "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"}, "expected_providers": ["lastfm", "deezer"]}]
+    },
+    {
+      "id": "music.artist.relationships.members", "kind": "artist", "category": "relationship",
+      "description": "Group membership and artist-group relations retain provider target identity, role, activity state, and source without name-merging targets.",
+      "providers": ["musicbrainz", "discogs", "wikidata"],
+      "projection": {"document": "detail", "path": "data.relationships"},
+      "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"}, "expected_providers": ["discogs"]}]
+    },
+    {
+      "id": "music.artist.similar", "kind": "artist", "category": "relationship",
+      "description": "Similar-artist recommendations retain provider target identity and score and never imply canonical equivalence.",
+      "providers": ["lastfm"],
+      "projection": {"document": "detail", "path": "data.similar_artists"},
+      "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"}, "expected_providers": ["lastfm"]}]
+    },
+    {
+      "id": "music.release_group.boundary", "kind": "release_group", "category": "capability",
+      "description": "The abstract album/single/EP concept remains distinct from issued releases and provider catalog albums.",
+      "providers": ["system", "musicbrainz"],
+      "projection": {"document": "detail", "path": "kind"},
+      "references": [{"name": "Abbey Road", "external_ids": {"musicbrainz": "ecf29693-10a1-3617-8e81-9f55d7b3d1bb"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "music.release.boundary", "kind": "release", "category": "capability",
+      "description": "Country/date/label/barcode/catalog-number/format editions remain distinct beneath a release group.",
+      "providers": ["system", "musicbrainz", "discogs", "apple", "deezer"],
+      "projection": {"document": "detail", "path": "kind"},
+      "references": [{"name": "Abbey Road UK LP", "external_ids": {"musicbrainz": "a46b3a41-9f63-3d8f-b6b1-a2b2b0d8b2e1"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "music.recording_track.boundary", "kind": "recording", "category": "capability",
+      "description": "A captured recording remains distinct from every release-track placement and provider song object.",
+      "providers": ["system", "musicbrainz", "apple", "deezer"],
+      "projection": {"document": "detail", "path": "kind"},
+      "references": [{"name": "Come Together", "external_ids": {"musicbrainz": "9edb3d47-4f3f-4f5f-8f2e-73f78b0d0d32"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "music.work.boundary", "kind": "musical_work", "category": "capability",
+      "description": "The underlying composition and classical catalogue identity remain distinct from recordings and release tracks.",
+      "providers": ["system", "musicbrainz", "openopus", "wikidata"],
+      "projection": {"document": "detail", "path": "kind"},
+      "references": [{"name": "Symphony No. 5", "external_ids": {"openopus": "16406"}, "expected_providers": ["system"]}]
+    }
+  ]
+}

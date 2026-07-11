@@ -12,6 +12,9 @@ import (
 //go:embed movie.json
 var movieCatalogJSON []byte
 
+//go:embed music.json
+var musicCatalogJSON []byte
+
 // Catalog is a versioned collection of semantic metadata requirements.
 type Catalog struct {
 	SchemaVersion int     `json:"schema_version"`
@@ -49,6 +52,18 @@ func Movie() (Catalog, error) {
 	var catalog Catalog
 	if err := json.Unmarshal(movieCatalogJSON, &catalog); err != nil {
 		return Catalog{}, fmt.Errorf("decode movie coverage catalog: %w", err)
+	}
+	if err := catalog.Validate(); err != nil {
+		return Catalog{}, err
+	}
+	return catalog, nil
+}
+
+// Music parses and validates the embedded music catalog.
+func Music() (Catalog, error) {
+	var catalog Catalog
+	if err := json.Unmarshal(musicCatalogJSON, &catalog); err != nil {
+		return Catalog{}, fmt.Errorf("decode music coverage catalog: %w", err)
 	}
 	if err := catalog.Validate(); err != nil {
 		return Catalog{}, err

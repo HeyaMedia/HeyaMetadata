@@ -49,3 +49,25 @@ func TestMovieCatalogIDsAreUniqueAndSorted(t *testing.T) {
 		}
 	}
 }
+
+func TestMusicCatalogIsValidAndRetainsProviderFloor(t *testing.T) {
+	t.Parallel()
+	catalog, err := Music()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Entries) < 16 {
+		t.Fatalf("music coverage entries: %d", len(catalog.Entries))
+	}
+	providers := map[string]bool{}
+	for _, entry := range catalog.Entries {
+		for _, provider := range entry.Providers {
+			providers[provider] = true
+		}
+	}
+	for _, provider := range []string{"musicbrainz", "apple", "deezer", "discogs", "lastfm", "wikidata", "openopus"} {
+		if !providers[provider] {
+			t.Errorf("music coverage does not include provider %q", provider)
+		}
+	}
+}
