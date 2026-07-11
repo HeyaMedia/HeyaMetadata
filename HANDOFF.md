@@ -245,6 +245,16 @@ validated.
   discovery reuse. All lookup include combinations were checked against the
   live WS/2 JSON API. Canonical music boundaries and merge precedence remain
   intentionally undecided.
+- Apple, Deezer, Discogs, and Last.fm source collectors are implemented. Apple
+  prefers the authenticated Apple Music Catalog API and falls back to the
+  official public iTunes Search API, preserving storefront identity and the
+  fallback's documented ~20/minute limit; Deezer
+  classifies HTTP-200 error envelopes; Discogs separates artist/release/master/
+  label and keeps tokens in headers; Last.fm is keyed from MusicBrainz IDs and
+  classifies its JSON error codes. Search and catalog pagination inputs are
+  explicit in every cache fingerprint. Existing Discogs and Last.fm keys are
+  available only in the ignored local environment. Representative live lookup
+  and search calls for all four providers returned HTTP 200.
 - Raw provider bytes use prefix-scoped RustFS lifecycle expiry:
   `data/ephemeral/24h/` expires after one day and `data/ephemeral/48h/` after
   two. TMDB uses the 48-hour tier. No rule matches `images/` or permanent data.

@@ -42,6 +42,36 @@ type ProvidersConfig struct {
 	TVDB        TVDBConfig
 	Fanart      FanartConfig
 	MusicBrainz MusicBrainzConfig
+	Apple       AppleConfig
+	Deezer      DeezerConfig
+	Discogs     DiscogsConfig
+	LastFM      LastFMConfig
+}
+
+type AppleConfig struct {
+	BaseURL           string
+	MusicBaseURL      string
+	DeveloperToken    string
+	Country           string
+	RequestsPerSecond float64
+}
+
+type DeezerConfig struct {
+	BaseURL           string
+	RequestsPerSecond float64
+}
+
+type DiscogsConfig struct {
+	APIKey            string
+	BaseURL           string
+	RequestsPerSecond float64
+	UserAgent         string
+}
+
+type LastFMConfig struct {
+	APIKey            string
+	BaseURL           string
+	RequestsPerSecond float64
 }
 
 type MusicBrainzConfig struct {
@@ -102,6 +132,22 @@ func Load() (Config, error) {
 	if musicBrainzRate <= 0 || musicBrainzRate > 1000 {
 		return Config{}, fmt.Errorf("HEYA_METADATA_MUSICBRAINZ_REQUESTS_PER_SECOND must be greater than 0 and at most 1000")
 	}
+	appleRate, err := envFloat("HEYA_METADATA_APPLE_REQUESTS_PER_SECOND", 1.0/3.0)
+	if err != nil {
+		return Config{}, err
+	}
+	deezerRate, err := envFloat("HEYA_METADATA_DEEZER_REQUESTS_PER_SECOND", 5)
+	if err != nil {
+		return Config{}, err
+	}
+	discogsRate, err := envFloat("HEYA_METADATA_DISCOGS_REQUESTS_PER_SECOND", 1)
+	if err != nil {
+		return Config{}, err
+	}
+	lastFMRate, err := envFloat("HEYA_METADATA_LASTFM_REQUESTS_PER_SECOND", 5)
+	if err != nil {
+		return Config{}, err
+	}
 
 	config := Config{
 		Host:        env("HEYA_METADATA_HOST", "0.0.0.0"),
@@ -138,6 +184,16 @@ func Load() (Config, error) {
 			BaseURL:           env("HEYA_METADATA_MUSICBRAINZ_BASE_URL", "https://musicbrainz.org/ws/2"),
 			RequestsPerSecond: musicBrainzRate,
 			UserAgent:         env("HEYA_METADATA_MUSICBRAINZ_USER_AGENT", "HeyaMetadata/dev (https://github.com/HeyaMedia/HeyaMetadata)"),
+		}, Apple: AppleConfig{
+			BaseURL: env("HEYA_METADATA_APPLE_BASE_URL", "https://itunes.apple.com"), MusicBaseURL: env("HEYA_METADATA_APPLE_MUSIC_BASE_URL", "https://api.music.apple.com/v1"),
+			DeveloperToken: env("HEYA_METADATA_APPLE_DEVELOPER_TOKEN", ""), Country: env("HEYA_METADATA_APPLE_COUNTRY", "US"), RequestsPerSecond: appleRate,
+		}, Deezer: DeezerConfig{
+			BaseURL: env("HEYA_METADATA_DEEZER_BASE_URL", "https://api.deezer.com"), RequestsPerSecond: deezerRate,
+		}, Discogs: DiscogsConfig{
+			APIKey: env("HEYA_METADATA_DISCOGS_API_KEY", ""), BaseURL: env("HEYA_METADATA_DISCOGS_BASE_URL", "https://api.discogs.com"),
+			RequestsPerSecond: discogsRate, UserAgent: env("HEYA_METADATA_DISCOGS_USER_AGENT", "HeyaMetadata/dev +https://github.com/HeyaMedia/HeyaMetadata"),
+		}, LastFM: LastFMConfig{
+			APIKey: env("HEYA_METADATA_LASTFM_API_KEY", ""), BaseURL: env("HEYA_METADATA_LASTFM_BASE_URL", "https://ws.audioscrobbler.com/2.0/"), RequestsPerSecond: lastFMRate,
 		}},
 	}
 	if err := config.Validate(); err != nil {
@@ -228,6 +284,34 @@ func (c Config) Validate() error {
 	}
 	if c.Providers.MusicBrainz.RequestsPerSecond <= 0 || c.Providers.MusicBrainz.RequestsPerSecond > 1000 {
 		return fmt.Errorf("HEYA_METADATA_MUSICBRAINZ_REQUESTS_PER_SECOND must be greater than 0 and at most 1000")
+	}
+	for name, rawURL := range map[string]string{
+		"HEYA_METADATA_APPLE_BASE_URL":       c.Providers.Apple.BaseURL,
+		"HEYA_METADATA_APPLE_MUSIC_BASE_URL": c.Providers.Apple.MusicBaseURL,
+		"HEYA_METADATA_DEEZER_BASE_URL":      c.Providers.Deezer.BaseURL,
+		"HEYA_METADATA_DISCOGS_BASE_URL":     c.Providers.Discogs.BaseURL,
+		"HEYA_METADATA_LASTFM_BASE_URL":      c.Providers.LastFM.BaseURL,
+	} {
+		parsed, parseErr := url.Parse(rawURL)
+		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" {
+			return fmt.Errorf("%s must be an absolute HTTPS URL", name)
+		}
+	}
+	if len(strings.TrimSpace(c.Providers.Apple.Country)) != 2 {
+		return fmt.Errorf("HEYA_METADATA_APPLE_COUNTRY must be a two-letter storefront code")
+	}
+	for name, rate := range map[string]float64{
+		"HEYA_METADATA_APPLE_REQUESTS_PER_SECOND":   c.Providers.Apple.RequestsPerSecond,
+		"HEYA_METADATA_DEEZER_REQUESTS_PER_SECOND":  c.Providers.Deezer.RequestsPerSecond,
+		"HEYA_METADATA_DISCOGS_REQUESTS_PER_SECOND": c.Providers.Discogs.RequestsPerSecond,
+		"HEYA_METADATA_LASTFM_REQUESTS_PER_SECOND":  c.Providers.LastFM.RequestsPerSecond,
+	} {
+		if rate <= 0 || rate > 1000 {
+			return fmt.Errorf("%s must be greater than 0 and at most 1000", name)
+		}
+	}
+	if strings.TrimSpace(c.Providers.Discogs.UserAgent) == "" {
+		return fmt.Errorf("HEYA_METADATA_DISCOGS_USER_AGENT must not be empty")
 	}
 	return nil
 }

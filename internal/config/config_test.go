@@ -27,6 +27,10 @@ func TestConfigValidateRejectsInvalidDependencyURLs(t *testing.T) {
 		"TVDB":        func(config *Config) { config.Providers.TVDB.BaseURL = "api4.thetvdb.com" },
 		"Fanart":      func(config *Config) { config.Providers.Fanart.BaseURL = "webservice.fanart.tv" },
 		"MusicBrainz": func(config *Config) { config.Providers.MusicBrainz.BaseURL = "musicbrainz.org/ws/2" },
+		"Apple":       func(config *Config) { config.Providers.Apple.BaseURL = "itunes.apple.com" },
+		"Deezer":      func(config *Config) { config.Providers.Deezer.BaseURL = "api.deezer.com" },
+		"Discogs":     func(config *Config) { config.Providers.Discogs.BaseURL = "api.discogs.com" },
+		"LastFM":      func(config *Config) { config.Providers.LastFM.BaseURL = "ws.audioscrobbler.com" },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -71,6 +75,10 @@ func validConfig() Config {
 			TVDB:        TVDBConfig{BaseURL: "https://api4.thetvdb.com/v4"},
 			Fanart:      FanartConfig{BaseURL: "https://webservice.fanart.tv/v3.2"},
 			MusicBrainz: MusicBrainzConfig{BaseURL: "https://musicbrainz.org/ws/2", RequestsPerSecond: 1, UserAgent: "HeyaMetadata/test (test@example.com)"},
+			Apple:       AppleConfig{BaseURL: "https://itunes.apple.com", MusicBaseURL: "https://api.music.apple.com/v1", Country: "US", RequestsPerSecond: 1},
+			Deezer:      DeezerConfig{BaseURL: "https://api.deezer.com", RequestsPerSecond: 1},
+			Discogs:     DiscogsConfig{BaseURL: "https://api.discogs.com", RequestsPerSecond: 1, UserAgent: "HeyaMetadata/test"},
+			LastFM:      LastFMConfig{BaseURL: "https://ws.audioscrobbler.com/2.0/", RequestsPerSecond: 1},
 		},
 	}
 }

@@ -185,3 +185,41 @@ This phase deliberately archives typed provider source evidence without a
 canonical artist/album/edition/track projection. The recording versus release
 track and release-group versus release boundaries must be written down before
 those entity kinds enter identity resolution and merge.
+
+## Streaming and community music sources
+
+Apple supports two official catalog transports. When a signed Apple Music
+developer token is configured or supplied transiently, the collector uses the
+Apple Music Catalog API for storefront-aware artists, albums, songs, included
+relationships, and search. The token is sent only as `Authorization: Bearer`
+on a real request and never enters shared identity. Without one, the official
+public iTunes Search API supplies a credential-free fallback: artist lookups
+include albums and album lookups include songs, up to its documented 200-result
+limit. Transport, storefront, entity, query, relationships, and limit are all
+part of exact request identity. The public fallback shares the conservative
+documented limit of roughly 20 calls per minute. Lookup responses are reusable
+for 12 hours and discovery responses for six. Apple's promotional artwork and
+previews retain their source URLs as evidence; materialization and public
+presentation must enforce Apple's attribution, store-badge, proximity, and
+preview-streaming terms before those assets ship.
+
+Deezer supports artist, album, and track lookups, explicitly paged searches,
+and explicitly paged artist catalogs. It classifies Deezer's JSON `error`
+envelopes even when HTTP is 200, so quota and malformed failures are never
+shared. Catalog pages and searches are reusable for six hours; stable detail
+lookups for 12 hours.
+
+Discogs keeps artist, release, master, and label identities separate. It also
+supports authenticated database search, paged artist releases, and paged
+master versions. The configured token or transient caller token is sent in the
+`Authorization` header, never in a URL or request fingerprint, and every real
+request carries a configurable identifying User-Agent. Public detail lookups
+can run without a token; database search intentionally requires one.
+
+Last.fm consumes MusicBrainz artist, release-group, and recording MBIDs where
+possible, preserving Last.fm as supplemental popularity, biography, tag,
+artwork, and recommendation evidence instead of treating names as durable
+identity. It supports paged search, artist top albums, and short-lived similar
+artist evidence. API keys are applied only to real upstream calls and excluded
+from request identity. Last.fm error code 6 receives a one-hour negative TTL;
+invalid keys, throttling, and all other logical errors are never shared.
