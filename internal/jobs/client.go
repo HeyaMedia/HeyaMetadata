@@ -17,6 +17,7 @@ func Workers(runtime *platform.Runtime) *river.Workers {
 	river.AddWorker(workers, NewPlatformSmokeWorker(runtime))
 	river.AddWorker(workers, NewMovieIngestWorker(runtime))
 	river.AddWorker(workers, NewArtistIngestWorker(runtime))
+	river.AddWorker(workers, NewImageMaterializeWorker(runtime))
 	river.AddWorker(workers, NewBlobRetentionWorker(runtime))
 	river.AddWorker(workers, NewRefreshSchedulerWorker(runtime))
 	river.AddWorker(workers, NewSourceCollectWorker(runtime))

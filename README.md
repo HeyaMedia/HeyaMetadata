@@ -152,6 +152,11 @@ delayed, then marks the blob deleted in Postgres. `make retention-sweep` is the
 manual equivalent. The exported live rules and recovery instructions are in
 [`ops/rustfs`](./ops/rustfs/README.md).
 
+Canonical documents expose opaque image IDs. `GET /api/v2/images/{id}` queues
+the unique `image_materialize_v1` job on first use and returns `202`; once the
+bounded, allowlisted source fetch has been MIME-validated and stored beneath
+`data/images/original/`, the same route serves the immutable image bytes.
+
 ### Development cache
 
 Air always overwrites `.dev/air/heya-metadata`; it does not retain a binary per

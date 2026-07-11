@@ -314,12 +314,19 @@ Live verification on 2026-07-11 ingested The Beatles and Radiohead. Both
 resolved all six providers without partial failure. The Beatles projection had
 9 strong external IDs and 99 internal image candidates.
 
+Lazy image materialization is now implemented through `image_materialize_v1`
+and `GET /api/v2/images/{id}`. It validates HTTPS and provider-specific hosts,
+follows only allowed redirects, caps originals at 25 MiB, verifies supported
+image MIME signatures, and stores content-addressed originals below
+`data/images/original/`. A live Beatles Discogs candidate was materialized and
+served as an immutable JPEG through its opaque image ID.
+
 ## Suggested next turn
 
 1. Add service-level integration tests for identity conflict quarantine,
    provider partial failure, refresh idempotency, and artist API resolution.
-2. Materialize selected artist images into permanent image storage rather than
-   exposing only image-candidate IDs.
+2. Add bounded derived image variants (WebP/AVIF) and class-aware original
+   retention before materializing high-volume profile catalogs.
 3. Start the release-group slice using the same boundaries: MusicBrainz release
    group as the work-level spine, then explicit Discogs master and storefront
    album mappings. Keep release/edition and release-track separate.
