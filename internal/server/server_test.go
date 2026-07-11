@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHealthEndpoints(t *testing.T) {
@@ -67,7 +68,7 @@ func TestReadinessReportsDependencyFailure(t *testing.T) {
 	}
 }
 
-func TestOpenAPIDocumentContainsHealthRoutes(t *testing.T) {
+func TestOpenAPIDocumentContainsPublicRoutes(t *testing.T) {
 	t.Parallel()
 
 	document, err := OpenAPIDocument("test", "json", "3.1")
@@ -76,7 +77,10 @@ func TestOpenAPIDocumentContainsHealthRoutes(t *testing.T) {
 	}
 
 	text := string(document)
-	for _, path := range []string{"/api/v2/health/live", "/api/v2/health/ready"} {
+	for _, path := range []string{
+		"/api/v2/health/live", "/api/v2/health/ready",
+		"/api/v2/entities/{id}", "/api/v2/resolutions", "/api/v2/jobs/{id}", "/api/v2/search", "/api/v2/changes",
+	} {
 		if !strings.Contains(text, path) {
 			t.Errorf("OpenAPI document does not contain %s", path)
 		}
@@ -99,5 +103,18 @@ func TestDocsUseScalar(t *testing.T) {
 	}
 	if strings.Contains(body, "@stoplight/elements") {
 		t.Error("documentation page still loads Stoplight Elements")
+	}
+}
+
+func TestPreferredWaitIsBounded(t *testing.T) {
+	t.Parallel()
+	if got := preferredWait("respond-async, wait=3"); got != 3*time.Second {
+		t.Fatalf("wait: got %s", got)
+	}
+	if got := preferredWait("wait=30"); got != 5*time.Second {
+		t.Fatalf("bounded wait: got %s", got)
+	}
+	if got := preferredWait("wait=invalid"); got != 0 {
+		t.Fatalf("invalid wait: got %s", got)
 	}
 }

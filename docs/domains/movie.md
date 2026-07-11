@@ -1,6 +1,7 @@
 # Movie vertical slice
 
-Status: implementation design for schema version 1
+Status: TMDB vertical slice implemented for schema version 1; additional
+providers expand the same collector, mixer, normalizer, and combiner pipeline.
 
 This document applies the platform decisions in `HeyaMetadataV2.md` to the
 first complete entity slice. It deliberately does not freeze SQL column names

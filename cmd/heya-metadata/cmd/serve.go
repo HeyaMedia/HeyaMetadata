@@ -45,7 +45,7 @@ func newServeCommand() *cobra.Command {
 			}
 			defer runtime.Close()
 
-			application := server.NewWithReadiness(buildinfo.Version, runtime)
+			application := server.NewWithRuntime(buildinfo.Version, runtime)
 			httpServer := &http.Server{
 				Addr:              cfg.Address(),
 				Handler:           application.Handler(),

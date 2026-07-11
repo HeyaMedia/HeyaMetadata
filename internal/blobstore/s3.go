@@ -135,6 +135,22 @@ func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
 	return body, nil
 }
 
+func (s *Store) Delete(ctx context.Context, key string) error {
+	if !s.Configured() {
+		return ErrNotConfigured
+	}
+	response, err := s.do(ctx, http.MethodDelete, key, nil, nil)
+	if err != nil {
+		return fmt.Errorf("delete S3 object %q: %w", key, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= 200 && response.StatusCode < 300 || response.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
+	return s.statusError("delete object", response.StatusCode, responseBody)
+}
+
 func (s *Store) ContentKey(checksum, suffix string) (string, error) {
 	return ContentKey(s.prefix, checksum, suffix)
 }

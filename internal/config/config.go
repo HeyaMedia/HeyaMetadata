@@ -17,6 +17,7 @@ type Config struct {
 	RedisURL    string
 	S3          S3Config
 	Worker      WorkerConfig
+	Providers   ProvidersConfig
 }
 
 type S3Config struct {
@@ -32,6 +33,16 @@ type S3Config struct {
 
 type WorkerConfig struct {
 	MaxWorkers int
+}
+
+type ProvidersConfig struct {
+	TMDB TMDBConfig
+}
+
+type TMDBConfig struct {
+	Token    string
+	BaseURL  string
+	Language string
 }
 
 func Load() (Config, error) {
@@ -77,6 +88,11 @@ func Load() (Config, error) {
 			AutoCreateBucket: autoCreateBucket,
 		},
 		Worker: WorkerConfig{MaxWorkers: maxWorkers},
+		Providers: ProvidersConfig{TMDB: TMDBConfig{
+			Token:    env("HEYA_METADATA_TMDB_TOKEN", ""),
+			BaseURL:  env("HEYA_METADATA_TMDB_BASE_URL", "https://api.themoviedb.org/3"),
+			Language: env("HEYA_METADATA_TMDB_LANGUAGE", "en-US"),
+		}},
 	}
 	if err := config.Validate(); err != nil {
 		return Config{}, err
@@ -137,6 +153,13 @@ func (c Config) Validate() error {
 	}
 	if (c.S3.AccessKeyID == "") != (c.S3.SecretAccessKey == "") {
 		return fmt.Errorf("HEYA_METADATA_S3_ACCESS_KEY_ID and HEYA_METADATA_S3_SECRET_ACCESS_KEY must be set together")
+	}
+	tmdbURL, err := url.Parse(c.Providers.TMDB.BaseURL)
+	if err != nil || tmdbURL.Scheme != "https" || tmdbURL.Host == "" {
+		return fmt.Errorf("HEYA_METADATA_TMDB_BASE_URL must be an absolute HTTPS URL")
+	}
+	if len(c.Providers.TMDB.Language) < 2 {
+		return fmt.Errorf("HEYA_METADATA_TMDB_LANGUAGE must begin with an ISO 639-1 language code")
 	}
 	return nil
 }

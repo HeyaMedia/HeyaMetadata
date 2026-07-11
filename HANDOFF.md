@@ -84,8 +84,18 @@ mprocs.yaml
 internal/blobstore/s3.go
 internal/jobs/client.go
 internal/jobs/smoke.go
+internal/jobs/movie.go
+internal/jobs/retention.go
 internal/migrations/migrations.go
 internal/migrations/sql/0001_platform.sql
+internal/migrations/sql/0002_canonical_pipeline.sql
+internal/providers/contracts.go
+internal/providers/tmdb/
+internal/ingest/observations.go
+internal/mixer/planner.go
+internal/domains/movie/
+internal/movies/
+internal/server/movies.go
 internal/platform/runtime.go
 internal/devproxy/proxy.go
 web/package.json
@@ -106,6 +116,8 @@ heya-metadata migrate up
 heya-metadata migrate status
 heya-metadata worker
 heya-metadata smoke
+heya-metadata movie ingest --tmdb 603
+heya-metadata retention sweep
 ```
 
 `heya-metadata dev-proxy` is a hidden development command used by `make dev`.
@@ -173,15 +185,32 @@ validated.
 - The existing Heya S3 credentials are present in the gitignored `.env.local`.
   A real `platform_smoke_v1` run passed through River, RustFS under
   `heyamedia/data/blobs/...`, Redis, and transactional Postgres recording.
+- The first movie vertical slice is implemented. Real TMDB ingestions for The
+  Matrix (`603`) and Spirited Away (`129`) passed through River, separate raw
+  observations, normalized movie records, opaque identity claims, deterministic
+  combination, provenance, detail/summary projections, Postgres search, Redis,
+  and the gap-free public change feed.
+- Shared collector capabilities declare accepted identifiers, provided scopes,
+  and raw-blob retention. The mixer can re-plan when a collector discovers IDs
+  that unlock another provider. Domain combiners union provider evidence while
+  applying explicit precedence only to scalar winners.
+- Raw TMDB bytes use a 48-hour RustFS TTL. Hourly River retention work deletes
+  expired objects while preserving observation metadata and normalized records.
+  The manual equivalent is `heya-metadata retention sweep`.
+- Public documents use opaque IDs for movie art, profiles, studio logos,
+  collection members, and recommendation posters; upstream image URLs remain
+  internal evidence only.
 - In restricted Codex environments, set `GOPATH` and `GOCACHE` under `/tmp` so
   Go does not try to write outside the workspace.
 
 ## Suggested next turn
 
-1. Read `docs/domains/movie.md` and `coverage/movie.json`.
-2. Implement the first TMDB movie milestone through the complete observation,
-   blob, normalization, identity, merge, projection, search, cache, and change
-   pipeline described in the movie design.
+1. Add OMDb as the second movie collector, unlocked by accepted IMDb title
+   claims discovered by TMDB.
+2. Prove multi-provider combination with plot fallback and separate IMDb,
+   Rotten Tomatoes, and Metacritic rating scales and provenance.
+3. Add TVDB and Fanart.tv one at a time through the same capability-driven
+   pipeline, expanding passing entries in `coverage/movie.json`.
 
 The previous repositories may be inspected for provider knowledge and metadata
 coverage, but should not be copied as architectural constraints.

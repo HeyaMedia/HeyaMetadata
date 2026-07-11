@@ -45,5 +45,8 @@ func validConfig() Config {
 			Bucket:   "heyamedia",
 			Prefix:   "data",
 		},
+		Providers: ProvidersConfig{TMDB: TMDBConfig{
+			BaseURL: "https://api.themoviedb.org/3", Language: "en-US",
+		}},
 	}
 }

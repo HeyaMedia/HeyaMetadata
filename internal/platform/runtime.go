@@ -13,9 +13,10 @@ import (
 )
 
 type Runtime struct {
-	DB    *pgxpool.Pool
-	Redis *redis.Client
-	Blobs *blobstore.Store
+	DB     *pgxpool.Pool
+	Redis  *redis.Client
+	Blobs  *blobstore.Store
+	Config config.Config
 }
 
 func Open(ctx context.Context, cfg config.Config) (*Runtime, error) {
@@ -48,7 +49,7 @@ func Open(ctx context.Context, cfg config.Config) (*Runtime, error) {
 		return nil, err
 	}
 
-	return &Runtime{DB: database, Redis: redisClient, Blobs: blobs}, nil
+	return &Runtime{DB: database, Redis: redisClient, Blobs: blobs, Config: cfg}, nil
 }
 
 func (r *Runtime) Close() {

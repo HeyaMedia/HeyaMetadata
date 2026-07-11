@@ -3,7 +3,7 @@ GO_MODCACHE_DIR ?= $(CURDIR)/.cache/go-mod
 GO_CACHE_MAX_MB ?= 512
 GO := GOCACHE=$(GO_CACHE_DIR) GOMODCACHE=$(GO_MODCACHE_DIR) go
 
-.PHONY: build fmt test infra-start infra-up infra-down infra-status migrate migrate-status worker smoke dev dev-front dev-go dev-worker dev-web air-build web-install dev-cache-status dev-clean
+.PHONY: build fmt test infra-start infra-up infra-down infra-status migrate migrate-status worker smoke movie-ingest retention-sweep dev dev-front dev-go dev-worker dev-web air-build web-install dev-cache-status dev-clean
 
 build:
 	$(GO) build ./...
@@ -37,6 +37,13 @@ worker:
 
 smoke:
 	$(GO) run ./cmd/heya-metadata smoke
+
+movie-ingest:
+	@test -n "$(TMDB_ID)" || { echo "TMDB_ID is required"; exit 1; }
+	$(GO) run ./cmd/heya-metadata movie ingest --tmdb $(TMDB_ID)
+
+retention-sweep:
+	$(GO) run ./cmd/heya-metadata retention sweep
 
 # Stable public proxy :3030 + Air-managed Go API :3031 + Nuxt/Vite :3032.
 # Unlike the old Heya preflight, this refuses to kill an unrelated listener.

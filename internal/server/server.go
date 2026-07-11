@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 )
@@ -22,6 +23,14 @@ func New(version string) *Server {
 }
 
 func NewWithReadiness(version string, checker ReadinessChecker) *Server {
+	return newServer(version, checker, nil)
+}
+
+func NewWithRuntime(version string, runtime *platform.Runtime) *Server {
+	return newServer(version, runtime, runtime)
+}
+
+func newServer(version string, checker ReadinessChecker, runtime *platform.Runtime) *Server {
 	mux := http.NewServeMux()
 	config := huma.DefaultConfig("Heya Metadata API", apiVersion)
 	config.Info.Description = "Canonical, provenance-aware metadata for Heya media servers."
@@ -32,6 +41,7 @@ func NewWithReadiness(version string, checker ReadinessChecker) *Server {
 
 	api := humago.New(mux, config)
 	registerHealth(api, version, checker)
+	registerMovies(api, runtime)
 
 	return &Server{handler: mux, api: api}
 }

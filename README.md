@@ -19,7 +19,7 @@ brew install mprocs go-air
 
 ```bash
 cp .env.example .env.local
-# Add the RustFS access key and secret to .env.local.
+# Add RustFS and provider credentials to .env.local.
 make dev
 ```
 
@@ -53,6 +53,8 @@ Development URLs:
 - OpenAPI: <http://127.0.0.1:3030/api/openapi.json>
 - Liveness: <http://127.0.0.1:3030/api/v2/health/live>
 - Readiness: <http://127.0.0.1:3030/api/v2/health/ready>
+- Search: <http://127.0.0.1:3030/api/v2/search?q=matrix>
+- Changes: <http://127.0.0.1:3030/api/v2/changes>
 
 Run individual processes in separate terminals when needed:
 
@@ -77,6 +79,8 @@ make infra-status
 make migrate-status
 make worker         # run the River worker without Air
 make smoke          # verify River + Postgres + Redis + S3 end to end
+make movie-ingest TMDB_ID=603
+make retention-sweep
 make infra-down
 ```
 
@@ -89,6 +93,35 @@ The API's liveness endpoint only reports whether the process is alive.
 Readiness probes Postgres, Redis, and S3 concurrently and returns `503` if any
 dependency is unavailable. Dependency error details stay in debug logs rather
 than the public response.
+
+### Movie ingestion
+
+The first complete vertical slice collects TMDB movie detail and collection
+responses, stores each response as an immutable observation, normalizes the
+provider record, resolves opaque canonical identity, combines retained source
+records, and atomically updates detail/summary documents, provenance, search,
+provider freshness, and the public change outbox.
+
+```bash
+# Run `make dev` first so the River worker is available.
+make movie-ingest TMDB_ID=603
+
+curl http://127.0.0.1:3030/api/v2/search?q=matrix
+curl http://127.0.0.1:3030/api/v2/changes?after=0
+```
+
+Provider adapters declare accepted identifiers, supplied metadata scopes, and
+raw-response retention. The reusable mixer uses those declarations to plan
+eligible collectors as new external IDs are discovered. Provider-specific
+normalizers feed a deterministic domain combiner; consumers receive one merged
+canonical document rather than separate provider payloads.
+
+Raw TMDB response bytes currently expire from RustFS after 48 hours. Their
+small Postgres observation metadata and durable normalized records remain, so
+canonical data and provenance continue to work after cleanup. Workers enqueue
+an hourly retention sweep; `make retention-sweep` is the manual equivalent.
+Future active-show and music collectors can declare shorter retention without
+changing the observation machinery.
 
 ### Development cache
 
@@ -132,6 +165,8 @@ go run ./cmd/heya-metadata migrate up
 go run ./cmd/heya-metadata migrate status
 go run ./cmd/heya-metadata worker
 go run ./cmd/heya-metadata smoke
+go run ./cmd/heya-metadata movie ingest --tmdb 603
+go run ./cmd/heya-metadata retention sweep
 go test ./...
 ```
 

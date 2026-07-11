@@ -73,6 +73,8 @@ func init() {
 	rootCmd.AddCommand(newMigrateCommand())
 	rootCmd.AddCommand(newWorkerCommand())
 	rootCmd.AddCommand(newSmokeCommand())
+	rootCmd.AddCommand(newMovieCommand())
+	rootCmd.AddCommand(newRetentionCommand())
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newOpenAPICommand())
 }

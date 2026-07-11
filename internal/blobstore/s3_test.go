@@ -28,6 +28,7 @@ func TestContentKey(t *testing.T) {
 func TestStoreUsesSignedPathStyleRequests(t *testing.T) {
 	t.Parallel()
 	var stored []byte
+	deleted := false
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if !strings.Contains(request.Header.Get("Authorization"), "Credential=access/") {
 			t.Errorf("request was not signed with configured access key")
@@ -41,6 +42,9 @@ func TestStoreUsesSignedPathStyleRequests(t *testing.T) {
 			writer.WriteHeader(http.StatusOK)
 		case request.Method == http.MethodGet && request.URL.Path == "/heyamedia/data/object":
 			_, _ = writer.Write(stored)
+		case request.Method == http.MethodDelete && request.URL.Path == "/heyamedia/data/object":
+			deleted = true
+			writer.WriteHeader(http.StatusNoContent)
 		default:
 			http.NotFound(writer, request)
 		}
@@ -66,6 +70,12 @@ func TestStoreUsesSignedPathStyleRequests(t *testing.T) {
 	}
 	if string(body) != "payload" {
 		t.Fatalf("body: got %q", body)
+	}
+	if err := store.Delete(context.Background(), "data/object"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if !deleted {
+		t.Fatal("delete request was not sent")
 	}
 }
 
