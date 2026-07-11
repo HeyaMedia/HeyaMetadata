@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/accessstats"
 	moviedomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/movie"
 	"github.com/jackc/pgx/v5"
 )
@@ -19,6 +20,7 @@ func (s *Service) Detail(ctx context.Context, entityID string) (moviedomain.Deta
 	if cached, err := s.runtime.Redis.Get(ctx, cacheKey).Bytes(); err == nil {
 		var document moviedomain.DetailDocument
 		if json.Unmarshal(cached, &document) == nil {
+			_ = accessstats.Track(ctx, s.runtime.Redis, entityID)
 			return document, time.Now().Before(document.Freshness.FreshUntil), nil
 		}
 	}
@@ -40,6 +42,7 @@ func (s *Service) Detail(ctx context.Context, entityID string) (moviedomain.Deta
 	if ttl > 0 {
 		_ = s.runtime.Redis.Set(ctx, cacheKey, body, ttl).Err()
 	}
+	_ = accessstats.Track(ctx, s.runtime.Redis, entityID)
 	return document, time.Now().Before(freshUntil), nil
 }
 

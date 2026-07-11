@@ -43,7 +43,7 @@ func newMovieIngestCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			inserted, err := client.Insert(cmd.Context(), jobs.MovieIngestArgs{TMDBID: tmdbID}, nil)
+			inserted, err := jobs.InsertMovie(cmd.Context(), runtime, client, jobs.MovieIngestArgs{TMDBID: tmdbID, Reason: "cli"}, jobs.PriorityInteractive)
 			if err != nil {
 				return fmt.Errorf("enqueue TMDB movie ingestion: %w", err)
 			}

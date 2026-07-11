@@ -12,19 +12,22 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/movies"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 )
 
 type entityInput struct {
-	ID string `path:"id" format:"uuid"`
+	ID         string `path:"id" format:"uuid"`
+	TMDBAPIKey string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
 }
 type entityOutput struct{ Body moviedomain.DetailDocument }
 
 type resolutionInput struct {
-	Prefer string `header:"Prefer"`
-	Body   struct {
+	Prefer     string `header:"Prefer"`
+	TMDBAPIKey string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
+	Body       struct {
 		Kind      string `json:"kind" enum:"movie"`
 		Provider  string `json:"provider" example:"tmdb"`
 		Namespace string `json:"namespace" example:"movie"`
@@ -120,7 +123,9 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		}
 		if !fresh {
 			if tmdbID, claimErr := service.TMDBID(ctx, input.ID); claimErr == nil {
-				_, _ = client.Insert(ctx, jobs.MovieIngestArgs{TMDBID: tmdbID}, nil)
+				if credentialRef, credentialErr := storeTMDBCredentials(ctx, runtime, input.TMDBAPIKey); credentialErr == nil {
+					_, _ = jobs.InsertMovie(ctx, runtime, client, jobs.MovieIngestArgs{TMDBID: tmdbID, CredentialRef: credentialRef, Reason: "stale_read"}, jobs.PriorityStaleRead)
+				}
 			}
 			document.Freshness.State = "stale"
 		}
@@ -152,7 +157,11 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if parseErr != nil || tmdbID < 1 {
 			return nil, huma.Error400BadRequest("invalid TMDB movie ID")
 		}
-		inserted, insertErr := client.Insert(ctx, jobs.MovieIngestArgs{TMDBID: tmdbID}, nil)
+		credentialRef, credentialErr := storeTMDBCredentials(ctx, runtime, input.TMDBAPIKey)
+		if credentialErr != nil {
+			return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
+		}
+		inserted, insertErr := jobs.InsertMovie(ctx, runtime, client, jobs.MovieIngestArgs{TMDBID: tmdbID, CredentialRef: credentialRef, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
 		if insertErr != nil {
 			return nil, insertErr
 		}
@@ -193,7 +202,11 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if err != nil {
 			return nil, err
 		}
-		inserted, err := client.Insert(ctx, jobs.MovieIngestArgs{TMDBID: tmdbID}, nil)
+		credentialRef, credentialErr := storeTMDBCredentials(ctx, runtime, input.TMDBAPIKey)
+		if credentialErr != nil {
+			return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
+		}
+		inserted, err := jobs.InsertMovie(ctx, runtime, client, jobs.MovieIngestArgs{TMDBID: tmdbID, CredentialRef: credentialRef, Reason: "manual_refresh"}, jobs.PriorityInteractive)
 		if err != nil {
 			return nil, err
 		}
@@ -260,6 +273,16 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			output.Body.NextCursor = entry.Sequence
 		}
 		return output, rows.Err()
+	})
+}
+
+func storeTMDBCredentials(ctx context.Context, runtime *platform.Runtime, apiKey string) (string, error) {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return "", nil
+	}
+	return providercredentials.Store(ctx, runtime.Redis, providercredentials.Credentials{
+		APIKeys: map[string]string{"tmdb": apiKey},
 	})
 }
 

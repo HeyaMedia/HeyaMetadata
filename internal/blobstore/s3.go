@@ -21,6 +21,7 @@ import (
 
 var (
 	ErrNotConfigured = errors.New("S3 credentials are not configured")
+	ErrNotFound      = errors.New("S3 object not found")
 	checksumPattern  = regexp.MustCompile(`^[a-f0-9]{64}$`)
 )
 
@@ -126,6 +127,9 @@ func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
+		if response.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("get S3 object %q: %w", key, ErrNotFound)
+		}
 		return nil, s.statusError("get object", response.StatusCode, responseBody)
 	}
 	body, err := io.ReadAll(response.Body)

@@ -18,9 +18,10 @@ import (
 )
 
 type RecordedObservation struct {
-	ID       string
-	Checksum string
-	Payload  providers.Payload
+	ID        string
+	Checksum  string
+	ObjectKey string
+	Payload   providers.Payload
 }
 
 func RecordObservation(
@@ -29,6 +30,7 @@ func RecordObservation(
 	payload providers.Payload,
 	normalizerVersion string,
 	retention providers.RetentionPolicy,
+	cachePolicy providers.ResponseCachePolicy,
 	riverJobID int64,
 ) (RecordedObservation, error) {
 	if retention.Class == "" || retention.Duration <= 0 || retention.ObjectPrefix == "" {
@@ -70,8 +72,7 @@ func RecordObservation(
 	if err != nil {
 		return RecordedObservation{}, fmt.Errorf("encode observation headers: %w", err)
 	}
-	requestDigest := sha256.Sum256([]byte(payload.RequestKey))
-	requestFingerprint := hex.EncodeToString(requestDigest[:])
+	requestFingerprint := providers.RequestFingerprint(payload.Provider, payload.RequestKey)
 
 	tx, err := runtime.DB.Begin(ctx)
 	if err != nil {
@@ -79,6 +80,11 @@ func RecordObservation(
 	}
 	defer tx.Rollback(ctx)
 	expiresAt := payload.ObservedAt.Add(retention.Duration)
+	var reusableUntil *time.Time
+	if duration := cachePolicy.DurationForStatus(payload.StatusCode); duration > 0 {
+		value := payload.ObservedAt.Add(duration)
+		reusableUntil = &value
+	}
 	if _, err := tx.Exec(ctx, `
         INSERT INTO source_blobs (
             checksum, object_key, compression, media_type, uncompressed_size,
@@ -105,12 +111,12 @@ func RecordObservation(
             provider, provider_namespace, provider_record_id, request_key,
             response_status, response_time_ms, observed_at, blob_checksum,
             normalizer_version, retention_class, river_job_id, response_headers,
-            request_fingerprint
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			request_fingerprint, reusable_until
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING id`,
 		payload.Provider, payload.ProviderNamespace, payload.ProviderRecordID, payload.RequestKey,
 		payload.StatusCode, payload.ResponseTime.Milliseconds(), payload.ObservedAt, checksum,
-		normalizerVersion, retention.Class, nullableJobID(riverJobID), selectedHeaders, requestFingerprint,
+		normalizerVersion, retention.Class, nullableJobID(riverJobID), selectedHeaders, requestFingerprint, reusableUntil,
 	).Scan(&observationID); err != nil {
 		return RecordedObservation{}, fmt.Errorf("record provider observation: %w", err)
 	}
@@ -122,7 +128,7 @@ func RecordObservation(
 			return RecordedObservation{}, fmt.Errorf("delete superseded provider blob %q: %w", previousObjectKey, err)
 		}
 	}
-	return RecordedObservation{ID: observationID, Checksum: checksum, Payload: payload}, nil
+	return RecordedObservation{ID: observationID, Checksum: checksum, ObjectKey: objectKey, Payload: payload}, nil
 }
 
 func selectHeaders(headers http.Header) map[string]string {

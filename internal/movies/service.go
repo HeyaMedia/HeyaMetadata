@@ -19,6 +19,8 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/ingest"
 	"github.com/HeyaMedia/HeyaMetadata/internal/mixer"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tmdb"
 	"github.com/jackc/pgx/v5"
@@ -37,14 +39,17 @@ type Result struct {
 
 type Service struct {
 	runtime *platform.Runtime
-	planner *mixer.Planner
 }
 
 func NewService(runtime *platform.Runtime) *Service {
-	return &Service{runtime: runtime, planner: mixer.New(tmdb.New(runtime.Config.Providers.TMDB))}
+	return &Service{runtime: runtime}
 }
 
 func (s *Service) IngestTMDB(ctx context.Context, tmdbID int64, riverJobID int64) (result Result, returnErr error) {
+	return s.IngestTMDBWithCredentials(ctx, tmdbID, riverJobID, providercredentials.Credentials{})
+}
+
+func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, riverJobID int64, credentials providercredentials.Credentials) (result Result, returnErr error) {
 	if tmdbID < 1 {
 		return Result{}, fmt.Errorf("TMDB movie ID must be positive")
 	}
@@ -72,7 +77,13 @@ func (s *Service) IngestTMDB(ctx context.Context, tmdbID int64, riverJobID int64
 		providers.ScopeCredits, providers.ScopeArtwork, providers.ScopeCollections,
 		providers.ScopeRecommendations,
 	}
-	plan := s.planner.Build([]providers.Identifier{identifier}, desired)
+	capability := tmdb.New(s.runtime.Config.Providers.TMDB).Capability()
+	resolver, err := providercache.New(s.runtime, moviedomain.TMDBNormalizerVersion, capability.RawRetention, capability.ResponseCache, riverJobID)
+	if err != nil {
+		return Result{}, err
+	}
+	planner := mixer.New(tmdb.NewCached(s.runtime.Config.Providers.TMDB, resolver, credentials.APIKey("tmdb")))
+	plan := planner.Build([]providers.Identifier{identifier}, desired)
 	if len(plan.Steps) == 0 {
 		return Result{}, fmt.Errorf("no provider collector accepts TMDB movie IDs")
 	}
@@ -83,7 +94,11 @@ func (s *Service) IngestTMDB(ctx context.Context, tmdbID int64, riverJobID int64
 	recorded := make([]ingest.RecordedObservation, 0, len(payloads))
 	retention := plan.Steps[0].Collector.Capability().RawRetention
 	for _, payload := range payloads {
-		observation, err := ingest.RecordObservation(ctx, s.runtime, payload, moviedomain.TMDBNormalizerVersion, retention, riverJobID)
+		if payload.ObservationID != "" {
+			recorded = append(recorded, ingest.RecordedObservation{ID: payload.ObservationID, Checksum: payload.BlobChecksum, Payload: payload})
+			continue
+		}
+		observation, err := ingest.RecordObservation(ctx, s.runtime, payload, moviedomain.TMDBNormalizerVersion, retention, plan.Steps[0].Collector.Capability().ResponseCache, riverJobID)
 		if err != nil {
 			return Result{}, err
 		}

@@ -191,9 +191,30 @@ validated.
   combination, provenance, detail/summary projections, Postgres search, Redis,
   and the gap-free public change feed.
 - Shared collector capabilities declare accepted identifiers, provided scopes,
-  and raw-blob retention. The mixer can re-plan when a collector discovers IDs
-  that unlock another provider. Domain combiners union provider evidence while
-  applying explicit precedence only to scalar winners.
+  raw-blob retention, and exact-response reuse. The mixer can re-plan when a
+  collector discovers IDs that unlock another provider. Domain combiners union
+  provider evidence while applying explicit precedence only to scalar winners.
+- TMDB now exercises the reusable provider-cache blueprint: Redis pointer and
+  one-hour hot body, durable Postgres/S3 fallback, checksum verification,
+  per-request distributed locking, 48-hour success reuse, and one-hour negative
+  reuse. Live jobs 23 and 24 added no observations after job 22 fetched the movie
+  and collection; job 24 was run after evicting the Redis pointer/body keys.
+- Resolution and refresh endpoints accept `X-Heya-TMDB-API-Key`. Plaintext keys
+  live only behind a two-hour Redis credential reference; River persists the
+  opaque reference. A live refresh job completed from cache with a deliberately
+  invalid caller key, and its River args contained no plaintext credential.
+- River's built-in leader-elected cleaner is explicitly configured to retain
+  completed jobs for 24 hours. In River v0.40 it checks every 30 seconds, so no
+  self-generating hourly cleanup job is needed; domain ledgers remain durable.
+- River priority bands are now interactive `1`, stale-on-read `2`, and scheduled
+  maintenance `4`. Unique queued movie jobs are promoted in place when a user
+  request overtakes background work, including safe attachment of an opaque
+  caller-credential reference.
+- Detail demand is buffered in Redis and flushed hourly into durable
+  `entity_access_stats`. The adaptive refresh scheduler decays demand and uses
+  2/7/14/30-day cadence bands, with cold or never-read entities settling at one
+  month. A live detail read flushed successfully and moved the Matrix refresh
+  cadence to two days; a real integration test proved priority promotion.
 - Raw provider bytes use prefix-scoped RustFS lifecycle expiry:
   `data/ephemeral/24h/` expires after one day and `data/ephemeral/48h/` after
   two. TMDB uses the 48-hour tier. No rule matches `images/` or permanent data.
@@ -210,7 +231,8 @@ validated.
 
 ## Suggested next turn
 
-1. Add OMDb as the second movie collector, unlocked by accepted IMDb title
+1. Add OMDb as the second movie collector using the TMDB cache/credential
+   blueprint, unlocked by accepted IMDb title
    claims discovered by TMDB.
 2. Prove multi-provider combination with plot fallback and separate IMDb,
    Rotten Tomatoes, and Metacritic rating scales and provenance.

@@ -16,6 +16,13 @@ type BlobRetentionArgs struct{}
 
 func (BlobRetentionArgs) Kind() string { return BlobRetentionKind }
 
+func (BlobRetentionArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		Priority:   PriorityScheduled,
+		UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()},
+	}
+}
+
 type BlobRetentionWorker struct {
 	river.WorkerDefaults[BlobRetentionArgs]
 	runtime *platform.Runtime

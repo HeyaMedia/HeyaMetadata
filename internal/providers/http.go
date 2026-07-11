@@ -2,25 +2,57 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
 type HTTPClient struct {
-	client *http.Client
+	client   *http.Client
+	resolver PayloadResolver
 }
 
 func NewHTTPClient(timeout time.Duration) *HTTPClient {
 	return &HTTPClient{client: &http.Client{Timeout: timeout}}
 }
 
+func NewCachedHTTPClient(timeout time.Duration, resolver PayloadResolver) *HTTPClient {
+	return &HTTPClient{client: &http.Client{Timeout: timeout}, resolver: resolver}
+}
+
 func (c *HTTPClient) Do(ctx context.Context, request *http.Request, payload Payload) (Payload, error) {
+	return c.DoGuarded(ctx, request, payload, nil)
+}
+
+// DoGuarded runs guard only when an actual network request is necessary. This
+// lets a warm shared response be reused without requiring provider credentials.
+func (c *HTTPClient) DoGuarded(ctx context.Context, request *http.Request, payload Payload, guard func() error) (Payload, error) {
+	fetch := func() (Payload, error) {
+		if guard != nil {
+			if err := guard(); err != nil {
+				return Payload{}, err
+			}
+		}
+		return c.doNetwork(ctx, request, payload)
+	}
+	if c.resolver != nil {
+		return c.resolver.Resolve(ctx, payload, fetch)
+	}
+	return fetch()
+}
+
+func (c *HTTPClient) doNetwork(ctx context.Context, request *http.Request, payload Payload) (Payload, error) {
 	request = request.WithContext(ctx)
 	startedAt := time.Now()
 	response, err := c.client.Do(request)
 	if err != nil {
+		var urlError *url.Error
+		if errors.As(err, &urlError) {
+			err = urlError.Err
+		}
 		return Payload{}, fmt.Errorf("send %s provider request: %w", payload.Provider, err)
 	}
 	defer response.Body.Close()

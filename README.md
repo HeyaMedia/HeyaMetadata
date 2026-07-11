@@ -178,3 +178,11 @@ go test ./...
 Configuration is read from process environment variables after `.env.local`
 and `.env` are loaded; process variables always win. See
 [`.env.example`](./.env.example). Never commit the S3 credentials.
+
+Provider collectors share exact-response caching, distributed fetch locking,
+raw evidence storage, and transient caller-credential handoff. See the
+[provider blueprint](./docs/providers.md). TMDB resolution and refresh requests
+accept an optional `X-Heya-TMDB-API-Key`; the plaintext key is held temporarily
+in Redis and is never stored in River or Postgres. Interactive work is promoted
+above stale-on-read and adaptive background refreshes; entity demand decays into
+a 2/7/14/30-day refresh cadence.

@@ -18,6 +18,7 @@ const appendedMovieScopes = "credits,external_ids,keywords,release_dates,videos,
 
 type Client struct {
 	config config.TMDBConfig
+	apiKey string
 	http   *providers.HTTPClient
 }
 
@@ -25,11 +26,19 @@ func New(config config.TMDBConfig) *Client {
 	return &Client{config: config, http: providers.NewHTTPClient(30 * time.Second)}
 }
 
+func NewCached(config config.TMDBConfig, resolver providers.PayloadResolver, apiKey string) *Client {
+	return &Client{config: config, apiKey: apiKey, http: providers.NewCachedHTTPClient(30*time.Second, resolver)}
+}
+
 func (c *Client) Capability() providers.Capability {
 	return providers.Capability{
 		Provider: "tmdb", EntityKind: "movie",
 		RawRetention: providers.RetentionPolicy{
 			Class: "provider_raw_48h", Duration: 48 * time.Hour, ObjectPrefix: "ephemeral/48h",
+		},
+		ResponseCache: providers.ResponseCachePolicy{
+			ReuseDuration: 48 * time.Hour, NegativeDuration: time.Hour,
+			RedisBodyDuration: time.Hour, MaxRedisBodyBytes: 1024 * 1024,
 		},
 		AcceptedIdentifiers: []providers.Identifier{{Provider: "tmdb", Namespace: "movie"}},
 		Provides: []providers.Scope{
@@ -42,9 +51,6 @@ func (c *Client) Capability() providers.Capability {
 }
 
 func (c *Client) Collect(ctx context.Context, identifier providers.Identifier) ([]providers.Payload, error) {
-	if c.config.Token == "" {
-		return nil, fmt.Errorf("HEYA_METADATA_TMDB_TOKEN is not configured")
-	}
 	if identifier.Provider != "tmdb" || identifier.Namespace != "movie" {
 		return nil, fmt.Errorf("TMDB movie collector cannot accept %s.%s", identifier.Provider, identifier.Namespace)
 	}
@@ -99,11 +105,23 @@ func (c *Client) get(ctx context.Context, endpoint string, query url.Values, pay
 		return providers.Payload{}, fmt.Errorf("build TMDB URL: %w", err)
 	}
 	requestURL.RawQuery = query.Encode()
+	if c.apiKey != "" {
+		values := requestURL.Query()
+		values.Set("api_key", c.apiKey)
+		requestURL.RawQuery = values.Encode()
+	}
 	request, err := http.NewRequest(http.MethodGet, requestURL.String(), nil)
 	if err != nil {
 		return providers.Payload{}, fmt.Errorf("build TMDB request: %w", err)
 	}
-	request.Header.Set("Authorization", "Bearer "+c.config.Token)
+	if c.apiKey == "" && c.config.Token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.config.Token)
+	}
 	request.Header.Set("Accept", "application/json")
-	return c.http.Do(ctx, request, payload)
+	return c.http.DoGuarded(ctx, request, payload, func() error {
+		if c.apiKey == "" && c.config.Token == "" {
+			return fmt.Errorf("TMDB requires X-Heya-TMDB-API-Key or HEYA_METADATA_TMDB_TOKEN")
+		}
+		return nil
+	})
 }

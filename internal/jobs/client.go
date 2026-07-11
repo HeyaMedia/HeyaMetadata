@@ -10,22 +10,31 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
 
+const CompletedJobRetention = 24 * time.Hour
+
 func Workers(runtime *platform.Runtime) *river.Workers {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, NewPlatformSmokeWorker(runtime))
 	river.AddWorker(workers, NewMovieIngestWorker(runtime))
 	river.AddWorker(workers, NewBlobRetentionWorker(runtime))
+	river.AddWorker(workers, NewRefreshSchedulerWorker(runtime))
 	return workers
 }
 
 func NewClient(runtime *platform.Runtime, maxWorkers int, work bool) (*river.Client[pgx.Tx], error) {
 	config := &river.Config{
-		Workers: Workers(runtime),
+		Workers:                     Workers(runtime),
+		CompletedJobRetentionPeriod: CompletedJobRetention,
 		PeriodicJobs: []*river.PeriodicJob{
 			river.NewPeriodicJob(
 				river.PeriodicInterval(time.Hour),
 				func() (river.JobArgs, *river.InsertOpts) { return BlobRetentionArgs{}, nil },
 				&river.PeriodicJobOpts{ID: "provider-blob-retention", RunOnStart: true},
+			),
+			river.NewPeriodicJob(
+				river.PeriodicInterval(time.Hour),
+				func() (river.JobArgs, *river.InsertOpts) { return RefreshSchedulerArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "adaptive-provider-refresh", RunOnStart: true},
 			),
 		},
 	}

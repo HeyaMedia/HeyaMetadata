@@ -2,6 +2,7 @@ package blobstore
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -98,5 +99,16 @@ func TestContentKeyRejectsInvalidChecksum(t *testing.T) {
 
 	if _, err := ContentKey("data", "not-a-checksum", ""); err == nil {
 		t.Fatal("expected invalid checksum error")
+	}
+}
+
+func TestGetExposesNotFoundSentinel(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+	store, _ := New(context.Background(), config.S3Config{Endpoint: server.URL, Region: "us-east-1", Bucket: "bucket", AccessKeyID: "access", SecretAccessKey: "secret"})
+	_, err := store.Get(context.Background(), "missing")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }

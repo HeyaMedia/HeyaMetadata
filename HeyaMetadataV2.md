@@ -382,6 +382,24 @@ uncompressed and compressed sizes, and integrity state of unique bytes.
 Repeated unchanged fetches add small observation rows and reuse the existing
 blob.
 
+An exact provider request may also reuse a still-fresh prior observation without
+performing another fetch. Redis holds only a hot pointer/body and coordinates a
+per-request lock; Postgres plus the content-addressed RustFS blob are the durable
+fallback. The credential-free request fingerprint includes provider, endpoint,
+identifier, locale/region, query, pagination, and requested scopes. Response
+reuse (`reusable_until`) is independent from raw-blob retention (`expires_at`).
+Because no upstream request occurred, a cache reuse does not create a synthetic
+provider observation.
+
+Serving demand influences collection scheduling without influencing canonical
+truth. Detail fetches are buffered in Redis and periodically folded into a
+durable, decaying access score. Interactive misses and explicit refreshes have
+higher River priority than stale-on-read work, which has higher priority than
+periodic maintenance. Adaptive refresh intervals widen from days to roughly one
+month as an entity becomes cold. Search impressions alone do not increase the
+score. A newly interactive request promotes an existing unique background job
+instead of creating a duplicate.
+
 ### Normalized source records
 
 Provider adapters produce typed, versioned normalized records between raw bytes

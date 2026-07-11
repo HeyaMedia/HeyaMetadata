@@ -4,6 +4,8 @@ package providers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"time"
@@ -45,6 +47,26 @@ type Capability struct {
 	AcceptedIdentifiers []Identifier
 	Provides            []Scope
 	RawRetention        RetentionPolicy
+	ResponseCache       ResponseCachePolicy
+}
+
+// ResponseCachePolicy controls whether an exact upstream request may be
+// reused. It is deliberately independent from raw evidence retention.
+type ResponseCachePolicy struct {
+	ReuseDuration     time.Duration
+	NegativeDuration  time.Duration
+	RedisBodyDuration time.Duration
+	MaxRedisBodyBytes int
+}
+
+func (p ResponseCachePolicy) DurationForStatus(status int) time.Duration {
+	if status >= 200 && status < 300 {
+		return p.ReuseDuration
+	}
+	if status == http.StatusNotFound {
+		return p.NegativeDuration
+	}
+	return 0
 }
 
 type RetentionPolicy struct {
@@ -65,6 +87,20 @@ type Payload struct {
 	Body              []byte
 	ObservedAt        time.Time
 	ResponseTime      time.Duration
+	ObservationID     string
+	BlobChecksum      string
+	FromCache         bool
+}
+
+func RequestFingerprint(provider, requestKey string) string {
+	digest := sha256.Sum256([]byte(provider + "\x00" + requestKey))
+	return hex.EncodeToString(digest[:])
+}
+
+// PayloadResolver may satisfy a request from shared storage or invoke fetch.
+// Implementations must not include provider credentials in their cache key.
+type PayloadResolver interface {
+	Resolve(context.Context, Payload, func() (Payload, error)) (Payload, error)
 }
 
 type Collector interface {
