@@ -223,3 +223,25 @@ identity. It supports paged search, artist top albums, and short-lived similar
 artist evidence. API keys are applied only to real upstream calls and excluded
 from request identity. Last.fm error code 6 receives a one-hour negative TTL;
 invalid keys, throttling, and all other logical errors are never shared.
+
+## AniDB and TVMaze source collection
+
+AniDB uses its official HTTP XML API on the mandated `api.anidb.net:9001`
+endpoint. Configuration rejects lookalike hosts or accidental HTTPS variants,
+and a real fetch requires a registered lowercase 4-16 letter client name and
+positive client version. All clients share a hard one-request-per-two-seconds
+gate. More importantly, exact anime responses are reused for a full 24 hours,
+matching AniDB's warning that requesting the same dataset repeatedly in one day
+can cause a ban. XML `<error>` envelopes are classified separately from HTTP
+status and are never shared except a one-hour explicit not-found response. Raw
+XML remains XML evidence and is stored with an `.xml.gz` object suffix rather
+than being disguised as JSON.
+
+TVMaze supports TVMaze show/person IDs plus IMDb, TVDB, and TVRage show lookup.
+External lookup is retained as supporting evidence, then unlocks a second rich
+show request embedding cast, crew, seasons, episodes, images, and alternate
+titles. Person detail embeds cast and crew credits. Show and people discovery
+use the fuzzy search endpoints but remain candidate evidence. The shared gate
+matches TVMaze's documented baseline of 20 calls per 10 seconds; exact show
+data is reusable for six hours and person data for 24 hours. All embed arrays,
+external-ID kinds, and queries participate in request identity.

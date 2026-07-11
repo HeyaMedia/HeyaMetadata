@@ -31,6 +31,8 @@ func TestConfigValidateRejectsInvalidDependencyURLs(t *testing.T) {
 		"Deezer":      func(config *Config) { config.Providers.Deezer.BaseURL = "api.deezer.com" },
 		"Discogs":     func(config *Config) { config.Providers.Discogs.BaseURL = "api.discogs.com" },
 		"LastFM":      func(config *Config) { config.Providers.LastFM.BaseURL = "ws.audioscrobbler.com" },
+		"AniDB":       func(config *Config) { config.Providers.AniDB.BaseURL = "https://api.anidb.net/httpapi" },
+		"TVMaze":      func(config *Config) { config.Providers.TVMaze.BaseURL = "api.tvmaze.com" },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -79,6 +81,8 @@ func validConfig() Config {
 			Deezer:      DeezerConfig{BaseURL: "https://api.deezer.com", RequestsPerSecond: 1},
 			Discogs:     DiscogsConfig{BaseURL: "https://api.discogs.com", RequestsPerSecond: 1, UserAgent: "HeyaMetadata/test"},
 			LastFM:      LastFMConfig{BaseURL: "https://ws.audioscrobbler.com/2.0/", RequestsPerSecond: 1},
+			AniDB:       AniDBConfig{BaseURL: "http://api.anidb.net:9001/httpapi", ClientVersion: 1},
+			TVMaze:      TVMazeConfig{BaseURL: "https://api.tvmaze.com", RequestsPerSecond: 2},
 		},
 	}
 }

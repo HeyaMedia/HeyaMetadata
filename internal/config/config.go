@@ -46,6 +46,19 @@ type ProvidersConfig struct {
 	Deezer      DeezerConfig
 	Discogs     DiscogsConfig
 	LastFM      LastFMConfig
+	AniDB       AniDBConfig
+	TVMaze      TVMazeConfig
+}
+
+type AniDBConfig struct {
+	Client        string
+	ClientVersion int
+	BaseURL       string
+}
+
+type TVMazeConfig struct {
+	BaseURL           string
+	RequestsPerSecond float64
 }
 
 type AppleConfig struct {
@@ -148,6 +161,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	anidbClientVersion, err := envInt("HEYA_METADATA_ANIDB_CLIENT_VERSION", 1)
+	if err != nil {
+		return Config{}, err
+	}
+	tvMazeRate, err := envFloat("HEYA_METADATA_TVMAZE_REQUESTS_PER_SECOND", 2)
+	if err != nil {
+		return Config{}, err
+	}
 
 	config := Config{
 		Host:        env("HEYA_METADATA_HOST", "0.0.0.0"),
@@ -194,6 +215,10 @@ func Load() (Config, error) {
 			RequestsPerSecond: discogsRate, UserAgent: env("HEYA_METADATA_DISCOGS_USER_AGENT", "HeyaMetadata/dev +https://github.com/HeyaMedia/HeyaMetadata"),
 		}, LastFM: LastFMConfig{
 			APIKey: env("HEYA_METADATA_LASTFM_API_KEY", ""), BaseURL: env("HEYA_METADATA_LASTFM_BASE_URL", "https://ws.audioscrobbler.com/2.0/"), RequestsPerSecond: lastFMRate,
+		}, AniDB: AniDBConfig{
+			Client: env("HEYA_METADATA_ANIDB_CLIENT", ""), ClientVersion: anidbClientVersion, BaseURL: env("HEYA_METADATA_ANIDB_BASE_URL", "http://api.anidb.net:9001/httpapi"),
+		}, TVMaze: TVMazeConfig{
+			BaseURL: env("HEYA_METADATA_TVMAZE_BASE_URL", "https://api.tvmaze.com"), RequestsPerSecond: tvMazeRate,
 		}},
 	}
 	if err := config.Validate(); err != nil {
@@ -312,6 +337,20 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Providers.Discogs.UserAgent) == "" {
 		return fmt.Errorf("HEYA_METADATA_DISCOGS_USER_AGENT must not be empty")
+	}
+	anidbURL, err := url.Parse(c.Providers.AniDB.BaseURL)
+	if err != nil || anidbURL.Scheme != "http" || anidbURL.Hostname() != "api.anidb.net" || anidbURL.Port() != "9001" {
+		return fmt.Errorf("HEYA_METADATA_ANIDB_BASE_URL must be AniDB's official HTTP API endpoint")
+	}
+	if c.Providers.AniDB.ClientVersion < 1 {
+		return fmt.Errorf("HEYA_METADATA_ANIDB_CLIENT_VERSION must be positive")
+	}
+	tvMazeURL, err := url.Parse(c.Providers.TVMaze.BaseURL)
+	if err != nil || tvMazeURL.Scheme != "https" || tvMazeURL.Host == "" {
+		return fmt.Errorf("HEYA_METADATA_TVMAZE_BASE_URL must be an absolute HTTPS URL")
+	}
+	if c.Providers.TVMaze.RequestsPerSecond <= 0 || c.Providers.TVMaze.RequestsPerSecond > 1000 {
+		return fmt.Errorf("HEYA_METADATA_TVMAZE_REQUESTS_PER_SECOND must be greater than 0 and at most 1000")
 	}
 	return nil
 }

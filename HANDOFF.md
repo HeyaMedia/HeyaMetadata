@@ -255,6 +255,13 @@ validated.
   explicit in every cache fingerprint. Existing Discogs and Last.fm keys are
   available only in the ignored local environment. Representative live lookup
   and search calls for all four providers returned HTTP 200.
+- AniDB and TVMaze source collectors are implemented. AniDB is pinned to its
+  official plaintext port-9001 XML API, enforces the registered-client shape,
+  spaces requests by two seconds, and reuses exact anime data for 24 hours as
+  required by its anti-flood guidance. TVMaze resolves IMDb/TVDB/TVRage IDs and
+  follows with rich show embeds, plus people and search surfaces. Live AniDB
+  anime `1`, TVMaze IMDb lookup, and a 146 KB embedded show response returned
+  HTTP 200. XML observations now use `.xml.gz` content keys.
 - Raw provider bytes use prefix-scoped RustFS lifecycle expiry:
   `data/ephemeral/24h/` expires after one day and `data/ephemeral/48h/` after
   two. TMDB uses the 48-hour tier. No rule matches `images/` or permanent data.

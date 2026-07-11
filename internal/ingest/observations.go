@@ -41,7 +41,12 @@ func RecordObservation(
 	var previousObjectKey string
 	var previousExpiresAt *time.Time
 	_ = runtime.DB.QueryRow(ctx, `SELECT object_key, expires_at FROM source_blobs WHERE checksum = $1`, checksum).Scan(&previousObjectKey, &previousExpiresAt)
-	objectKey, err := runtime.Blobs.ContentKeyUnder(retention.ObjectPrefix, checksum, ".json.gz")
+	mediaType := payload.Headers.Get("Content-Type")
+	if mediaType == "" {
+		mediaType = "application/json"
+	}
+	extension := blobExtension(mediaType)
+	objectKey, err := runtime.Blobs.ContentKeyUnder(retention.ObjectPrefix, checksum, extension)
 	if err != nil {
 		return RecordedObservation{}, err
 	}
@@ -59,10 +64,6 @@ func RecordObservation(
 	}
 	if err := compressor.Close(); err != nil {
 		return RecordedObservation{}, fmt.Errorf("finish observation compression: %w", err)
-	}
-	mediaType := payload.Headers.Get("Content-Type")
-	if mediaType == "" {
-		mediaType = "application/json"
 	}
 	if err := runtime.Blobs.PutImmutable(ctx, objectKey, compressed.Bytes(), mediaType, "gzip"); err != nil {
 		return RecordedObservation{}, fmt.Errorf("store provider observation: %w", err)
@@ -149,4 +150,11 @@ func nullableJobID(jobID int64) any {
 		return nil
 	}
 	return jobID
+}
+
+func blobExtension(mediaType string) string {
+	if strings.Contains(strings.ToLower(mediaType), "xml") {
+		return ".xml.gz"
+	}
+	return ".json.gz"
 }
