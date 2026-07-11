@@ -138,3 +138,26 @@ and certification evidence, companies, identity claims, people credits, and
 typed artwork. TVDB `score` remains a provider popularity signal and is never
 presented as a rating. Identity candidates from every successful supplemental
 record participate in conflict detection and are attached as durable claims.
+
+## Fanart.tv refinement
+
+Fanart.tv v3.2 is the dedicated supplemental movie-artwork collector. It runs
+from the canonical `tmdb.movie` identifier and preserves posters, backgrounds,
+logos, banners, clear art, thumbnails, and disc art with provider image IDs,
+languages, dimensions, likes, and source provenance. The provider's `00`
+language sentinel becomes an unspecified language, and legacy HTTP asset URLs
+are upgraded to HTTPS.
+
+The configured `HEYA_METADATA_FANART_API_KEY` is the application/project key.
+Callers may additionally send their personal key as
+`X-Heya-Fanart-API-Key`; it becomes Fanart.tv's `client_key` and uses the same
+transient Redis credential handoff as the other providers. Either key is enough
+for a direct request. Neither appears in the request fingerprint, observation
+metadata, River job, or logs. Successful responses are reusable for 24 hours,
+empty successful envelopes for one hour, and raw evidence expires after 48
+hours.
+
+Fanart.tv precedes TVDB in follow-up planning so its artwork scope is collected
+while TVDB remains available for credits and its other scopes. The combiner
+does not choose one provider globally: all artwork candidates receive opaque
+IDs and retain provider provenance for later ranking.

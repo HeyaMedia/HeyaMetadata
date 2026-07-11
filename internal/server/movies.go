@@ -19,19 +19,21 @@ import (
 )
 
 type entityInput struct {
-	ID         string `path:"id" format:"uuid"`
-	TMDBAPIKey string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
-	OMDBAPIKey string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
-	TVDBAPIKey string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
+	ID           string `path:"id" format:"uuid"`
+	TMDBAPIKey   string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
+	OMDBAPIKey   string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
+	TVDBAPIKey   string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
+	FanartAPIKey string `header:"X-Heya-Fanart-API-Key" doc:"Optional request-scoped Fanart.tv personal API key; never persisted"`
 }
 type entityOutput struct{ Body moviedomain.DetailDocument }
 
 type resolutionInput struct {
-	Prefer     string `header:"Prefer"`
-	TMDBAPIKey string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
-	OMDBAPIKey string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
-	TVDBAPIKey string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
-	Body       struct {
+	Prefer       string `header:"Prefer"`
+	TMDBAPIKey   string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
+	OMDBAPIKey   string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
+	TVDBAPIKey   string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
+	FanartAPIKey string `header:"X-Heya-Fanart-API-Key" doc:"Optional request-scoped Fanart.tv personal API key; never persisted"`
+	Body         struct {
 		Kind      string `json:"kind" enum:"movie"`
 		Provider  string `json:"provider" example:"tmdb"`
 		Namespace string `json:"namespace" example:"movie"`
@@ -127,7 +129,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		}
 		if !fresh {
 			if tmdbID, claimErr := service.TMDBID(ctx, input.ID); claimErr == nil {
-				if credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey); credentialErr == nil {
+				if credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey); credentialErr == nil {
 					_, _ = jobs.InsertMovie(ctx, runtime, client, jobs.MovieIngestArgs{TMDBID: tmdbID, CredentialRef: credentialRef, Reason: "stale_read"}, jobs.PriorityStaleRead)
 				}
 			}
@@ -161,7 +163,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if parseErr != nil || tmdbID < 1 {
 			return nil, huma.Error400BadRequest("invalid TMDB movie ID")
 		}
-		credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey)
+		credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey)
 		if credentialErr != nil {
 			return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
 		}
@@ -206,7 +208,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if err != nil {
 			return nil, err
 		}
-		credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey)
+		credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey)
 		if credentialErr != nil {
 			return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
 		}
@@ -280,7 +282,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 	})
 }
 
-func storeProviderCredentials(ctx context.Context, runtime *platform.Runtime, tmdbAPIKey, omdbAPIKey, tvdbAPIKey string) (string, error) {
+func storeProviderCredentials(ctx context.Context, runtime *platform.Runtime, tmdbAPIKey, omdbAPIKey, tvdbAPIKey, fanartAPIKey string) (string, error) {
 	apiKeys := map[string]string{}
 	if value := strings.TrimSpace(tmdbAPIKey); value != "" {
 		apiKeys["tmdb"] = value
@@ -290,6 +292,9 @@ func storeProviderCredentials(ctx context.Context, runtime *platform.Runtime, tm
 	}
 	if value := strings.TrimSpace(tvdbAPIKey); value != "" {
 		apiKeys["tvdb"] = value
+	}
+	if value := strings.TrimSpace(fanartAPIKey); value != "" {
+		apiKeys["fanart"] = value
 	}
 	if len(apiKeys) == 0 {
 		return "", nil

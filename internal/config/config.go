@@ -36,9 +36,15 @@ type WorkerConfig struct {
 }
 
 type ProvidersConfig struct {
-	TMDB TMDBConfig
-	OMDB OMDBConfig
-	TVDB TVDBConfig
+	TMDB   TMDBConfig
+	OMDB   OMDBConfig
+	TVDB   TVDBConfig
+	Fanart FanartConfig
+}
+
+type FanartConfig struct {
+	APIKey  string
+	BaseURL string
 }
 
 type TVDBConfig struct {
@@ -110,6 +116,9 @@ func Load() (Config, error) {
 		}, TVDB: TVDBConfig{
 			APIKey:  env("HEYA_METADATA_TVDB_API_KEY", ""),
 			BaseURL: env("HEYA_METADATA_TVDB_BASE_URL", "https://api4.thetvdb.com/v4"),
+		}, Fanart: FanartConfig{
+			APIKey:  env("HEYA_METADATA_FANART_API_KEY", ""),
+			BaseURL: env("HEYA_METADATA_FANART_BASE_URL", "https://webservice.fanart.tv/v3.2"),
 		}},
 	}
 	if err := config.Validate(); err != nil {
@@ -186,6 +195,10 @@ func (c Config) Validate() error {
 	tvdbURL, err := url.Parse(c.Providers.TVDB.BaseURL)
 	if err != nil || tvdbURL.Scheme != "https" || tvdbURL.Host == "" {
 		return fmt.Errorf("HEYA_METADATA_TVDB_BASE_URL must be an absolute HTTPS URL")
+	}
+	fanartURL, err := url.Parse(c.Providers.Fanart.BaseURL)
+	if err != nil || fanartURL.Scheme != "https" || fanartURL.Host == "" {
+		return fmt.Errorf("HEYA_METADATA_FANART_BASE_URL must be an absolute HTTPS URL")
 	}
 	return nil
 }

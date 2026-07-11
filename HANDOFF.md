@@ -232,6 +232,12 @@ validated.
   artwork, and a durable `tvdb.movie:169` external-ID claim. TVDB login is lazy,
   server token reuse is 25 days, and request-scoped keys are supported through
   `X-Heya-TVDB-API-Key` without sharing their bearer token.
+- Fanart.tv v3.2 is implemented and integrated for movie artwork. It accepts
+  the configured project key plus an optional transient personal key through
+  `X-Heya-Fanart-API-Key`, and neither secret affects the shared request
+  identity. A live Matrix ingestion recorded one reusable Fanart observation,
+  normalized 116 typed artwork candidates, and projected Fanart freshness and
+  provenance; an immediate repeat added zero observations.
 - Raw provider bytes use prefix-scoped RustFS lifecycle expiry:
   `data/ephemeral/24h/` expires after one day and `data/ephemeral/48h/` after
   two. TMDB uses the 48-hour tier. No rule matches `images/` or permanent data.
@@ -248,10 +254,11 @@ validated.
 
 ## Suggested next turn
 
-1. Add Fanart.tv through the same capability-driven pipeline, expanding passing
-   entries in `coverage/movie.json`.
-2. Generalize supplemental-provider failure reporting in the public freshness
-   document before several optional providers are active at once.
+1. Establish the provider-agnostic evidence contract for music identity and
+   release data, then add MusicBrainz as its first collector without prematurely
+   fixing canonical merge precedence.
+2. Generalize supplemental-provider execution and failure reporting before the
+   movie/series provider count grows further.
 
 The previous repositories may be inspected for provider knowledge and metadata
 coverage, but should not be copied as architectural constraints.

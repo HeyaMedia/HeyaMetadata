@@ -22,6 +22,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/fanart"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/omdb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tmdb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
@@ -89,6 +90,11 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 	if err != nil {
 		return Result{}, err
 	}
+	fanartCapability := fanart.New(s.runtime.Config.Providers.Fanart).Capability()
+	fanartResolver, err := providercache.New(s.runtime, moviedomain.FanartNormalizerVersion, fanartCapability.RawRetention, fanartCapability.ResponseCache, riverJobID)
+	if err != nil {
+		return Result{}, err
+	}
 	tvdbCapability := tvdb.New(s.runtime.Config.Providers.TVDB).Capability()
 	tvdbResolver, err := providercache.New(s.runtime, moviedomain.TVDBNormalizerVersion, tvdbCapability.RawRetention, tvdbCapability.ResponseCache, riverJobID)
 	if err != nil {
@@ -97,6 +103,7 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 	planner := mixer.New(
 		tmdb.NewCached(s.runtime.Config.Providers.TMDB, tmdbResolver, credentials.APIKey("tmdb")),
 		omdb.NewCached(s.runtime.Config.Providers.OMDB, omdbResolver, credentials.APIKey("omdb")),
+		fanart.NewCached(s.runtime.Config.Providers.Fanart, fanartResolver, credentials.APIKey("fanart")),
 		tvdb.NewCached(s.runtime.Config.Providers.TVDB, tvdbResolver, credentials.APIKey("tvdb"), s.runtime.Redis),
 	)
 	knownIdentifiers := []providers.Identifier{identifier}
@@ -139,6 +146,7 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 
 	var supplemental []moviedomain.NormalizedRecordV1
 	var omdbFailure error
+	var fanartFailure error
 	var tvdbFailure error
 	followUp := planner.BuildAvailable(knownIdentifiers, desired, completed)
 	for _, step := range followUp.Steps {
@@ -201,6 +209,28 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 			}
 			supplemental = append(supplemental, normalized)
 			completed["tvdb"] = true
+		case "fanart":
+			providerPayloads, collectErr := step.Collector.Collect(ctx, step.Identifier)
+			if collectErr != nil {
+				fanartFailure = collectErr
+				continue
+			}
+			providerRecorded, recordErr := s.recordPayloads(ctx, providerPayloads, moviedomain.FanartNormalizerVersion, step.Collector.Capability(), riverJobID)
+			if recordErr != nil || len(providerRecorded) == 0 {
+				fanartFailure = firstError(recordErr, "Fanart.tv collector returned no observations")
+				continue
+			}
+			if providerRecorded[0].Payload.StatusCode != http.StatusOK {
+				fanartFailure = &providers.StatusError{Provider: "fanart", StatusCode: providerRecorded[0].Payload.StatusCode}
+				continue
+			}
+			normalized, normalizeErr := fanart.Normalize(providerRecorded[0].Payload.Body, providerRecorded[0].ID, providerRecorded[0].Payload.ObservedAt)
+			if normalizeErr != nil {
+				fanartFailure = normalizeErr
+				continue
+			}
+			supplemental = append(supplemental, normalized)
+			completed["fanart"] = true
 		}
 	}
 	if omdbFailure != nil {
@@ -212,6 +242,11 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 		tmdbNormalized.PartialFailure = true
 		tmdbNormalized.Warnings = append(tmdbNormalized.Warnings, "tvdb: "+tvdbFailure.Error())
 		slog.Warn("supplemental movie provider failed", "provider", "tvdb", "tmdb_id", tmdbID, "error", tvdbFailure)
+	}
+	if fanartFailure != nil {
+		tmdbNormalized.PartialFailure = true
+		tmdbNormalized.Warnings = append(tmdbNormalized.Warnings, "fanart: "+fanartFailure.Error())
+		slog.Warn("supplemental movie provider failed", "provider", "fanart", "tmdb_id", tmdbID, "error", fanartFailure)
 	}
 
 	normalizedID, err := s.recordNormalized(ctx, tmdbNormalized)
@@ -238,6 +273,9 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 	}
 	if tvdbFailure != nil {
 		s.recordProviderFailure(ctx, result.EntityID, "tvdb", tvdbFailure)
+	}
+	if fanartFailure != nil {
+		s.recordProviderFailure(ctx, result.EntityID, "fanart", fanartFailure)
 	}
 	if err := s.cache(ctx, result); err != nil {
 		return Result{}, err

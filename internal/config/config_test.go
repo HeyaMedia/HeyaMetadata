@@ -21,10 +21,11 @@ func TestConfigValidateRequiresS3CredentialPair(t *testing.T) {
 func TestConfigValidateRejectsInvalidDependencyURLs(t *testing.T) {
 	t.Parallel()
 	tests := map[string]func(*Config){
-		"Redis": func(config *Config) { config.RedisURL = "http://127.0.0.1:6380" },
-		"S3":    func(config *Config) { config.S3.Endpoint = "s3.karbowiak.dk" },
-		"OMDb":  func(config *Config) { config.Providers.OMDB.BaseURL = "omdbapi.com" },
-		"TVDB":  func(config *Config) { config.Providers.TVDB.BaseURL = "api4.thetvdb.com" },
+		"Redis":  func(config *Config) { config.RedisURL = "http://127.0.0.1:6380" },
+		"S3":     func(config *Config) { config.S3.Endpoint = "s3.karbowiak.dk" },
+		"OMDb":   func(config *Config) { config.Providers.OMDB.BaseURL = "omdbapi.com" },
+		"TVDB":   func(config *Config) { config.Providers.TVDB.BaseURL = "api4.thetvdb.com" },
+		"Fanart": func(config *Config) { config.Providers.Fanart.BaseURL = "webservice.fanart.tv" },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -48,9 +49,10 @@ func validConfig() Config {
 			Prefix:   "data",
 		},
 		Providers: ProvidersConfig{
-			TMDB: TMDBConfig{BaseURL: "https://api.themoviedb.org/3", Language: "en-US"},
-			OMDB: OMDBConfig{BaseURL: "https://www.omdbapi.com/"},
-			TVDB: TVDBConfig{BaseURL: "https://api4.thetvdb.com/v4"},
+			TMDB:   TMDBConfig{BaseURL: "https://api.themoviedb.org/3", Language: "en-US"},
+			OMDB:   OMDBConfig{BaseURL: "https://www.omdbapi.com/"},
+			TVDB:   TVDBConfig{BaseURL: "https://api4.thetvdb.com/v4"},
+			Fanart: FanartConfig{BaseURL: "https://webservice.fanart.tv/v3.2"},
 		},
 	}
 }
