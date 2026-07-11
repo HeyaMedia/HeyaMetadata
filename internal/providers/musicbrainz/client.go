@@ -17,7 +17,7 @@ import (
 var mbidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 var includes = map[string]string{
-	"artist":        "aliases+annotation+genres+tags+url-rels",
+	"artist":        "aliases+annotation+artist-rels+genres+tags+url-rels",
 	"release_group": "aliases+annotation+artist-credits+genres+ratings+releases+tags+url-rels",
 	"release":       "artist-credits+discids+genres+isrcs+labels+media+recordings+release-groups+tags+url-rels",
 	"recording":     "artist-credits+genres+isrcs+ratings+releases+tags+url-rels",
