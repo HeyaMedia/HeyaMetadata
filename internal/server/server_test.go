@@ -97,6 +97,11 @@ func TestOpenAPIDocumentContainsPublicRoutes(t *testing.T) {
 	if !strings.Contains(text, "X-Heya-Fanart-API-Key") {
 		t.Error("OpenAPI document does not expose request-scoped Fanart.tv credentials")
 	}
+	for _, header := range []string{"X-Heya-Apple-API-Key", "X-Heya-Discogs-API-Key", "X-Heya-LastFM-API-Key"} {
+		if !strings.Contains(text, header) {
+			t.Errorf("OpenAPI document does not expose %s", header)
+		}
+	}
 }
 
 func TestDocsUseScalar(t *testing.T) {

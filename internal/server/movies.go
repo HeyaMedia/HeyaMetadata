@@ -2,13 +2,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	moviedomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/movie"
+	"github.com/HeyaMedia/HeyaMetadata/internal/artists"
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/movies"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
@@ -19,32 +20,38 @@ import (
 )
 
 type entityInput struct {
-	ID           string `path:"id" format:"uuid"`
-	TMDBAPIKey   string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
-	OMDBAPIKey   string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
-	TVDBAPIKey   string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
-	FanartAPIKey string `header:"X-Heya-Fanart-API-Key" doc:"Optional request-scoped Fanart.tv personal API key; never persisted"`
+	ID            string `path:"id" format:"uuid"`
+	TMDBAPIKey    string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
+	OMDBAPIKey    string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
+	TVDBAPIKey    string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
+	FanartAPIKey  string `header:"X-Heya-Fanart-API-Key" doc:"Optional request-scoped Fanart.tv personal API key; never persisted"`
+	AppleAPIKey   string `header:"X-Heya-Apple-API-Key" doc:"Optional request-scoped Apple Music developer token; never persisted"`
+	DiscogsAPIKey string `header:"X-Heya-Discogs-API-Key" doc:"Optional request-scoped Discogs token; never persisted"`
+	LastFMAPIKey  string `header:"X-Heya-LastFM-API-Key" doc:"Optional request-scoped Last.fm API key; never persisted"`
 }
-type entityOutput struct{ Body moviedomain.DetailDocument }
+type entityOutput struct{ Body any }
 
 type resolutionInput struct {
-	Prefer       string `header:"Prefer"`
-	TMDBAPIKey   string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
-	OMDBAPIKey   string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
-	TVDBAPIKey   string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
-	FanartAPIKey string `header:"X-Heya-Fanart-API-Key" doc:"Optional request-scoped Fanart.tv personal API key; never persisted"`
-	Body         struct {
-		Kind      string `json:"kind" enum:"movie"`
+	Prefer        string `header:"Prefer"`
+	TMDBAPIKey    string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
+	OMDBAPIKey    string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
+	TVDBAPIKey    string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
+	FanartAPIKey  string `header:"X-Heya-Fanart-API-Key" doc:"Optional request-scoped Fanart.tv personal API key; never persisted"`
+	AppleAPIKey   string `header:"X-Heya-Apple-API-Key" doc:"Optional request-scoped Apple Music developer token; never persisted"`
+	DiscogsAPIKey string `header:"X-Heya-Discogs-API-Key" doc:"Optional request-scoped Discogs token; never persisted"`
+	LastFMAPIKey  string `header:"X-Heya-LastFM-API-Key" doc:"Optional request-scoped Last.fm API key; never persisted"`
+	Body          struct {
+		Kind      string `json:"kind" enum:"movie,artist"`
 		Provider  string `json:"provider" example:"tmdb"`
 		Namespace string `json:"namespace" example:"movie"`
 		Value     string `json:"value" example:"603"`
 	}
 }
 type resolutionBody struct {
-	State    string                      `json:"state" enum:"completed,accepted"`
-	Entity   *moviedomain.DetailDocument `json:"entity,omitempty"`
-	EntityID string                      `json:"entity_id,omitempty"`
-	Job      *jobResource                `json:"job,omitempty"`
+	State    string       `json:"state" enum:"completed,accepted"`
+	Entity   any          `json:"entity,omitempty"`
+	EntityID string       `json:"entity_id,omitempty"`
+	Job      *jobResource `json:"job,omitempty"`
 }
 type resolutionOutput struct {
 	Status int
@@ -79,7 +86,7 @@ type searchInput struct {
 }
 type searchOutput struct {
 	Body struct {
-		Results []moviedomain.SummaryDocument `json:"results"`
+		Results []json.RawMessage `json:"results"`
 	}
 }
 
@@ -106,9 +113,11 @@ type changesOutput struct {
 
 func registerMovies(api huma.API, runtime *platform.Runtime) {
 	var service *movies.Service
+	var artistService *artists.Service
 	var client *river.Client[pgx.Tx]
 	if runtime != nil {
 		service = movies.NewService(runtime)
+		artistService = artists.NewService(runtime)
 		var err error
 		client, err = jobs.NewClient(runtime, runtime.Config.Worker.MaxWorkers, false)
 		if err != nil {
@@ -120,6 +129,25 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if service == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
+		var kind string
+		if err := runtime.DB.QueryRow(ctx, `SELECT kind FROM entities WHERE id=$1 AND deleted_at IS NULL`, input.ID).Scan(&kind); err != nil {
+			return nil, huma.Error404NotFound("entity not found")
+		}
+		if kind == "artist" {
+			document, fresh, err := artistService.Detail(ctx, input.ID)
+			if err != nil {
+				return nil, err
+			}
+			if !fresh {
+				if mbid, claimErr := artistService.MusicBrainzID(ctx, input.ID); claimErr == nil {
+					if credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey); credentialErr == nil {
+						_, _ = jobs.InsertArtist(ctx, runtime, client, jobs.ArtistIngestArgs{MusicBrainzID: mbid, CredentialRef: credentialRef, Reason: "stale_read"}, jobs.PriorityStaleRead)
+					}
+				}
+				document.Freshness.State = "stale"
+			}
+			return &entityOutput{Body: document}, nil
+		}
 		document, fresh, err := service.Detail(ctx, input.ID)
 		if err == movies.ErrNotFound {
 			return nil, huma.Error404NotFound("entity not found")
@@ -129,7 +157,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		}
 		if !fresh {
 			if tmdbID, claimErr := service.TMDBID(ctx, input.ID); claimErr == nil {
-				if credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey); credentialErr == nil {
+				if credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey); credentialErr == nil {
 					_, _ = jobs.InsertMovie(ctx, runtime, client, jobs.MovieIngestArgs{TMDBID: tmdbID, CredentialRef: credentialRef, Reason: "stale_read"}, jobs.PriorityStaleRead)
 				}
 			}
@@ -142,8 +170,33 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if service == nil || client == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
+		if input.Body.Kind == "artist" {
+			entityID, err := artistService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
+			if err == nil {
+				document, _, detailErr := artistService.Detail(ctx, entityID)
+				if detailErr != nil {
+					return nil, detailErr
+				}
+				return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: document}}, nil
+			}
+			if err != artists.ErrNotFound {
+				return nil, err
+			}
+			if !strings.EqualFold(input.Body.Provider, "musicbrainz") || !strings.EqualFold(input.Body.Namespace, "artist") {
+				return nil, huma.Error404NotFound("external ID is not known and no collector accepts it")
+			}
+			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
+			if credentialErr != nil {
+				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
+			}
+			inserted, insertErr := jobs.InsertArtist(ctx, runtime, client, jobs.ArtistIngestArgs{MusicBrainzID: strings.ToLower(input.Body.Value), CredentialRef: credentialRef, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
+			if insertErr != nil {
+				return nil, insertErr
+			}
+			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.ArtistIngestKind, State: string(inserted.Job.State)}}}, nil
+		}
 		if input.Body.Kind != "movie" {
-			return nil, huma.Error400BadRequest("only movie resolution is implemented")
+			return nil, huma.Error400BadRequest("kind must be movie or artist")
 		}
 		entityID, err := service.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
 		if err == nil {
@@ -151,7 +204,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if detailErr != nil {
 				return nil, detailErr
 			}
-			return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: &document}}, nil
+			return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: document}}, nil
 		}
 		if err != movies.ErrNotFound {
 			return nil, err
@@ -163,7 +216,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if parseErr != nil || tmdbID < 1 {
 			return nil, huma.Error400BadRequest("invalid TMDB movie ID")
 		}
-		credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey)
+		credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
 		if credentialErr != nil {
 			return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
 		}
@@ -182,7 +235,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 					if detailErr != nil {
 						return nil, detailErr
 					}
-					return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: &document}}, nil
+					return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: document}}, nil
 				}
 				select {
 				case <-ctx.Done():
@@ -201,6 +254,25 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if service == nil || client == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
+		var kind string
+		if err := runtime.DB.QueryRow(ctx, `SELECT kind FROM entities WHERE id=$1`, input.ID).Scan(&kind); err != nil {
+			return nil, huma.Error404NotFound("entity not found")
+		}
+		if kind == "artist" {
+			mbid, err := artistService.MusicBrainzID(ctx, input.ID)
+			if err != nil {
+				return nil, huma.Error404NotFound("entity has no MusicBrainz artist claim")
+			}
+			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
+			if credentialErr != nil {
+				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
+			}
+			inserted, err := jobs.InsertArtist(ctx, runtime, client, jobs.ArtistIngestArgs{MusicBrainzID: mbid, CredentialRef: credentialRef, Reason: "manual_refresh"}, jobs.PriorityInteractive)
+			if err != nil {
+				return nil, err
+			}
+			return &refreshOutput{Status: http.StatusAccepted, Body: jobResource{ID: inserted.Job.ID, Kind: jobs.ArtistIngestKind, State: string(inserted.Job.State)}}, nil
+		}
 		tmdbID, err := service.TMDBID(ctx, input.ID)
 		if err == movies.ErrNotFound {
 			return nil, huma.Error404NotFound("entity has no TMDB movie claim")
@@ -208,7 +280,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if err != nil {
 			return nil, err
 		}
-		credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey)
+		credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
 		if credentialErr != nil {
 			return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
 		}
@@ -231,6 +303,9 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		var entityID *string
 		var failure *string
 		_ = runtime.DB.QueryRow(ctx, `SELECT entity_id, error FROM movie_ingestion_runs WHERE river_job_id = $1`, input.ID).Scan(&entityID, &failure)
+		if entityID == nil && failure == nil {
+			_ = runtime.DB.QueryRow(ctx, `SELECT entity_id,error FROM artist_ingestion_runs WHERE river_job_id=$1`, input.ID).Scan(&entityID, &failure)
+		}
 		if entityID != nil {
 			resource.EntityID = *entityID
 		}
@@ -244,7 +319,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if service == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
-		results, err := service.Search(ctx, input.Query, movies.SearchFilters{Year: input.Year, Genre: input.Genre, Country: input.Country, Language: input.Language, Status: input.Status}, input.Limit)
+		results, err := searchAllEntities(ctx, runtime, input)
 		if err != nil {
 			return nil, fmt.Errorf("search entities: %w", err)
 		}
@@ -282,7 +357,45 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 	})
 }
 
-func storeProviderCredentials(ctx context.Context, runtime *platform.Runtime, tmdbAPIKey, omdbAPIKey, tvdbAPIKey, fanartAPIKey string) (string, error) {
+func searchAllEntities(ctx context.Context, runtime *platform.Runtime, input *searchInput) ([]json.RawMessage, error) {
+	query := strings.TrimSpace(input.Query)
+	if query == "" {
+		return nil, nil
+	}
+	limit := input.Limit
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	provider := ""
+	value := query
+	if parts := strings.SplitN(query, ":", 2); len(parts) == 2 {
+		provider = strings.ToLower(parts[0])
+		value = parts[1]
+	}
+	rows, err := runtime.DB.Query(ctx, `WITH matches AS (
+		SELECT entity_id,0 AS tier,1::double precision AS score FROM external_id_claims WHERE state='accepted' AND lower(normalized_value)=lower($1) AND ($2='' OR provider=$2)
+		UNION ALL
+		SELECT entity_id,CASE WHEN normalized_value=lower(unaccent($3)) THEN 1 WHEN normalized_value LIKE lower(unaccent($3))||'%' THEN 2 ELSE 3 END,similarity(normalized_value,lower(unaccent($3))) FROM search_names WHERE normalized_value=lower(unaccent($3)) OR normalized_value LIKE lower(unaccent($3))||'%' OR similarity(normalized_value,lower(unaccent($3)))>=0.25
+	), ranked AS (SELECT entity_id,min(tier) tier,max(score) score FROM matches GROUP BY entity_id)
+	SELECT se.summary FROM ranked JOIN search_entities se ON se.entity_id=ranked.entity_id
+	WHERE ($5=0 OR se.release_year=$5) AND ($6='' OR EXISTS(SELECT 1 FROM unnest(se.genres) genre WHERE lower(genre)=lower($6))) AND ($7='' OR upper($7)=ANY(se.countries)) AND ($8='' OR lower($8)=ANY(se.languages)) AND ($9='' OR se.status=lower($9))
+	ORDER BY ranked.tier,ranked.score DESC,se.popularity DESC NULLS LAST,se.display_title LIMIT $4`, value, provider, query, limit, input.Year, input.Genre, input.Country, input.Language, input.Status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []json.RawMessage
+	for rows.Next() {
+		var body []byte
+		if err := rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		result = append(result, json.RawMessage(body))
+	}
+	return result, rows.Err()
+}
+
+func storeProviderCredentials(ctx context.Context, runtime *platform.Runtime, tmdbAPIKey, omdbAPIKey, tvdbAPIKey, fanartAPIKey, appleAPIKey, discogsAPIKey, lastFMAPIKey string) (string, error) {
 	apiKeys := map[string]string{}
 	if value := strings.TrimSpace(tmdbAPIKey); value != "" {
 		apiKeys["tmdb"] = value
@@ -295,6 +408,15 @@ func storeProviderCredentials(ctx context.Context, runtime *platform.Runtime, tm
 	}
 	if value := strings.TrimSpace(fanartAPIKey); value != "" {
 		apiKeys["fanart"] = value
+	}
+	if value := strings.TrimSpace(appleAPIKey); value != "" {
+		apiKeys["apple"] = value
+	}
+	if value := strings.TrimSpace(discogsAPIKey); value != "" {
+		apiKeys["discogs"] = value
+	}
+	if value := strings.TrimSpace(lastFMAPIKey); value != "" {
+		apiKeys["lastfm"] = value
 	}
 	if len(apiKeys) == 0 {
 		return "", nil

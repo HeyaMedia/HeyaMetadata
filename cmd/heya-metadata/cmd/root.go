@@ -74,6 +74,7 @@ func init() {
 	rootCmd.AddCommand(newWorkerCommand())
 	rootCmd.AddCommand(newSmokeCommand())
 	rootCmd.AddCommand(newMovieCommand())
+	rootCmd.AddCommand(newArtistCommand())
 	rootCmd.AddCommand(newRetentionCommand())
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newOpenAPICommand())

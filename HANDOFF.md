@@ -294,11 +294,35 @@ validated.
 
 ## Suggested next turn
 
-1. Write the canonical music identity boundaries and coverage catalog together:
-   artist, release group/album, release/edition, recording, release track,
-   classical work, and provider-specific catalog objects.
-2. Build the music normalizers and mixer from the now-live retained source
-   observations, deciding identity confidence and scalar precedence explicitly.
+The first canonical music slice is now implemented. `docs/music-domain.md` and
+`coverage/music.json` define the identity boundaries. A MusicBrainz artist MBID
+acts as the initial spine and explicit provider relationships unlock Apple,
+Deezer, Discogs, Last.fm, and Wikidata. All six sources normalize into
+provider-scoped artist evidence, and the deterministic combiner emits one
+canonical artist detail/summary/search projection with provenance and opaque
+image candidate IDs. Discogs aliases and Last.fm name-only similar artists are
+deliberately not identity links.
+
+The durable entry points are `artist_ingest_v1`, `heya-metadata artist ingest
+--musicbrainz <mbid>`, and the generic `/api/v2/resolutions` endpoint with
+`kind=artist`. Artist reads, refreshes, mixed movie/artist search, job status,
+adaptive refresh state, cache invalidation, and change outbox sequencing are
+wired. Request-scoped Apple, Discogs, and Last.fm credential headers are
+documented in OpenAPI and handed to workers through transient Redis references.
+
+Live verification on 2026-07-11 ingested The Beatles and Radiohead. Both
+resolved all six providers without partial failure. The Beatles projection had
+9 strong external IDs and 99 internal image candidates.
+
+## Suggested next turn
+
+1. Add service-level integration tests for identity conflict quarantine,
+   provider partial failure, refresh idempotency, and artist API resolution.
+2. Materialize selected artist images into permanent image storage rather than
+   exposing only image-candidate IDs.
+3. Start the release-group slice using the same boundaries: MusicBrainz release
+   group as the work-level spine, then explicit Discogs master and storefront
+   album mappings. Keep release/edition and release-track separate.
 
 The previous repositories may be inspected for provider knowledge and metadata
 coverage, but should not be copied as architectural constraints.

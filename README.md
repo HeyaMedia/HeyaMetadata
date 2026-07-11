@@ -80,6 +80,7 @@ make migrate-status
 make worker         # run the River worker without Air
 make smoke          # verify River + Postgres + Redis + S3 end to end
 make movie-ingest TMDB_ID=603
+make artist-ingest MUSICBRAINZ_ID=b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d
 make retention-sweep
 make infra-down
 ```
@@ -116,7 +117,10 @@ eligible collectors as new external IDs are discovered. Provider-specific
 normalizers feed a deterministic domain combiner; consumers receive one merged
 canonical document rather than separate provider payloads.
 
-Providers whose canonical domain merge is not implemented yet still run through
+MusicBrainz artist IDs now run through a canonical artist pipeline that uses
+explicit MusicBrainz URL relationships to unlock Apple, Deezer, Discogs,
+Last.fm, and Wikidata evidence. Names alone never merge artists. Providers and
+music entity kinds whose canonical merge is not implemented yet still run through
 River, the shared exact-response cache, Postgres observations, and expiring S3
 evidence. The generic collector CLI takes the collector separately from the
 identifier source, which is useful for supplemental sources such as Last.fm:
@@ -191,6 +195,7 @@ go run ./cmd/heya-metadata migrate status
 go run ./cmd/heya-metadata worker
 go run ./cmd/heya-metadata smoke
 go run ./cmd/heya-metadata movie ingest --tmdb 603
+go run ./cmd/heya-metadata artist ingest --musicbrainz b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d
 go run ./cmd/heya-metadata retention sweep
 go test ./...
 ```
@@ -207,7 +212,9 @@ in Redis and is never stored in River or Postgres. Interactive work is promoted
 above stale-on-read and adaptive background refreshes; entity demand decays into
 a 2/7/14/30-day refresh cadence.
 
-OMDb is the second movie collector and accepts `X-Heya-OMDB-API-Key` through the
+Canonical artist resolution accepts request-scoped `X-Heya-Apple-API-Key`,
+`X-Heya-Discogs-API-Key`, and `X-Heya-LastFM-API-Key` headers as well. OMDb is
+the second movie collector and accepts `X-Heya-OMDB-API-Key` through the
 same mechanism. TMDB-discovered IMDb IDs unlock OMDb plot/runtime evidence and
 independent IMDb, Rotten Tomatoes, and Metacritic rating scales.
 

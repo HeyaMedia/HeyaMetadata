@@ -36,3 +36,16 @@ func TestPlannerUnlocksProvidersFromKnownIdentifiers(t *testing.T) {
 		t.Fatalf("completed primary provider hid supplemental evidence: %+v", third)
 	}
 }
+
+func TestBuildAllAvailableKeepsOverlappingEvidenceSources(t *testing.T) {
+	t.Parallel()
+	first := fakeCollector{providers.Capability{Provider: "first", AcceptedIdentifiers: []providers.Identifier{{Provider: "shared", Namespace: "artist"}}, Provides: []providers.Scope{providers.ScopeIdentity, providers.ScopeTitles}}}
+	second := fakeCollector{providers.Capability{Provider: "second", AcceptedIdentifiers: []providers.Identifier{{Provider: "shared", Namespace: "artist"}}, Provides: []providers.Scope{providers.ScopeIdentity, providers.ScopeTitles}}}
+	plan := New(first, second).BuildAllAvailable([]providers.Identifier{{Provider: "shared", Namespace: "artist", Value: "id"}}, []providers.Scope{providers.ScopeIdentity, providers.ScopeTitles, providers.ScopeArtwork}, nil)
+	if len(plan.Steps) != 2 || len(plan.Steps[0].Scopes) != 2 || len(plan.Steps[1].Scopes) != 2 {
+		t.Fatalf("overlapping collector was suppressed: %+v", plan)
+	}
+	if len(plan.Missing) != 1 || plan.Missing[0] != providers.ScopeArtwork {
+		t.Fatalf("missing scopes: %+v", plan.Missing)
+	}
+}

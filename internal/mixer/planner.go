@@ -61,6 +61,44 @@ func (p *Planner) BuildAvailable(identifiers []providers.Identifier, desired []p
 	return result
 }
 
+// BuildAllAvailable schedules every eligible collector that can contribute a
+// desired scope. This is intended for evidence-rich canonical domains where
+// overlapping sources are additive rather than interchangeable.
+func (p *Planner) BuildAllAvailable(identifiers []providers.Identifier, desired []providers.Scope, completed map[string]bool) Plan {
+	wanted := make(map[providers.Scope]bool, len(desired))
+	provided := make(map[providers.Scope]bool, len(desired))
+	for _, scope := range desired {
+		wanted[scope] = true
+	}
+	result := Plan{}
+	for _, collector := range p.collectors {
+		capability := collector.Capability()
+		if completed[capability.Provider] {
+			continue
+		}
+		identifier, ok := acceptedIdentifier(capability, identifiers)
+		if !ok {
+			continue
+		}
+		var supplied []providers.Scope
+		for _, scope := range capability.Provides {
+			if wanted[scope] {
+				supplied = append(supplied, scope)
+				provided[scope] = true
+			}
+		}
+		if len(supplied) > 0 {
+			result.Steps = append(result.Steps, Step{Collector: collector, Identifier: identifier, Scopes: supplied})
+		}
+	}
+	for _, scope := range desired {
+		if !provided[scope] {
+			result.Missing = append(result.Missing, scope)
+		}
+	}
+	return result
+}
+
 func acceptedIdentifier(capability providers.Capability, available []providers.Identifier) (providers.Identifier, bool) {
 	for _, accepted := range capability.AcceptedIdentifiers {
 		for _, candidate := range available {
