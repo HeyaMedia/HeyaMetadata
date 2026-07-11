@@ -460,7 +460,7 @@ func artistSlug(value string) string {
 }
 func areaCodes(areas []artistdomain.Area) []string {
 	seen := map[string]bool{}
-	var out []string
+	out := []string{}
 	for _, area := range areas {
 		for _, code := range area.ISOCodes {
 			if !seen[code] {
@@ -473,7 +473,7 @@ func areaCodes(areas []artistdomain.Area) []string {
 }
 func nameLanguages(names []artistdomain.Name) []string {
 	seen := map[string]bool{}
-	var out []string
+	out := []string{}
 	for _, name := range names {
 		if name.Language != "" && !seen[name.Language] {
 			seen[name.Language] = true
