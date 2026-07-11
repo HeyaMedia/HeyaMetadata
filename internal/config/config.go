@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -36,10 +37,17 @@ type WorkerConfig struct {
 }
 
 type ProvidersConfig struct {
-	TMDB   TMDBConfig
-	OMDB   OMDBConfig
-	TVDB   TVDBConfig
-	Fanart FanartConfig
+	TMDB        TMDBConfig
+	OMDB        OMDBConfig
+	TVDB        TVDBConfig
+	Fanart      FanartConfig
+	MusicBrainz MusicBrainzConfig
+}
+
+type MusicBrainzConfig struct {
+	BaseURL           string
+	RequestsPerSecond float64
+	UserAgent         string
 }
 
 type FanartConfig struct {
@@ -87,6 +95,13 @@ func Load() (Config, error) {
 	if maxWorkers < 1 || maxWorkers > 1000 {
 		return Config{}, fmt.Errorf("HEYA_METADATA_WORKER_MAX_WORKERS must be between 1 and 1000")
 	}
+	musicBrainzRate, err := envFloat("HEYA_METADATA_MUSICBRAINZ_REQUESTS_PER_SECOND", 1)
+	if err != nil {
+		return Config{}, err
+	}
+	if musicBrainzRate <= 0 || musicBrainzRate > 1000 {
+		return Config{}, fmt.Errorf("HEYA_METADATA_MUSICBRAINZ_REQUESTS_PER_SECOND must be greater than 0 and at most 1000")
+	}
 
 	config := Config{
 		Host:        env("HEYA_METADATA_HOST", "0.0.0.0"),
@@ -119,6 +134,10 @@ func Load() (Config, error) {
 		}, Fanart: FanartConfig{
 			APIKey:  env("HEYA_METADATA_FANART_API_KEY", ""),
 			BaseURL: env("HEYA_METADATA_FANART_BASE_URL", "https://webservice.fanart.tv/v3.2"),
+		}, MusicBrainz: MusicBrainzConfig{
+			BaseURL:           env("HEYA_METADATA_MUSICBRAINZ_BASE_URL", "https://musicbrainz.org/ws/2"),
+			RequestsPerSecond: musicBrainzRate,
+			UserAgent:         env("HEYA_METADATA_MUSICBRAINZ_USER_AGENT", "HeyaMetadata/dev (https://github.com/HeyaMedia/HeyaMetadata)"),
 		}},
 	}
 	if err := config.Validate(); err != nil {
@@ -200,5 +219,27 @@ func (c Config) Validate() error {
 	if err != nil || fanartURL.Scheme != "https" || fanartURL.Host == "" {
 		return fmt.Errorf("HEYA_METADATA_FANART_BASE_URL must be an absolute HTTPS URL")
 	}
+	musicBrainzURL, err := url.Parse(c.Providers.MusicBrainz.BaseURL)
+	if err != nil || musicBrainzURL.Scheme != "https" || musicBrainzURL.Host == "" {
+		return fmt.Errorf("HEYA_METADATA_MUSICBRAINZ_BASE_URL must be an absolute HTTPS URL")
+	}
+	if strings.TrimSpace(c.Providers.MusicBrainz.UserAgent) == "" {
+		return fmt.Errorf("HEYA_METADATA_MUSICBRAINZ_USER_AGENT must not be empty")
+	}
+	if c.Providers.MusicBrainz.RequestsPerSecond <= 0 || c.Providers.MusicBrainz.RequestsPerSecond > 1000 {
+		return fmt.Errorf("HEYA_METADATA_MUSICBRAINZ_REQUESTS_PER_SECOND must be greater than 0 and at most 1000")
+	}
 	return nil
+}
+
+func envFloat(key string, fallback float64) (float64, error) {
+	value, ok := os.LookupEnv(key)
+	if !ok || value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number: %w", key, err)
+	}
+	return parsed, nil
 }

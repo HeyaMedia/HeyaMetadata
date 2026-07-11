@@ -238,6 +238,13 @@ validated.
   identity. A live Matrix ingestion recorded one reusable Fanart observation,
   normalized 116 typed artwork candidates, and projected Fanart freshness and
   provenance; an immediate repeat added zero observations.
+- MusicBrainz source collection supports validated artist, release-group,
+  release, and recording MBID lookups plus paged search and artist
+  release-group browsing. Public-service requests share a one-per-second gate,
+  carry the required meaningful User-Agent, and use 12-hour lookup / six-hour
+  discovery reuse. All lookup include combinations were checked against the
+  live WS/2 JSON API. Canonical music boundaries and merge precedence remain
+  intentionally undecided.
 - Raw provider bytes use prefix-scoped RustFS lifecycle expiry:
   `data/ephemeral/24h/` expires after one day and `data/ephemeral/48h/` after
   two. TMDB uses the 48-hour tier. No rule matches `images/` or permanent data.

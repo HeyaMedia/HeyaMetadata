@@ -161,3 +161,27 @@ Fanart.tv precedes TVDB in follow-up planning so its artwork scope is collected
 while TVDB remains available for credits and its other scopes. The combiner
 does not choose one provider globally: all artwork candidates receive opaque
 IDs and retain provider provenance for later ranking.
+
+## MusicBrainz source collection
+
+MusicBrainz starts the music-source phase without introducing canonical music
+merge rules. Its collector keeps `artist`, `release_group`, `release`, and
+`recording` as separate provider namespaces, matching MusicBrainz's own
+identity boundaries. Known MBIDs support rich lookups; the source client also
+supports paged Lucene search and correctly paged release-group browsing for an
+artist. Search hits remain candidates and never become identity claims until a
+specific MBID is collected.
+
+The public MusicBrainz service requires a meaningful User-Agent and averages at
+most one request per second per source IP. Every client for the same base URL
+therefore shares an in-process request gate, applied only immediately before a
+real HTTP request so cache hits do not wait. Mirrors can configure a different
+rate with `HEYA_METADATA_MUSICBRAINZ_REQUESTS_PER_SECOND`. Exact lookups are
+reusable for 12 hours, volatile search/browse pages for six hours, missing
+records for one hour, and raw evidence expires after 48 hours. Malformed or
+identity-mismatched HTTP 200 responses are recorded but never reused.
+
+This phase deliberately archives typed provider source evidence without a
+canonical artist/album/edition/track projection. The recording versus release
+track and release-group versus release boundaries must be written down before
+those entity kinds enter identity resolution and merge.
