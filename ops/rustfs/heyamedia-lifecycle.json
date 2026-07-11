@@ -1,0 +1,16 @@
+{
+  "Rules": [
+    {
+      "Expiration": { "Days": 1 },
+      "ID": "d98p25oi5canijk0q8k0",
+      "Filter": { "Prefix": "data/ephemeral/24h/" },
+      "Status": "Enabled"
+    },
+    {
+      "Expiration": { "Days": 2 },
+      "ID": "d98p260i5canik4l284g",
+      "Filter": { "Prefix": "data/ephemeral/48h/" },
+      "Status": "Enabled"
+    }
+  ]
+}

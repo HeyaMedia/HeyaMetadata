@@ -116,12 +116,17 @@ eligible collectors as new external IDs are discovered. Provider-specific
 normalizers feed a deterministic domain combiner; consumers receive one merged
 canonical document rather than separate provider payloads.
 
-Raw TMDB response bytes currently expire from RustFS after 48 hours. Their
-small Postgres observation metadata and durable normalized records remain, so
-canonical data and provenance continue to work after cleanup. Workers enqueue
-an hourly retention sweep; `make retention-sweep` is the manual equivalent.
-Future active-show and music collectors can declare shorter retention without
-changing the observation machinery.
+Raw provider bytes are written beneath lifecycle-specific prefixes. RustFS
+expires `data/ephemeral/24h/` after one day and `data/ephemeral/48h/` after two
+days; neither rule can match `images/` or permanent data. TMDB currently uses
+the 48-hour tier. Small Postgres observation metadata and durable normalized
+records remain, so canonical data and provenance continue to work afterward.
+
+Workers enqueue an hourly reconciliation sweep with a 24-hour grace period. It
+performs an idempotent fallback delete if the RustFS lifecycle scanner is
+delayed, then marks the blob deleted in Postgres. `make retention-sweep` is the
+manual equivalent. The exported live rules and recovery instructions are in
+[`ops/rustfs`](./ops/rustfs/README.md).
 
 ### Development cache
 

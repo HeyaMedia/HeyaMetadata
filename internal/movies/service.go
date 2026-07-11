@@ -83,7 +83,7 @@ func (s *Service) IngestTMDB(ctx context.Context, tmdbID int64, riverJobID int64
 	recorded := make([]ingest.RecordedObservation, 0, len(payloads))
 	retention := plan.Steps[0].Collector.Capability().RawRetention
 	for _, payload := range payloads {
-		observation, err := ingest.RecordObservation(ctx, s.runtime, payload, moviedomain.TMDBNormalizerVersion, "provider_raw_48h", retention, riverJobID)
+		observation, err := ingest.RecordObservation(ctx, s.runtime, payload, moviedomain.TMDBNormalizerVersion, retention, riverJobID)
 		if err != nil {
 			return Result{}, err
 		}

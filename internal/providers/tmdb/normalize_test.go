@@ -3,6 +3,8 @@ package tmdb
 import (
 	"testing"
 	"time"
+
+	"github.com/HeyaMedia/HeyaMetadata/internal/config"
 )
 
 func TestNormalizeMoviePreservesIdentityLocaleAndClassification(t *testing.T) {
@@ -38,5 +40,13 @@ func TestNormalizeMoviePreservesIdentityLocaleAndClassification(t *testing.T) {
 	}
 	if len(record.Images) != 1 || record.Images[0].SourceURL != "https://image.tmdb.org/t/p/original/poster.jpg" {
 		t.Fatalf("images: %+v", record.Images)
+	}
+}
+
+func TestCapabilityUsesFortyEightHourLifecyclePrefix(t *testing.T) {
+	t.Parallel()
+	policy := New(config.TMDBConfig{}).Capability().RawRetention
+	if policy.Duration != 48*time.Hour || policy.ObjectPrefix != "ephemeral/48h" || policy.Class != "provider_raw_48h" {
+		t.Fatalf("retention policy: %+v", policy)
 	}
 }

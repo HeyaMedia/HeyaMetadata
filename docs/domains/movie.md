@@ -197,6 +197,10 @@ TMDB failure prevents a TMDB-seeded first import, but it does not define the
 long-term existence of a canonical movie. Once a movie exists, TMDB failure is
 one provider state and does not erase other canonical facts.
 
+TMDB raw response blobs use the `data/ephemeral/48h/` RustFS lifecycle tier.
+Normalized records and observation metadata remain durable after raw bytes
+expire.
+
 ### OMDb
 
 Fetch only when an accepted IMDb title claim exists. Preserve its plot and

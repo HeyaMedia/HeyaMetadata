@@ -194,9 +194,14 @@ validated.
   and raw-blob retention. The mixer can re-plan when a collector discovers IDs
   that unlock another provider. Domain combiners union provider evidence while
   applying explicit precedence only to scalar winners.
-- Raw TMDB bytes use a 48-hour RustFS TTL. Hourly River retention work deletes
-  expired objects while preserving observation metadata and normalized records.
-  The manual equivalent is `heya-metadata retention sweep`.
+- Raw provider bytes use prefix-scoped RustFS lifecycle expiry:
+  `data/ephemeral/24h/` expires after one day and `data/ephemeral/48h/` after
+  two. TMDB uses the 48-hour tier. No rule matches `images/` or permanent data.
+  The live lifecycle export is committed under `ops/rustfs/`.
+- Hourly River retention reconciliation waits a 24-hour lifecycle grace period,
+  then performs an idempotent fallback delete and marks the Postgres blob row.
+  Observation metadata and normalized records remain. The manual equivalent is
+  `heya-metadata retention sweep`.
 - Public documents use opaque IDs for movie art, profiles, studio logos,
   collection members, and recommendation posters; upstream image URLs remain
   internal evidence only.

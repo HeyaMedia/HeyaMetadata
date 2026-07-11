@@ -28,7 +28,9 @@ func New(config config.TMDBConfig) *Client {
 func (c *Client) Capability() providers.Capability {
 	return providers.Capability{
 		Provider: "tmdb", EntityKind: "movie",
-		RawRetention:        48 * time.Hour,
+		RawRetention: providers.RetentionPolicy{
+			Class: "provider_raw_48h", Duration: 48 * time.Hour, ObjectPrefix: "ephemeral/48h",
+		},
 		AcceptedIdentifiers: []providers.Identifier{{Provider: "tmdb", Namespace: "movie"}},
 		Provides: []providers.Scope{
 			providers.ScopeIdentity, providers.ScopeTitles, providers.ScopeDescriptions,

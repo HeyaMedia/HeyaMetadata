@@ -25,6 +25,20 @@ func TestContentKey(t *testing.T) {
 	}
 }
 
+func TestContentKeyUnderRetentionPrefix(t *testing.T) {
+	t.Parallel()
+	checksum := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	store := &Store{prefix: "data"}
+	key, err := store.ContentKeyUnder("ephemeral/48h", checksum, ".json.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "data/ephemeral/48h/blobs/sha256/01/23/" + checksum + ".json.gz"
+	if key != want {
+		t.Fatalf("key: got %q, want %q", key, want)
+	}
+}
+
 func TestStoreUsesSignedPathStyleRequests(t *testing.T) {
 	t.Parallel()
 	var stored []byte

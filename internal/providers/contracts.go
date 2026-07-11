@@ -44,7 +44,13 @@ type Capability struct {
 	EntityKind          string
 	AcceptedIdentifiers []Identifier
 	Provides            []Scope
-	RawRetention        time.Duration
+	RawRetention        RetentionPolicy
+}
+
+type RetentionPolicy struct {
+	Class        string
+	Duration     time.Duration
+	ObjectPrefix string
 }
 
 // Payload is one exact provider response. A collector may return several

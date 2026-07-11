@@ -155,6 +155,10 @@ func (s *Store) ContentKey(checksum, suffix string) (string, error) {
 	return ContentKey(s.prefix, checksum, suffix)
 }
 
+func (s *Store) ContentKeyUnder(objectPrefix, checksum, suffix string) (string, error) {
+	return ContentKey(path.Join(s.prefix, strings.Trim(objectPrefix, "/")), checksum, suffix)
+}
+
 func ContentKey(prefix, checksum, suffix string) (string, error) {
 	if !checksumPattern.MatchString(checksum) {
 		return "", fmt.Errorf("invalid SHA-256 checksum %q", checksum)

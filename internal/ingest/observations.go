@@ -28,15 +28,23 @@ func RecordObservation(
 	runtime *platform.Runtime,
 	payload providers.Payload,
 	normalizerVersion string,
-	retentionClass string,
-	retention time.Duration,
+	retention providers.RetentionPolicy,
 	riverJobID int64,
 ) (RecordedObservation, error) {
+	if retention.Class == "" || retention.Duration <= 0 || retention.ObjectPrefix == "" {
+		return RecordedObservation{}, fmt.Errorf("provider observation retention policy is incomplete")
+	}
 	digest := sha256.Sum256(payload.Body)
 	checksum := hex.EncodeToString(digest[:])
-	objectKey, err := runtime.Blobs.ContentKey(checksum, ".json.gz")
+	var previousObjectKey string
+	var previousExpiresAt *time.Time
+	_ = runtime.DB.QueryRow(ctx, `SELECT object_key, expires_at FROM source_blobs WHERE checksum = $1`, checksum).Scan(&previousObjectKey, &previousExpiresAt)
+	objectKey, err := runtime.Blobs.ContentKeyUnder(retention.ObjectPrefix, checksum, ".json.gz")
 	if err != nil {
 		return RecordedObservation{}, err
+	}
+	if previousObjectKey != "" && previousExpiresAt == nil {
+		objectKey = previousObjectKey
 	}
 
 	var compressed bytes.Buffer
@@ -70,22 +78,24 @@ func RecordObservation(
 		return RecordedObservation{}, fmt.Errorf("begin observation transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	var expiresAt any
-	if retention > 0 {
-		expiresAt = payload.ObservedAt.Add(retention)
-	}
+	expiresAt := payload.ObservedAt.Add(retention.Duration)
 	if _, err := tx.Exec(ctx, `
         INSERT INTO source_blobs (
             checksum, object_key, compression, media_type, uncompressed_size,
             compressed_size, integrity_state, retention_class, expires_at
         ) VALUES ($1, $2, 'gzip', $3, $4, $5, 'verified', $6, $7)
         ON CONFLICT (checksum) DO UPDATE SET
+            object_key = EXCLUDED.object_key,
+            retention_class = CASE
+                WHEN source_blobs.expires_at IS NULL THEN source_blobs.retention_class
+                ELSE EXCLUDED.retention_class
+            END,
             expires_at = CASE
                 WHEN source_blobs.expires_at IS NULL OR EXCLUDED.expires_at IS NULL THEN NULL
-                ELSE GREATEST(source_blobs.expires_at, EXCLUDED.expires_at)
+                ELSE LEAST(source_blobs.expires_at, EXCLUDED.expires_at)
             END,
             deleted_at = NULL`,
-		checksum, objectKey, mediaType, len(payload.Body), compressed.Len(), retentionClass, expiresAt,
+		checksum, objectKey, mediaType, len(payload.Body), compressed.Len(), retention.Class, expiresAt,
 	); err != nil {
 		return RecordedObservation{}, fmt.Errorf("record source blob: %w", err)
 	}
@@ -100,12 +110,17 @@ func RecordObservation(
         RETURNING id`,
 		payload.Provider, payload.ProviderNamespace, payload.ProviderRecordID, payload.RequestKey,
 		payload.StatusCode, payload.ResponseTime.Milliseconds(), payload.ObservedAt, checksum,
-		normalizerVersion, retentionClass, nullableJobID(riverJobID), selectedHeaders, requestFingerprint,
+		normalizerVersion, retention.Class, nullableJobID(riverJobID), selectedHeaders, requestFingerprint,
 	).Scan(&observationID); err != nil {
 		return RecordedObservation{}, fmt.Errorf("record provider observation: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return RecordedObservation{}, fmt.Errorf("commit provider observation: %w", err)
+	}
+	if previousObjectKey != "" && previousObjectKey != objectKey {
+		if err := runtime.Blobs.Delete(ctx, previousObjectKey); err != nil {
+			return RecordedObservation{}, fmt.Errorf("delete superseded provider blob %q: %w", previousObjectKey, err)
+		}
 	}
 	return RecordedObservation{ID: observationID, Checksum: checksum, Payload: payload}, nil
 }

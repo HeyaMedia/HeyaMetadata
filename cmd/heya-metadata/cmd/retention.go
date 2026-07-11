@@ -5,11 +5,13 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/ui"
 	"github.com/spf13/cobra"
+	"time"
 )
 
 func newRetentionCommand() *cobra.Command {
 	command := &cobra.Command{Use: "retention", Short: "Manage expiring source data", Args: cobra.NoArgs}
 	var limit int
+	var grace time.Duration
 	sweep := &cobra.Command{Use: "sweep", Short: "Delete expired provider blobs while retaining observation metadata", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		runtime, err := platform.Open(cmd.Context(), cfg)
 		if err != nil {
@@ -19,7 +21,7 @@ func newRetentionCommand() *cobra.Command {
 		if err := runtime.Ensure(cmd.Context(), cfg); err != nil {
 			return err
 		}
-		count, err := jobs.SweepExpiredBlobs(cmd.Context(), runtime, limit)
+		count, err := jobs.SweepExpiredBlobs(cmd.Context(), runtime, limit, grace)
 		if err != nil {
 			return err
 		}
@@ -30,6 +32,7 @@ func newRetentionCommand() *cobra.Command {
 		return nil
 	}}
 	sweep.Flags().IntVar(&limit, "limit", 500, "Maximum blobs to expire")
+	sweep.Flags().DurationVar(&grace, "grace", 24*time.Hour, "Fallback delay after lifecycle expiry")
 	command.AddCommand(sweep)
 	return command
 }

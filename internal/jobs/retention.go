@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/riverqueue/river"
@@ -25,20 +26,23 @@ func NewBlobRetentionWorker(runtime *platform.Runtime) *BlobRetentionWorker {
 }
 
 func (w *BlobRetentionWorker) Work(ctx context.Context, _ *river.Job[BlobRetentionArgs]) error {
-	_, err := SweepExpiredBlobs(ctx, w.runtime, 500)
+	_, err := SweepExpiredBlobs(ctx, w.runtime, 500, 24*time.Hour)
 	return err
 }
 
-func SweepExpiredBlobs(ctx context.Context, runtime *platform.Runtime, limit int) (int, error) {
+func SweepExpiredBlobs(ctx context.Context, runtime *platform.Runtime, limit int, lifecycleGrace time.Duration) (int, error) {
 	if limit < 1 || limit > 5000 {
 		limit = 500
+	}
+	if lifecycleGrace < 0 {
+		lifecycleGrace = 0
 	}
 	rows, err := runtime.DB.Query(ctx, `
         SELECT checksum, object_key
         FROM source_blobs
-        WHERE expires_at <= now() AND deleted_at IS NULL
+        WHERE expires_at <= now() - ($2 * interval '1 second') AND deleted_at IS NULL
         ORDER BY expires_at
-        LIMIT $1`, limit)
+		LIMIT $1`, limit, lifecycleGrace.Seconds())
 	if err != nil {
 		return 0, fmt.Errorf("select expired source blobs: %w", err)
 	}
@@ -63,7 +67,7 @@ func SweepExpiredBlobs(ctx context.Context, runtime *platform.Runtime, limit int
 		}
 		if _, err := runtime.DB.Exec(ctx, `
             UPDATE source_blobs SET deleted_at = now()
-            WHERE checksum = $1 AND expires_at <= now() AND deleted_at IS NULL`, blob.checksum); err != nil {
+			WHERE checksum = $1 AND expires_at <= now() - ($2 * interval '1 second') AND deleted_at IS NULL`, blob.checksum, lifecycleGrace.Seconds()); err != nil {
 			return 0, fmt.Errorf("mark source blob expired: %w", err)
 		}
 	}
