@@ -39,3 +39,22 @@ func TestSearchRequiresCredentialOnNetworkFetch(t *testing.T) {
 		t.Fatal("expected credential error")
 	}
 }
+func TestBarcodeSearchKeepsCredentialOutOfIdentity(t *testing.T) {
+	t.Parallel()
+	const secret = "secret"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("barcode") != "123" || r.Header.Get("Authorization") != "Discogs token="+secret {
+			t.Errorf("request: %s", r.URL.String())
+		}
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	}))
+	defer server.Close()
+	client := NewCached(config.DiscogsConfig{BaseURL: server.URL, RequestsPerSecond: 1000, UserAgent: "test"}, nil, secret)
+	payload, err := client.SearchReleaseByBarcode(context.Background(), "123", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(payload.RequestKey, secret) {
+		t.Fatal("credential leaked")
+	}
+}

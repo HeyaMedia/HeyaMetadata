@@ -78,6 +78,7 @@ type NormalizedRecord struct {
 	Date           string         `json:"date,omitempty"`
 	Country        string         `json:"country,omitempty"`
 	Barcode        string         `json:"barcode,omitempty"`
+	Link           string         `json:"link,omitempty"`
 	ArtistCredits  []ArtistCredit `json:"artist_credits"`
 	Labels         []Label        `json:"labels"`
 	Media          []Medium       `json:"media"`
@@ -108,6 +109,23 @@ type TrackDocument struct {
 	DurationMS    int64          `json:"duration_ms,omitempty"`
 	ArtistCredits []ArtistCredit `json:"artist_credits"`
 	Recording     RecordingRef   `json:"recording"`
+	Sources       []TrackSource  `json:"sources"`
+}
+type TrackSource struct {
+	Provider   string `json:"provider"`
+	Namespace  string `json:"namespace"`
+	ProviderID string `json:"provider_id"`
+	ISRC       string `json:"isrc,omitempty"`
+	Link       string `json:"link,omitempty"`
+}
+type EditionSource struct {
+	Provider   string `json:"provider"`
+	Namespace  string `json:"namespace"`
+	ProviderID string `json:"provider_id"`
+	Title      string `json:"title"`
+	Barcode    string `json:"barcode,omitempty"`
+	Date       string `json:"date,omitempty"`
+	Link       string `json:"link,omitempty"`
 }
 type MediumDocument struct {
 	ID         string          `json:"id"`
@@ -157,6 +175,7 @@ type ReleaseData struct {
 	ArtistCredits  []ArtistCredit   `json:"artist_credits"`
 	Labels         []Label          `json:"labels"`
 	Media          []MediumDocument `json:"media"`
+	Sources        []EditionSource  `json:"sources"`
 }
 type RecordingDocument struct {
 	SchemaVersion     int                    `json:"schema_version"`

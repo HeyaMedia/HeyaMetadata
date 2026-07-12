@@ -94,6 +94,16 @@ func (c *Client) ArtistAlbums(ctx context.Context, artistID string, limit, index
 	values := url.Values{"limit": {strconv.Itoa(limit)}, "index": {strconv.Itoa(index)}}
 	return c.get(ctx, "/artist/"+artistID+"/albums", values, providers.Payload{Provider: "deezer", ProviderNamespace: "artist_albums", ProviderRecordID: artistID}, 6*time.Hour)
 }
+func (c *Client) LookupAlbumByUPC(ctx context.Context, upc string) (providers.Payload, error) {
+	upc = strings.TrimSpace(upc)
+	if upc == "" {
+		return providers.Payload{}, fmt.Errorf("Deezer album UPC must not be empty")
+	}
+	if normalized := strings.TrimLeft(upc, "0"); normalized != "" {
+		upc = normalized
+	}
+	return c.get(ctx, "/album/upc:"+url.PathEscape(upc), nil, providers.Payload{Provider: "deezer", ProviderNamespace: "album_upc_lookup", ProviderRecordID: upc}, 12*time.Hour)
+}
 
 func (c *Client) get(ctx context.Context, path string, values url.Values, payload providers.Payload, reuse time.Duration) (providers.Payload, error) {
 	requestURL, err := url.Parse(strings.TrimRight(c.config.BaseURL, "/") + path)

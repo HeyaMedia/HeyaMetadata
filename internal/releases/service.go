@@ -17,6 +17,7 @@ import (
 	releasedomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/release"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
 	"github.com/jackc/pgx/v5"
@@ -35,6 +36,9 @@ type Service struct{ runtime *platform.Runtime }
 func NewService(runtime *platform.Runtime) *Service { return &Service{runtime: runtime} }
 
 func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int64) (result Result, returnErr error) {
+	return s.IngestMusicBrainzWithCredentials(ctx, mbid, jobID, providercredentials.Credentials{})
+}
+func (s *Service) IngestMusicBrainzWithCredentials(ctx context.Context, mbid string, jobID int64, credentials providercredentials.Credentials) (result Result, returnErr error) {
 	mbid = strings.ToLower(strings.TrimSpace(mbid))
 	if jobID > 0 {
 		if _, err := s.runtime.DB.Exec(ctx, `INSERT INTO release_ingestion_runs(river_job_id,musicbrainz_id,state)VALUES($1,$2,'working')ON CONFLICT(river_job_id)DO UPDATE SET state='working',error=NULL,completed_at=NULL`, jobID, mbid); err != nil {
@@ -66,7 +70,8 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int6
 	if err != nil {
 		return result, err
 	}
-	result, err = s.persist(ctx, record, jobID)
+	records := append([]releasedomain.NormalizedRecord{record}, s.collectSupplements(ctx, record, jobID, credentials)...)
+	result, err = s.persist(ctx, records, jobID)
 	if err != nil {
 		return result, err
 	}
@@ -79,33 +84,56 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int6
 	return result, nil
 }
 
-func (s *Service) persist(ctx context.Context, r releasedomain.NormalizedRecord, jobID int64) (Result, error) {
+func (s *Service) persist(ctx context.Context, records []releasedomain.NormalizedRecord, jobID int64) (Result, error) {
+	if len(records) == 0 {
+		return Result{}, fmt.Errorf("release persistence requires a MusicBrainz spine")
+	}
+	r := records[0]
 	tx, err := s.runtime.DB.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return Result{}, err
 	}
 	defer tx.Rollback(ctx)
-	body, _ := json.Marshal(r)
-	var normalizedID string
-	if err = tx.QueryRow(ctx, `INSERT INTO normalized_records(entity_kind,provider,provider_namespace,provider_record_id,primary_observation_id,normalizer_version,schema_version,document,observed_at)VALUES('release',$1,$2,$3,$4,$5,$6,$7,$8)ON CONFLICT(primary_observation_id,normalizer_version,schema_version)DO UPDATE SET document=EXCLUDED.document RETURNING id`, r.ProviderRecord.Provider, r.ProviderRecord.Namespace, r.ProviderRecord.Value, r.ProviderRecord.PrimaryObservationID, r.ProviderRecord.NormalizerVersion, r.ProviderRecord.SchemaVersion, body, r.ProviderRecord.ObservedAt).Scan(&normalizedID); err != nil {
-		return Result{}, err
+	body, _ := json.Marshal(records)
+	normalizedIDs := []string{}
+	for _, source := range records {
+		sourceBody, _ := json.Marshal(source)
+		var id string
+		if err = tx.QueryRow(ctx, `INSERT INTO normalized_records(entity_kind,provider,provider_namespace,provider_record_id,primary_observation_id,normalizer_version,schema_version,document,observed_at)VALUES('release',$1,$2,$3,$4,$5,$6,$7,$8)ON CONFLICT(primary_observation_id,normalizer_version,schema_version)DO UPDATE SET document=EXCLUDED.document RETURNING id`, source.ProviderRecord.Provider, source.ProviderRecord.Namespace, source.ProviderRecord.Value, source.ProviderRecord.PrimaryObservationID, source.ProviderRecord.NormalizerVersion, source.ProviderRecord.SchemaVersion, sourceBody, source.ProviderRecord.ObservedAt).Scan(&id); err != nil {
+			return Result{}, err
+		}
+		normalizedIDs = append(normalizedIDs, id)
 	}
+	normalizedID := normalizedIDs[0]
 	entityID, slug, created, err := resolveOrCreate(ctx, tx, "release", "musicbrainz", "release", r.ProviderRecord.Value, r.Title, year(r.Date))
 	if err != nil {
 		return Result{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE normalized_records SET entity_id=$1 WHERE id=$2`, entityID, normalizedID); err != nil {
-		return Result{}, err
+	for _, id := range normalizedIDs {
+		if _, err = tx.Exec(ctx, `UPDATE normalized_records SET entity_id=$1 WHERE id=$2`, entityID, id); err != nil {
+			return Result{}, err
+		}
 	}
-	for _, id := range r.ExternalIDs {
-		_, _ = tx.Exec(ctx, `INSERT INTO external_id_claims(entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at)VALUES($1,'release',$2,$3,$4,'accepted',1,$5,$6,$6)ON CONFLICT(entity_kind,provider,namespace,normalized_value)DO UPDATE SET state='accepted',last_observed_at=EXCLUDED.last_observed_at,source_observation_id=EXCLUDED.source_observation_id WHERE external_id_claims.entity_id=EXCLUDED.entity_id`, entityID, id.Provider, id.Namespace, strings.ToLower(id.Value), r.ProviderRecord.PrimaryObservationID, r.ProviderRecord.ObservedAt)
+	for _, source := range records {
+		for _, id := range source.ExternalIDs {
+			_, _ = tx.Exec(ctx, `INSERT INTO external_id_claims(entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at)VALUES($1,'release',$2,$3,$4,'accepted',1,$5,$6,$6)ON CONFLICT(entity_kind,provider,namespace,normalized_value)DO UPDATE SET state='accepted',last_observed_at=EXCLUDED.last_observed_at,source_observation_id=EXCLUDED.source_observation_id WHERE external_id_claims.entity_id=EXCLUDED.entity_id`, entityID, id.Provider, id.Namespace, strings.ToLower(id.Value), source.ProviderRecord.PrimaryObservationID, source.ProviderRecord.ObservedAt)
+		}
 	}
 	var version int64
 	if err = tx.QueryRow(ctx, `UPDATE entities SET canonical_version=canonical_version+1,updated_at=now() WHERE id=$1 RETURNING canonical_version`, entityID).Scan(&version); err != nil {
 		return Result{}, err
 	}
-	fresh := releasedomain.Freshness{State: "fresh", UpdatedAt: time.Now().UTC(), FreshUntil: time.Now().UTC().Add(7 * 24 * time.Hour), Providers: map[string]releasedomain.ProviderFreshness{"musicbrainz": {State: "fresh", LastSuccessAt: r.ProviderRecord.ObservedAt, LastObservationID: r.ProviderRecord.PrimaryObservationID}}}
-	doc := releasedomain.DetailDocument{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: "release", Slug: slug, Display: releasedomain.Display{Title: r.Title, Year: year(r.Date)}, ExternalIDs: r.ExternalIDs, Data: releasedomain.ReleaseData{Title: r.Title, Disambiguation: r.Disambiguation, Status: r.Status, Quality: r.Quality, Packaging: r.Packaging, Date: r.Date, Country: r.Country, Barcode: r.Barcode, ArtistCredits: r.ArtistCredits, Labels: r.Labels}, Freshness: fresh, Provenance: map[string][]releasedomain.SourceRef{"identity": {{Provider: "musicbrainz", ObservationID: r.ProviderRecord.PrimaryObservationID}}, "data": {{Provider: "musicbrainz", ObservationID: r.ProviderRecord.PrimaryObservationID}}}}
+	fresh := releasedomain.Freshness{State: "fresh", UpdatedAt: time.Now().UTC(), FreshUntil: time.Now().UTC().Add(7 * 24 * time.Hour), Providers: map[string]releasedomain.ProviderFreshness{}}
+	refs := []releasedomain.SourceRef{}
+	external := []releasedomain.ExternalID{}
+	sources := []releasedomain.EditionSource{}
+	for _, source := range records {
+		fresh.Providers[source.ProviderRecord.Provider] = releasedomain.ProviderFreshness{State: "fresh", LastSuccessAt: source.ProviderRecord.ObservedAt, LastObservationID: source.ProviderRecord.PrimaryObservationID}
+		refs = append(refs, releasedomain.SourceRef{Provider: source.ProviderRecord.Provider, ObservationID: source.ProviderRecord.PrimaryObservationID})
+		external = append(external, source.ExternalIDs...)
+		sources = append(sources, releasedomain.EditionSource{Provider: source.ProviderRecord.Provider, Namespace: source.ProviderRecord.Namespace, ProviderID: source.ProviderRecord.Value, Title: source.Title, Barcode: source.Barcode, Date: source.Date, Link: source.Link})
+	}
+	doc := releasedomain.DetailDocument{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: "release", Slug: slug, Display: releasedomain.Display{Title: r.Title, Year: year(r.Date)}, ExternalIDs: external, Data: releasedomain.ReleaseData{Title: r.Title, Disambiguation: r.Disambiguation, Status: r.Status, Quality: r.Quality, Packaging: r.Packaging, Date: r.Date, Country: r.Country, Barcode: r.Barcode, ArtistCredits: r.ArtistCredits, Labels: r.Labels, Sources: sources}, Freshness: fresh, Provenance: map[string][]releasedomain.SourceRef{"identity": {{Provider: "musicbrainz", ObservationID: r.ProviderRecord.PrimaryObservationID}}, "data": refs}}
 	_, _ = tx.Exec(ctx, `DELETE FROM release_media WHERE release_entity_id=$1`, entityID)
 	for _, medium := range r.Media {
 		var mediumID string
@@ -120,12 +148,25 @@ func (s *Service) persist(ctx context.Context, r releasedomain.NormalizedRecord,
 				return Result{}, err
 			}
 			_ = recordingVersion
-			trackBody, _ := json.Marshal(track)
+			trackSources := []releasedomain.TrackSource{{Provider: "musicbrainz", Namespace: "track", ProviderID: track.ProviderID}}
+			for _, source := range records[1:] {
+				if match := releasedomain.MatchTrack(track, source, medium.Position); match != nil {
+					isrc := ""
+					if len(match.Recording.ISRCs) > 0 {
+						isrc = match.Recording.ISRCs[0]
+					}
+					trackSources = append(trackSources, releasedomain.TrackSource{Provider: source.ProviderRecord.Provider, Namespace: "track", ProviderID: match.ProviderID, ISRC: isrc})
+				}
+			}
+			trackBody, _ := json.Marshal(struct {
+				Track   releasedomain.Track         `json:"track"`
+				Sources []releasedomain.TrackSource `json:"sources"`
+			}{Track: track, Sources: trackSources})
 			var trackID string
 			if err = tx.QueryRow(ctx, `INSERT INTO release_tracks(release_entity_id,medium_id,sequence,position,number,title,duration_ms,recording_entity_id,provider,provider_track_id,document)VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,0),NULLIF($8,'' )::uuid,'musicbrainz',$9,$10)RETURNING id`, entityID, mediumID, track.Sequence, track.Position, track.Number, track.Title, track.DurationMS, recordingID, track.ProviderID, trackBody).Scan(&trackID); err != nil {
 				return Result{}, err
 			}
-			projected.Tracks = append(projected.Tracks, releasedomain.TrackDocument{ID: trackID, ProviderID: track.ProviderID, Position: track.Position, Number: track.Number, Title: track.Title, Sequence: track.Sequence, DurationMS: track.DurationMS, ArtistCredits: track.ArtistCredits, Recording: releasedomain.RecordingRef{ID: recordingID, Provider: track.Recording.Provider, Namespace: track.Recording.Namespace, ProviderID: track.Recording.ProviderID, Title: track.Recording.Title, DurationMS: track.Recording.DurationMS, ISRCs: track.Recording.ISRCs}})
+			projected.Tracks = append(projected.Tracks, releasedomain.TrackDocument{ID: trackID, ProviderID: track.ProviderID, Position: track.Position, Number: track.Number, Title: track.Title, Sequence: track.Sequence, DurationMS: track.DurationMS, ArtistCredits: track.ArtistCredits, Recording: releasedomain.RecordingRef{ID: recordingID, Provider: track.Recording.Provider, Namespace: track.Recording.Namespace, ProviderID: track.Recording.ProviderID, Title: track.Recording.Title, DurationMS: track.Recording.DurationMS, ISRCs: track.Recording.ISRCs}, Sources: trackSources})
 		}
 		doc.Data.Media = append(doc.Data.Media, projected)
 	}
@@ -148,7 +189,9 @@ func (s *Service) persist(ctx context.Context, r releasedomain.NormalizedRecord,
 	}
 	_, _ = tx.Exec(ctx, `DELETE FROM search_names WHERE entity_id=$1`, entityID)
 	_, _ = tx.Exec(ctx, `INSERT INTO search_names(entity_id,value,normalized_value,name_type,source_quality)VALUES($1,$2,lower(unaccent($2)),'display',90)ON CONFLICT DO NOTHING`, entityID, r.Title)
-	_, _ = tx.Exec(ctx, `INSERT INTO provider_refresh_states(entity_id,provider,last_attempt_at,last_success_at,last_observation_id,current_job_id,next_eligible_at)VALUES($1,'musicbrainz',now(),now(),$2,NULLIF($3,0),$4)ON CONFLICT(entity_id,provider)DO UPDATE SET last_attempt_at=now(),last_success_at=now(),last_observation_id=EXCLUDED.last_observation_id,current_job_id=EXCLUDED.current_job_id,next_eligible_at=EXCLUDED.next_eligible_at`, entityID, r.ProviderRecord.PrimaryObservationID, jobID, fresh.FreshUntil)
+	for _, source := range records {
+		_, _ = tx.Exec(ctx, `INSERT INTO provider_refresh_states(entity_id,provider,last_attempt_at,last_success_at,last_observation_id,current_job_id,next_eligible_at)VALUES($1,$2,now(),now(),$3,NULLIF($4,0),$5)ON CONFLICT(entity_id,provider)DO UPDATE SET last_attempt_at=now(),last_success_at=now(),last_observation_id=EXCLUDED.last_observation_id,current_job_id=EXCLUDED.current_job_id,next_eligible_at=EXCLUDED.next_eligible_at`, entityID, source.ProviderRecord.Provider, source.ProviderRecord.PrimaryObservationID, jobID, fresh.FreshUntil)
+	}
 	change := "updated"
 	if created {
 		change = "created"
@@ -194,7 +237,9 @@ func (s *Service) persistRecording(ctx context.Context, tx pgx.Tx, r releasedoma
 	for _, isrc := range r.ISRCs {
 		external = append(external, releasedomain.ExternalID{Provider: "isrc", Namespace: "recording", Value: isrc, Evidence: "provider_assertion"})
 	}
-	doc := releasedomain.RecordingDocument{SchemaVersion: 1, ProjectionVersion: version, ID: id, Kind: "recording", Slug: slug, Display: releasedomain.Display{Title: r.Title}, ExternalIDs: external, Data: r, Freshness: fresh, Provenance: map[string][]releasedomain.SourceRef{"data": {{Provider: source.Provider, ObservationID: source.PrimaryObservationID}}}}
+	recordingFresh := fresh
+	recordingFresh.Providers = map[string]releasedomain.ProviderFreshness{source.Provider: {State: "fresh", LastSuccessAt: source.ObservedAt, LastObservationID: source.PrimaryObservationID}}
+	doc := releasedomain.RecordingDocument{SchemaVersion: 1, ProjectionVersion: version, ID: id, Kind: "recording", Slug: slug, Display: releasedomain.Display{Title: r.Title}, ExternalIDs: external, Data: r, Freshness: recordingFresh, Provenance: map[string][]releasedomain.SourceRef{"data": {{Provider: source.Provider, ObservationID: source.PrimaryObservationID}}}}
 	body, _ := json.Marshal(doc)
 	sum := sha256.Sum256(body)
 	_, err = tx.Exec(ctx, `INSERT INTO canonical_recordings(entity_id,merge_version,source_fingerprint,document)VALUES($1,'recording-merge/v1',$2,$3)ON CONFLICT(entity_id)DO UPDATE SET source_fingerprint=EXCLUDED.source_fingerprint,document=EXCLUDED.document,updated_at=now()`, id, hex.EncodeToString(sum[:]), body)

@@ -98,6 +98,17 @@ func (c *Client) Search(ctx context.Context, query, kind string, perPage, page i
 		Provider: "discogs", ProviderNamespace: kind + "_search", ProviderRecordID: query,
 	}, 6*time.Hour, true)
 }
+func (c *Client) SearchReleaseByBarcode(ctx context.Context, barcode string, perPage int) (providers.Payload, error) {
+	barcode = strings.TrimSpace(barcode)
+	if barcode == "" {
+		return providers.Payload{}, fmt.Errorf("Discogs barcode must not be empty")
+	}
+	if perPage < 1 || perPage > 10 {
+		perPage = 5
+	}
+	values := url.Values{"barcode": {barcode}, "type": {"release"}, "per_page": {strconv.Itoa(perPage)}, "page": {"1"}}
+	return c.get(ctx, "/database/search", values, providers.Payload{Provider: "discogs", ProviderNamespace: "release_barcode_search", ProviderRecordID: barcode}, 6*time.Hour, true)
+}
 
 func (c *Client) ArtistReleases(ctx context.Context, artistID string, perPage, page int) (providers.Payload, error) {
 	return c.page(ctx, "artist_releases", "/artists/"+artistID+"/releases", artistID, perPage, page)

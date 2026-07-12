@@ -35,6 +35,7 @@ func NormalizeAlbum(body []byte, expectedID, observationID string, observedAt ti
 			DiscNumber        int    `json:"discNumber"`
 			TrackTimeMS       int64  `json:"trackTimeMillis"`
 			TrackExplicitness string `json:"trackExplicitness"`
+			ISRC              string `json:"isrc"`
 		} `json:"results"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
@@ -60,6 +61,7 @@ func NormalizeAlbum(body []byte, expectedID, observationID string, observedAt ti
 		DiscNumber        int    `json:"discNumber"`
 		TrackTimeMS       int64  `json:"trackTimeMillis"`
 		TrackExplicitness string `json:"trackExplicitness"`
+		ISRC              string `json:"isrc"`
 	}
 	// Re-marshal the matching collection into a named local shape so mixed lookup
 	// results never let a track masquerade as the requested album.
@@ -86,6 +88,7 @@ func NormalizeAlbum(body []byte, expectedID, observationID string, observedAt ti
 				DiscNumber        int    `json:"discNumber"`
 				TrackTimeMS       int64  `json:"trackTimeMillis"`
 				TrackExplicitness string `json:"trackExplicitness"`
+				ISRC              string `json:"isrc"`
 			}{}
 			_ = json.Unmarshal(encoded, album)
 			break
@@ -121,7 +124,7 @@ func NormalizeAlbum(body []byte, expectedID, observationID string, observedAt ti
 		if !strings.EqualFold(track.WrapperType, "track") || track.CollectionID != album.CollectionID || track.TrackID < 1 {
 			continue
 		}
-		record.Tracks = append(record.Tracks, rgdomain.Track{ProviderID: strconv.FormatInt(track.TrackID, 10), Position: strconv.Itoa(track.TrackNumber), Number: track.TrackNumber, DiscNumber: track.DiscNumber, Title: track.TrackName, DurationMS: track.TrackTimeMS, ArtistCredits: []rgdomain.ArtistCredit{{Name: track.ArtistName, ArtistProvider: "apple", ArtistNamespace: "artist", ArtistID: strconv.FormatInt(track.ArtistID, 10), ArtistName: track.ArtistName}}})
+		record.Tracks = append(record.Tracks, rgdomain.Track{ProviderID: strconv.FormatInt(track.TrackID, 10), Position: strconv.Itoa(track.TrackNumber), Number: track.TrackNumber, DiscNumber: track.DiscNumber, Title: track.TrackName, DurationMS: track.TrackTimeMS, ISRC: strings.ToUpper(track.ISRC), ArtistCredits: []rgdomain.ArtistCredit{{Name: track.ArtistName, ArtistProvider: "apple", ArtistNamespace: "artist", ArtistID: strconv.FormatInt(track.ArtistID, 10), ArtistName: track.ArtistName}}})
 	}
 	return record, nil
 }
@@ -142,6 +145,7 @@ func normalizeCatalogAlbum(body []byte, expectedID, observationID string, observ
 			DurationMS    int64    `json:"durationInMillis"`
 			TrackNumber   int      `json:"trackNumber"`
 			DiscNumber    int      `json:"discNumber"`
+			ISRC          string   `json:"isrc"`
 			Artwork       struct {
 				URL    string `json:"url"`
 				Width  int    `json:"width"`
@@ -205,7 +209,7 @@ func normalizeCatalogAlbum(body []byte, expectedID, observationID string, observ
 			if track.Type != "songs" {
 				continue
 			}
-			record.Tracks = append(record.Tracks, rgdomain.Track{ProviderID: track.ID, Position: strconv.Itoa(track.Attributes.TrackNumber), Number: track.Attributes.TrackNumber, DiscNumber: track.Attributes.DiscNumber, Title: track.Attributes.Name, DurationMS: track.Attributes.DurationMS})
+			record.Tracks = append(record.Tracks, rgdomain.Track{ProviderID: track.ID, Position: strconv.Itoa(track.Attributes.TrackNumber), Number: track.Attributes.TrackNumber, DiscNumber: track.Attributes.DiscNumber, Title: track.Attributes.Name, DurationMS: track.Attributes.DurationMS, ISRC: strings.ToUpper(track.Attributes.ISRC)})
 		}
 		return record, true, nil
 	}

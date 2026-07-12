@@ -297,7 +297,11 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if !strings.EqualFold(input.Body.Provider, "musicbrainz") || !strings.EqualFold(input.Body.Namespace, "release") {
 				return nil, huma.Error404NotFound("external ID is not known and no release collector accepts it")
 			}
-			inserted, insertErr := jobs.InsertRelease(ctx, runtime, client, jobs.ReleaseIngestArgs{MusicBrainzID: strings.ToLower(input.Body.Value), Reason: "interactive_resolution"}, jobs.PriorityInteractive)
+			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
+			if credentialErr != nil {
+				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
+			}
+			inserted, insertErr := jobs.InsertRelease(ctx, runtime, client, jobs.ReleaseIngestArgs{MusicBrainzID: strings.ToLower(input.Body.Value), CredentialRef: credentialRef, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
 			if insertErr != nil {
 				return nil, insertErr
 			}
@@ -476,7 +480,11 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if err != nil {
 				return nil, huma.Error404NotFound("entity has no MusicBrainz release claim")
 			}
-			inserted, err := jobs.InsertRelease(ctx, runtime, client, jobs.ReleaseIngestArgs{MusicBrainzID: mbid, Reason: "manual_refresh"}, jobs.PriorityInteractive)
+			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
+			if credentialErr != nil {
+				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
+			}
+			inserted, err := jobs.InsertRelease(ctx, runtime, client, jobs.ReleaseIngestArgs{MusicBrainzID: mbid, CredentialRef: credentialRef, Reason: "manual_refresh"}, jobs.PriorityInteractive)
 			if err != nil {
 				return nil, err
 			}

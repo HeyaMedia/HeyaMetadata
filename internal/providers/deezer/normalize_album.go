@@ -39,6 +39,7 @@ func NormalizeAlbum(body []byte, observationID string, observedAt time.Time) (rg
 				Title      string `json:"title"`
 				TitleShort string `json:"title_short"`
 				Duration   int64  `json:"duration"`
+				ISRC       string `json:"isrc"`
 				Artist     struct {
 					ID   int64  `json:"id"`
 					Name string `json:"name"`
@@ -86,7 +87,7 @@ func NormalizeAlbum(body []byte, observationID string, observedAt time.Time) (rg
 		if title == "" {
 			title = track.Title
 		}
-		record.Tracks = append(record.Tracks, rgdomain.Track{ProviderID: strconv.FormatInt(track.ID, 10), Position: strconv.Itoa(i + 1), Number: i + 1, DiscNumber: 1, Title: title, DurationMS: track.Duration * 1000, ArtistCredits: []rgdomain.ArtistCredit{{Name: track.Artist.Name, ArtistProvider: "deezer", ArtistNamespace: "artist", ArtistID: strconv.FormatInt(track.Artist.ID, 10), ArtistName: track.Artist.Name}}})
+		record.Tracks = append(record.Tracks, rgdomain.Track{ProviderID: strconv.FormatInt(track.ID, 10), Position: strconv.Itoa(i + 1), Number: i + 1, DiscNumber: 1, Title: title, DurationMS: track.Duration * 1000, ISRC: strings.ToUpper(track.ISRC), ArtistCredits: []rgdomain.ArtistCredit{{Name: track.Artist.Name, ArtistProvider: "deezer", ArtistNamespace: "artist", ArtistID: strconv.FormatInt(track.Artist.ID, 10), ArtistName: track.Artist.Name}}})
 	}
 	return record, nil
 }

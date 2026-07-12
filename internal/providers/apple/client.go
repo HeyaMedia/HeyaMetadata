@@ -106,6 +106,14 @@ func (c *Client) Search(ctx context.Context, namespace, query, country string, l
 	return c.get(ctx, "/search", values, providers.Payload{Provider: "apple", ProviderNamespace: namespace + "_search", ProviderRecordID: query}, 6*time.Hour)
 }
 
+func (c *Client) LookupAlbumByUPC(ctx context.Context, upc string) (providers.Payload, error) {
+	upc = strings.TrimSpace(upc)
+	if upc == "" {
+		return providers.Payload{}, fmt.Errorf("Apple album UPC must not be empty")
+	}
+	return c.musicGet(ctx, "/catalog/"+strings.ToLower(c.country())+"/albums", url.Values{"filter[upc]": {upc}, "include": {"artists,tracks"}}, providers.Payload{Provider: "apple", ProviderNamespace: "album_upc_lookup", ProviderRecordID: upc}, 12*time.Hour)
+}
+
 func (c *Client) musicGet(ctx context.Context, path string, values url.Values, payload providers.Payload, reuse time.Duration) (providers.Payload, error) {
 	requestURL, err := url.Parse(strings.TrimRight(c.config.MusicBaseURL, "/") + path)
 	if err != nil {

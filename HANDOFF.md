@@ -407,12 +407,25 @@ recordings participate in the fast local search index. Live Ado 残夢 release
 16 canonical recordings, and retained ISRC evidence. ISRC claims stay proposed
 and collisions open conflicts rather than auto-merging recordings.
 
+Issued releases now use a reusable barcode-gated supplemental mixer for Apple,
+Deezer, and Discogs. Apple uses catalog `filter[upc]` when a developer token is
+available; Deezer uses its UPC album lookup; Discogs searches releases by
+barcode with its request-scoped/configured token and verifies the fetched
+release. Exact normalized barcode plus complete track layout and compatible
+year/title are required before accepting an external edition claim. Tracks
+match by ISRC first, then verified disc/sequence/title/duration. Live Abbey Road
+release `31765b9f-e969-4257-855f-c7ea1f657b2a` combined MusicBrainz release
+`31765b9f-e969-4257-855f-c7ea1f657b2a` with Deezer album `12047952`; all 17
+tracks retained both provider track IDs. Apple and Discogs paths are covered by
+request/normalization tests and remain optional when credentials/upstream
+availability are absent.
+
 ## Suggested next turn
 
 1. Add bounded derived image variants (WebP/AVIF) and class-aware original
    retention before materializing high-volume profile catalogs.
-2. Refine the release mixer with Apple, Deezer, and Discogs edition/track
-   adapters, using ISRC plus track-layout evidence without forcing identity.
+2. Add standalone recording discovery/ingestion, then enrich recording facts
+   from providers without treating a release-track SKU as recording identity.
 3. Expand TV/Anime discovery verification with provider-specific episode and
    season hints, then add credits/content ratings without weakening identity.
 

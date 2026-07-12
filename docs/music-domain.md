@@ -128,3 +128,19 @@ automatic merge; reuse by another recording opens an identity conflict. Apple,
 Deezer, Spotify, and Discogs adapters can therefore add storefront tracks and
 editions without collapsing release tracks into recordings or treating their
 album IDs as release-group identities.
+
+### Supplemental issued-release evidence
+
+Barcoded MusicBrainz releases now probe Apple Music by catalog UPC, Deezer by
+its UPC lookup, and Discogs by authenticated barcode search. Search results are
+not identities. A provider album/release is accepted only after the fetched
+object has the same normalized barcode, complete track count, and a compatible
+edition title or release year. Provider failures remain partial enrichment and
+do not fail the MusicBrainz release spine.
+
+Verified provider editions appear in `data.sources` and become resolvable
+external claims for that canonical release. Release tracks retain every matched
+provider track in `track.sources`. Matching prefers ISRC and otherwise requires
+the already-verified edition plus compatible disc, sequence, normalized title,
+and duration. This enriches placements without creating Apple/Deezer/Discogs
+recording entities or promoting title similarity into recording identity.

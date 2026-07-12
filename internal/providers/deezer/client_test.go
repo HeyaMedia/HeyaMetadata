@@ -39,3 +39,17 @@ func TestLogicalErrorIsNotShared(t *testing.T) {
 		t.Fatalf("reuse: %+v", payload.ReuseDurationOverride)
 	}
 }
+func TestUPCLookupNormalizesLeadingZeros(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/album/upc:602547670342" {
+			t.Errorf("path: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	defer server.Close()
+	client := New(config.DeezerConfig{BaseURL: server.URL, RequestsPerSecond: 1000})
+	if _, err := client.LookupAlbumByUPC(context.Background(), "00602547670342"); err != nil {
+		t.Fatal(err)
+	}
+}

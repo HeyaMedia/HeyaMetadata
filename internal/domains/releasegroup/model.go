@@ -115,6 +115,7 @@ type Track struct {
 	DiscNumber        int            `json:"disc_number,omitempty"`
 	Title             string         `json:"title"`
 	DurationMS        int64          `json:"duration_ms,omitempty"`
+	ISRC              string         `json:"isrc,omitempty"`
 	RecordingProvider string         `json:"recording_provider,omitempty"`
 	RecordingID       string         `json:"recording_id,omitempty"`
 	ArtistCredits     []ArtistCredit `json:"artist_credits"`

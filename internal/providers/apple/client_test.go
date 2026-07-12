@@ -52,3 +52,18 @@ func TestAppleMusicUsesBearerTokenAndDistinctIdentity(t *testing.T) {
 		t.Fatalf("request identity: %s", payloads[0].RequestKey)
 	}
 }
+func TestAppleMusicUPCLookupUsesCatalogFilter(t *testing.T) {
+	t.Parallel()
+	const token = "token"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/catalog/jp/albums" || r.URL.Query().Get("filter[upc]") != "123" {
+			t.Errorf("request: %s", r.URL.String())
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"1","type":"albums"}]}`))
+	}))
+	defer server.Close()
+	client := NewCached(config.AppleConfig{MusicBaseURL: server.URL, BaseURL: server.URL, Country: "JP", RequestsPerSecond: 1000}, nil, token)
+	if _, err := client.LookupAlbumByUPC(context.Background(), "123"); err != nil {
+		t.Fatal(err)
+	}
+}
