@@ -56,18 +56,6 @@ func (c *Client) Collect(ctx context.Context, identifier providers.Identifier) (
 	if err != nil || id < 1 {
 		return nil, fmt.Errorf("Apple %s collector requires a positive numeric ID", identifier.Namespace)
 	}
-	if c.musicToken() != "" {
-		path := "/catalog/" + strings.ToLower(c.country()) + "/" + musicEntities[identifier.Namespace] + "/" + identifier.Value
-		payload, collectErr := c.musicGet(ctx, path,
-			url.Values{"include": {musicIncludes(identifier.Namespace)}},
-			providers.Payload{Provider: "apple", ProviderNamespace: identifier.Namespace, ProviderRecordID: identifier.Value},
-			12*time.Hour,
-		)
-		if collectErr != nil {
-			return nil, collectErr
-		}
-		return []providers.Payload{payload}, nil
-	}
 	values := url.Values{"id": {identifier.Value}, "country": {c.country()}}
 	if identifier.Namespace == "artist" {
 		values.Set("entity", "album")
@@ -95,23 +83,28 @@ func (c *Client) Search(ctx context.Context, namespace, query, country string, l
 	if strings.TrimSpace(country) == "" {
 		country = c.country()
 	}
-	if c.musicToken() != "" {
-		values := url.Values{"term": {query}, "types": {musicEntities[namespace]}, "limit": {strconv.Itoa(limit)}}
-		return c.musicGet(ctx, "/catalog/"+strings.ToLower(country)+"/search", values,
-			providers.Payload{Provider: "apple", ProviderNamespace: namespace + "_search", ProviderRecordID: query},
-			6*time.Hour,
-		)
-	}
 	values := url.Values{"term": {query}, "media": {"music"}, "entity": {entity}, "country": {strings.ToUpper(country)}, "limit": {strconv.Itoa(limit)}}
 	return c.get(ctx, "/search", values, providers.Payload{Provider: "apple", ProviderNamespace: namespace + "_search", ProviderRecordID: query}, 6*time.Hour)
 }
 
-func (c *Client) LookupAlbumByUPC(ctx context.Context, upc string) (providers.Payload, error) {
-	upc = strings.TrimSpace(upc)
-	if upc == "" {
-		return providers.Payload{}, fmt.Errorf("Apple album UPC must not be empty")
+func (c *Client) SearchITunesAlbums(ctx context.Context, query string, limit int) (providers.Payload, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return providers.Payload{}, fmt.Errorf("iTunes album search query must not be empty")
 	}
-	return c.musicGet(ctx, "/catalog/"+strings.ToLower(c.country())+"/albums", url.Values{"filter[upc]": {upc}, "include": {"artists,tracks"}}, providers.Payload{Provider: "apple", ProviderNamespace: "album_upc_lookup", ProviderRecordID: upc}, 12*time.Hour)
+	if limit < 1 || limit > 200 {
+		limit = 10
+	}
+	values := url.Values{"term": {query}, "media": {"music"}, "entity": {"album"}, "country": {c.country()}, "limit": {strconv.Itoa(limit)}}
+	return c.get(ctx, "/search", values, providers.Payload{Provider: "apple", ProviderNamespace: "itunes_album_search", ProviderRecordID: query}, 6*time.Hour)
+}
+func (c *Client) CollectITunesAlbum(ctx context.Context, id string) (providers.Payload, error) {
+	value, err := strconv.ParseInt(id, 10, 64)
+	if err != nil || value < 1 {
+		return providers.Payload{}, fmt.Errorf("iTunes album lookup requires a positive collection ID")
+	}
+	values := url.Values{"id": {id}, "entity": {"song"}, "country": {c.country()}, "limit": {"200"}}
+	return c.get(ctx, "/lookup", values, providers.Payload{Provider: "apple", ProviderNamespace: "album", ProviderRecordID: id}, 12*time.Hour)
 }
 
 func (c *Client) musicGet(ctx context.Context, path string, values url.Values, payload providers.Payload, reuse time.Duration) (providers.Payload, error) {

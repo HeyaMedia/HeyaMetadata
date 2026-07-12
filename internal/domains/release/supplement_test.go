@@ -29,3 +29,21 @@ func TestMatchTrackPrefersISRCThenVerifiedLayout(t *testing.T) {
 		t.Fatalf("layout match: %+v", got)
 	}
 }
+func TestCompatibleCatalogRequiresArtistYearAndStrongTrackCoverage(t *testing.T) {
+	tracks := func(provider string) []Track {
+		out := []Track{}
+		for i, title := range []string{"Show", "DIGNITY", "向日葵", "唱"} {
+			out = append(out, Track{ProviderID: provider, Sequence: i + 1, Title: title, DurationMS: 200000})
+		}
+		return out
+	}
+	spine := NormalizedRecord{Title: "残夢", Date: "2024-07-10", ArtistCredits: []ArtistCredit{{Name: "Ado"}}, Media: []Medium{{Position: 1, Tracks: tracks("mb")}}}
+	apple := NormalizedRecord{Title: "Zanmu", Date: "2024-07-10", ArtistCredits: []ArtistCredit{{Name: "Ado"}}, Media: []Medium{{Position: 1, Tracks: tracks("apple")}}}
+	if !CompatibleCatalog(spine, apple) {
+		t.Fatal("expected verified romanized iTunes catalog match")
+	}
+	apple.ArtistCredits[0].Name = "Another Artist"
+	if CompatibleCatalog(spine, apple) {
+		t.Fatal("artist mismatch must reject")
+	}
+}

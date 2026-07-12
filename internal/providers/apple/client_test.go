@@ -33,14 +33,14 @@ func TestLookupAndSearchPreserveStorefrontInIdentity(t *testing.T) {
 	}
 }
 
-func TestAppleMusicUsesBearerTokenAndDistinctIdentity(t *testing.T) {
+func TestConfiguredDeveloperTokenDoesNotSwitchCanonicalCollectorFromITunes(t *testing.T) {
 	t.Parallel()
 	const token = "signed-developer-token"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/catalog/us/albums/1616728060" || r.Header.Get("Authorization") != "Bearer "+token {
+		if r.URL.Path != "/lookup" || r.Header.Get("Authorization") != "" {
 			t.Errorf("unexpected request: %s", r.URL.String())
 		}
-		_, _ = w.Write([]byte(`{"data":[{"id":"1616728060","type":"albums"}]}`))
+		_, _ = w.Write([]byte(`{"resultCount":1,"results":[{}]}`))
 	}))
 	defer server.Close()
 	client := NewCached(config.AppleConfig{BaseURL: server.URL, MusicBaseURL: server.URL, Country: "US", RequestsPerSecond: 1000}, nil, token)
@@ -48,22 +48,30 @@ func TestAppleMusicUsesBearerTokenAndDistinctIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(payloads[0].RequestKey, "music/") || strings.Contains(payloads[0].RequestKey, token) {
+	if strings.HasPrefix(payloads[0].RequestKey, "music/") || strings.Contains(payloads[0].RequestKey, token) {
 		t.Fatalf("request identity: %s", payloads[0].RequestKey)
 	}
 }
-func TestAppleMusicUPCLookupUsesCatalogFilter(t *testing.T) {
+func TestITunesAlbumSearchAndLookupNeverRequireDeveloperToken(t *testing.T) {
 	t.Parallel()
-	const token = "token"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/catalog/jp/albums" || r.URL.Query().Get("filter[upc]") != "123" {
+		if r.URL.Path == "/search" && r.URL.Query().Get("entity") != "album" {
 			t.Errorf("request: %s", r.URL.String())
 		}
-		_, _ = w.Write([]byte(`{"data":[{"id":"1","type":"albums"}]}`))
+		if r.URL.Path == "/lookup" && r.URL.Query().Get("entity") != "song" {
+			t.Errorf("request: %s", r.URL.String())
+		}
+		if r.URL.Path != "/search" && r.URL.Path != "/lookup" {
+			t.Errorf("request: %s", r.URL.String())
+		}
+		_, _ = w.Write([]byte(`{"resultCount":1,"results":[{}]}`))
 	}))
 	defer server.Close()
-	client := NewCached(config.AppleConfig{MusicBaseURL: server.URL, BaseURL: server.URL, Country: "JP", RequestsPerSecond: 1000}, nil, token)
-	if _, err := client.LookupAlbumByUPC(context.Background(), "123"); err != nil {
+	client := New(config.AppleConfig{MusicBaseURL: server.URL, BaseURL: server.URL, Country: "JP", RequestsPerSecond: 1000})
+	if _, err := client.SearchITunesAlbums(context.Background(), "Ado Zanmu", 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CollectITunesAlbum(context.Background(), "1754263364"); err != nil {
 		t.Fatal(err)
 	}
 }

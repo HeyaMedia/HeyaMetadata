@@ -246,9 +246,9 @@ validated.
   live WS/2 JSON API. Canonical music boundaries and merge precedence remain
   intentionally undecided.
 - Apple, Deezer, Discogs, and Last.fm source collectors are implemented. Apple
-  prefers the authenticated Apple Music Catalog API and falls back to the
-  official public iTunes Search API, preserving storefront identity and the
-  fallback's documented ~20/minute limit; Deezer
+  uses the official free iTunes Search/Lookup API, preserving storefront
+  identity without Apple Developer Program credentials and respecting its
+  documented conservative request limit; Deezer
   classifies HTTP-200 error envelopes; Discogs separates artist/release/master/
   label and keeps tokens in headers; Last.fm is keyed from MusicBrainz IDs and
   classifies its JSON error codes. Search and catalog pagination inputs are
@@ -407,18 +407,22 @@ recordings participate in the fast local search index. Live Ado 残夢 release
 16 canonical recordings, and retained ISRC evidence. ISRC claims stay proposed
 and collisions open conflicts rather than auto-merging recordings.
 
-Issued releases now use a reusable barcode-gated supplemental mixer for Apple,
-Deezer, and Discogs. Apple uses catalog `filter[upc]` when a developer token is
-available; Deezer uses its UPC album lookup; Discogs searches releases by
-barcode with its request-scoped/configured token and verifies the fetched
-release. Exact normalized barcode plus complete track layout and compatible
-year/title are required before accepting an external edition claim. Tracks
-match by ISRC first, then verified disc/sequence/title/duration. Live Abbey Road
+Issued releases now use a reusable verified supplemental mixer for free iTunes
+Search, Deezer, and Discogs. iTunes searches album candidates and requires
+artist/title/year plus strong track-layout agreement; Deezer uses its UPC album
+lookup; Discogs searches releases by barcode with its request-scoped/configured
+token and verifies the fetched release. Barcode paths require exact normalized
+barcode plus complete track layout and compatible year/title. Tracks match by
+ISRC first, then verified disc/sequence/title/duration. Live Abbey Road
 release `31765b9f-e969-4257-855f-c7ea1f657b2a` combined MusicBrainz release
 `31765b9f-e969-4257-855f-c7ea1f657b2a` with Deezer album `12047952`; all 17
-tracks retained both provider track IDs. Apple and Discogs paths are covered by
-request/normalization tests and remain optional when credentials/upstream
-availability are absent.
+tracks retained both provider track IDs. Live Zanmu release
+`c3bcc159-20da-4e1e-bb9e-53f63dc32280` combined free iTunes collection
+`1754263364`; all 16 tracks retained both IDs without an Apple developer token.
+The old Discogs token is already in `.env.local` and is valid; the earlier
+manual 403 was an empty-User-Agent probe, while the provider client sends the
+required HeyaMetadata UA. The catalog/audio/ML/social roadmap is documented in
+`docs/music-evidence-roadmap.md`.
 
 ## Suggested next turn
 

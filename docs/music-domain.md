@@ -1,5 +1,8 @@
 # Canonical music identity boundaries
 
+The longer-term catalog, Chromaprint, ML-analysis, lyrics, and social evidence
+plan lives in [music-evidence-roadmap.md](./music-evidence-roadmap.md).
+
 Music is not modeled as a single artist/album/track tree. Provider catalogs
 collapse different real-world concepts, so v2 keeps the following canonical
 boundaries even when a public projection embeds related records.
@@ -131,12 +134,13 @@ album IDs as release-group identities.
 
 ### Supplemental issued-release evidence
 
-Barcoded MusicBrainz releases now probe Apple Music by catalog UPC, Deezer by
-its UPC lookup, and Discogs by authenticated barcode search. Search results are
-not identities. A provider album/release is accepted only after the fetched
-object has the same normalized barcode, complete track count, and a compatible
-edition title or release year. Provider failures remain partial enrichment and
-do not fail the MusicBrainz release spine.
+Issued MusicBrainz releases probe the free iTunes Search API using artist and
+title, Deezer by UPC lookup, and Discogs by authenticated barcode search.
+Search results are not identities. iTunes candidates require matching artist,
+release year, edition title, complete track count, and strong track-layout
+agreement. Barcode candidates require the same normalized barcode and complete
+track count plus compatible title/year. Provider failures remain partial
+enrichment and do not fail the MusicBrainz release spine.
 
 Verified provider editions appear in `data.sources` and become resolvable
 external claims for that canonical release. Release tracks retain every matched

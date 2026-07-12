@@ -56,6 +56,50 @@ func Compatible(spine, candidate NormalizedRecord) bool {
 	}
 	return textmatch.EquivalentRelease(spine.Title, leftYear, candidate.Title, rightYear)
 }
+func CompatibleCatalog(spine, candidate NormalizedRecord) bool {
+	left, right := trackTotal(spine), trackTotal(candidate)
+	if left == 0 || left != right {
+		return false
+	}
+	ly, ry := yearValue(spine.Date), yearValue(candidate.Date)
+	if ly == 0 || ry == 0 || ly != ry {
+		return false
+	}
+	if !textmatch.EquivalentRelease(spine.Title, ly, candidate.Title, ry) || !artistCompatible(spine.ArtistCredits, candidate.ArtistCredits) {
+		return false
+	}
+	matched := 0
+	for _, m := range spine.Media {
+		for _, track := range m.Tracks {
+			if MatchTrack(track, candidate, m.Position) != nil {
+				matched++
+			}
+		}
+	}
+	return matched*100/left >= 80
+}
+func artistCompatible(a, b []ArtistCredit) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	left, right := textmatch.ReleaseKeys(creditName(a), 0), textmatch.ReleaseKeys(creditName(b), 0)
+	for _, x := range left {
+		for _, y := range right {
+			if x == y {
+				return true
+			}
+		}
+	}
+	return false
+}
+func creditName(values []ArtistCredit) string {
+	var out strings.Builder
+	for _, v := range values {
+		out.WriteString(v.Name)
+		out.WriteString(v.JoinPhrase)
+	}
+	return out.String()
+}
 func MatchTrack(spine Track, candidate NormalizedRecord, disc int) *Track {
 	for mi := range candidate.Media {
 		for ti := range candidate.Media[mi].Tracks {

@@ -18,9 +18,6 @@ import (
 )
 
 func (s *Service) collectSupplements(ctx context.Context, spine releasedomain.NormalizedRecord, jobID int64, credentials providercredentials.Credentials) []releasedomain.NormalizedRecord {
-	if strings.TrimSpace(spine.Barcode) == "" {
-		return nil
-	}
 	out := []releasedomain.NormalizedRecord{}
 	accept := func(record releasedomain.NormalizedRecord) {
 		if releasedomain.Compatible(spine, record) {
@@ -31,18 +28,31 @@ func (s *Service) collectSupplements(ctx context.Context, spine releasedomain.No
 		slog.Info("release supplement rejected by barcode/layout verification", "provider", record.ProviderRecord.Provider, "release", spine.ProviderRecord.Value)
 	}
 
-	if credentials.APIKey("apple") != "" || s.runtime.Config.Providers.Apple.DeveloperToken != "" {
-		base := apple.New(s.runtime.Config.Providers.Apple)
-		if resolver, err := providercache.New(s.runtime, "apple-release/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID); err == nil {
-			client := apple.NewCached(s.runtime.Config.Providers.Apple, resolver, credentials.APIKey("apple"))
-			if payload, err := client.LookupAlbumByUPC(ctx, spine.Barcode); err == nil && payload.StatusCode == http.StatusOK {
-				if id := appleAlbumID(payload.Body); id != "" {
-					if normalized, err := apple.NormalizeAlbum(payload.Body, id, payload.ObservationID, payload.ObservedAt); err == nil {
-						accept(releasedomain.FromReleaseGroup(normalized))
-					}
+	baseApple := apple.New(s.runtime.Config.Providers.Apple)
+	if resolver, err := providercache.New(s.runtime, "itunes-release/v1", baseApple.Capability().RawRetention, baseApple.Capability().ResponseCache, jobID); err == nil {
+		client := apple.NewCached(s.runtime.Config.Providers.Apple, resolver, "")
+		query := spine.Title + " " + releaseArtistName(spine)
+		if search, err := client.SearchITunesAlbums(ctx, query, 10); err == nil && search.StatusCode == http.StatusOK {
+			for _, id := range itunesAlbumIDs(search.Body) {
+				payload, err := client.CollectITunesAlbum(ctx, id)
+				if err != nil || payload.StatusCode != http.StatusOK {
+					continue
+				}
+				normalized, err := apple.NormalizeAlbum(payload.Body, id, payload.ObservationID, payload.ObservedAt)
+				if err != nil {
+					continue
+				}
+				candidate := releasedomain.FromReleaseGroup(normalized)
+				if releasedomain.CompatibleCatalog(spine, candidate) {
+					slog.Info("release supplement verified", "provider", "apple", "release", spine.ProviderRecord.Value)
+					out = append(out, candidate)
+					break
 				}
 			}
 		}
+	}
+	if strings.TrimSpace(spine.Barcode) == "" {
+		return out
 	}
 
 	baseDeezer := deezer.New(s.runtime.Config.Providers.Deezer)
@@ -84,19 +94,31 @@ func (s *Service) collectSupplements(ctx context.Context, spine releasedomain.No
 	return out
 }
 
-func appleAlbumID(body []byte) string {
+func releaseArtistName(r releasedomain.NormalizedRecord) string {
+	var b strings.Builder
+	for _, v := range r.ArtistCredits {
+		b.WriteString(v.Name)
+		b.WriteString(v.JoinPhrase)
+	}
+	return b.String()
+}
+func itunesAlbumIDs(body []byte) []string {
 	var e struct {
-		Data []struct{ ID, Type string } `json:"data"`
+		Results []struct {
+			WrapperType  string `json:"wrapperType"`
+			CollectionID int64  `json:"collectionId"`
+		} `json:"results"`
 	}
 	if json.Unmarshal(body, &e) != nil {
-		return ""
+		return nil
 	}
-	for _, v := range e.Data {
-		if v.Type == "albums" {
-			return v.ID
+	out := []string{}
+	for _, v := range e.Results {
+		if strings.EqualFold(v.WrapperType, "collection") && v.CollectionID > 0 {
+			out = append(out, strconv.FormatInt(v.CollectionID, 10))
 		}
 	}
-	return ""
+	return out
 }
 func discogsReleaseIDs(body []byte) []string {
 	var e struct {
