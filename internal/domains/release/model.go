@@ -58,6 +58,7 @@ type Track struct {
 	DurationMS    int64          `json:"duration_ms,omitempty"`
 	ArtistCredits []ArtistCredit `json:"artist_credits"`
 	Recording     Recording      `json:"recording"`
+	PreviewURL    string         `json:"-"`
 }
 type Medium struct {
 	Position   int      `json:"position"`

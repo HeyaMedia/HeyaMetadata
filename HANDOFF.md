@@ -424,12 +424,32 @@ manual 403 was an empty-User-Agent probe, while the provider client sends the
 required HeyaMetadata UA. The catalog/audio/ML/social roadmap is documented in
 `docs/music-evidence-roadmap.md`.
 
+Recording evidence is now live through migration 0012. Verified iTunes and
+Deezer release-track matches expose preview URLs only in memory; `fpcalc -raw`
+generates packed, versioned Chromaprint evidence on the canonical recording and
+the temporary audio is deleted. Deezer track previews are renewed immediately
+before use because album-response cache entries outlive signed media tokens.
+The public read is `GET /api/v2/recordings/{id}/fingerprints`, encoded as
+`base64-uint32le` with source checksum, provider track, duration, hash count,
+algorithm, and generator versions. Live Zanmu produced 16/16 Apple
+fingerprints; Abbey Road produced 17/17 Deezer fingerprints.
+
+LRCLIB exact-signature enrichment uses its bounded `/api/get-cached` route in
+the release job, the common Redis/S3 observation cache, a six-second request
+ceiling, and four-way concurrency. Provider slowness and misses are partial
+evidence and cannot fail the MusicBrainz spine. Plain, synchronized, and
+instrumental results are stored with LRCLIB record ID, checksum, observation,
+and retrieval time and exposed at `GET /api/v2/recordings/{id}/lyrics`. Live
+Abbey Road stored 15 synchronized records. LRCLIB's potentially fan-out
+`/api/get` route remains reserved for a later low-priority refresh job.
+
 ## Suggested next turn
 
 1. Add bounded derived image variants (WebP/AVIF) and class-aware original
    retention before materializing high-volume profile catalogs.
-2. Add standalone recording discovery/ingestion, then enrich recording facts
-   from providers without treating a release-track SKU as recording identity.
+2. Add standalone recording discovery/ingestion and the low-priority evidence
+   refresh job, then enrich recording facts without treating a release-track
+   SKU as recording identity.
 3. Expand TV/Anime discovery verification with provider-specific episode and
    season hints, then add credits/content ratings without weakening identity.
 

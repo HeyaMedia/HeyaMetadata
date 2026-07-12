@@ -47,6 +47,14 @@ hash windows and votes on a stable time offset. Store the compact fingerprint
 and derived index terms, not provider preview audio, unless provider terms
 explicitly permit retaining the audio.
 
+Implemented now: verified Apple/iTunes and Deezer preview URLs are consumed
+transiently inside release ingestion, fingerprinted with `fpcalc`, and stored
+as recording-scoped `chromaprint-raw/v1` evidence. The preview audio and URL
+are not retained as fingerprint artifacts; exact raw provider responses remain
+subject to their normal 48-hour lifecycle. Client uploads, full-track
+comparison/indexing, AcoustID, and conflict-driven identity proposals remain
+later slices.
+
 ### ML evidence
 
 Media servers may upload versioned audio-analysis output such as BPM, musical
@@ -96,16 +104,18 @@ versioned artifacts use bounded object storage retention where appropriate.
 
 ## Provider sequence
 
+Release-backed LRCLIB exact-signature fetching and provider-preview
+Chromaprint generation are implemented. The remaining sequence is:
+
 1. Standalone recording discovery and ingestion.
 2. AcoustID lookup plus client Chromaprint upload and conflict-safe mapping.
-3. LRCLIB synchronized/plain lyrics evidence.
-4. TIDAL official catalog integration once application credentials are set up.
-5. Qobuz, TheAudioDB, and Genius after verifying access and content terms.
-6. Amazon, Bandcamp, KKBOX, QQ Music, and NetEase only through stable,
+3. TIDAL official catalog integration once application credentials are set up.
+4. Qobuz, TheAudioDB, and Genius after verifying access and content terms.
+5. Amazon, Bandcamp, KKBOX, QQ Music, and NetEase only through stable,
    permitted interfaces; scraping private endpoints is not a foundation for a
    durable metadata service.
-7. Versioned ML analysis uploads and similarity/playlist projections.
-8. Consent-driven playback/list/playlist sync and public link-out pages.
+6. Versioned ML analysis uploads and similarity/playlist projections.
+7. Consent-driven playback/list/playlist sync and public link-out pages.
 
 This ordering builds recording identity before adding expensive dependent
 features and keeps Heya useful even when a commercial catalog disappears or

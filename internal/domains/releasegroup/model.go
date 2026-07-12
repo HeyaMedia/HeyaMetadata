@@ -119,6 +119,9 @@ type Track struct {
 	RecordingProvider string         `json:"recording_provider,omitempty"`
 	RecordingID       string         `json:"recording_id,omitempty"`
 	ArtistCredits     []ArtistCredit `json:"artist_credits"`
+	// PreviewURL exists only while a provider response is being normalized and
+	// enriched. Signed preview URLs must never enter normalized durable records.
+	PreviewURL string `json:"-"`
 }
 type NormalizedRecordV1 struct {
 	ProviderRecord     ProviderRecord      `json:"provider_record"`

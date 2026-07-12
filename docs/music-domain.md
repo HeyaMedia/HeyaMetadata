@@ -1,7 +1,9 @@
 # Canonical music identity boundaries
 
-The longer-term catalog, Chromaprint, ML-analysis, lyrics, and social evidence
-plan lives in [music-evidence-roadmap.md](./music-evidence-roadmap.md).
+The longer-term catalog, ML-analysis, and social evidence plan lives in
+[music-evidence-roadmap.md](./music-evidence-roadmap.md). Provider-preview
+Chromaprint evidence and LRCLIB lyrics are implemented for release-backed
+recordings.
 
 Music is not modeled as a single artist/album/track tree. Provider catalogs
 collapse different real-world concepts, so v2 keeps the following canonical
@@ -110,6 +112,35 @@ SKU annotations such as Deluxe/Expanded/Bonus Track may collapse, while Remix,
 Live, Acoustic, Demo, Remaster, Karaoke, and Instrumental remain distinct.
 Transliteration is matching evidence only and can never establish canonical
 identity by itself.
+
+### Recording evidence
+
+Verified Apple and Deezer track matches may carry a legal 30-second preview.
+During the durable release ingestion job, Heya downloads each preview with a
+strict HTTPS CDN allowlist and 8 MiB limit, runs `fpcalc -raw`, stores the packed
+little-endian Chromaprint sequence on the canonical recording, and immediately
+deletes the temporary audio. Signed preview URLs are never copied into
+normalized/canonical records, River arguments, or fingerprint evidence. The
+exact raw provider response may contain one under the existing 48-hour
+observation lifecycle. A stable checksum of the provider, track ID, and
+unsigned object path is retained as provenance.
+
+`GET /api/v2/recordings/{heya_id}/fingerprints` returns ready evidence as
+`base64-uint32le`, including the algorithm version, hash count, duration,
+provider track, checksum, and generation time. Failed permanent previews are
+kept as a bounded retry/negative-cache state but are not exposed publicly.
+
+The same release job performs LRCLIB's bounded, cached exact-signature lookup
+with track, artist, album, and rounded duration. Exact responses run through the shared
+Redis/S3 provider cache and observation system before plain and synchronized
+forms are stored on the recording. `GET
+/api/v2/recordings/{heya_id}/lyrics` returns the LRCLIB record ID, content
+checksum, source observation, retrieval time, and lyric forms. A missing lyric
+is negative-cached and does not fail release ingestion.
+
+LRCLIB's uncached lookup may itself fan out to external sources and is therefore
+reserved for a later low-priority refresh job; it cannot stall interactive
+release resolution.
 
 ## Implemented release and recording slice
 

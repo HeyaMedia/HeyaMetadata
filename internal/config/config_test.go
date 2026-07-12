@@ -37,6 +37,7 @@ func TestConfigValidateRejectsInvalidDependencyURLs(t *testing.T) {
 		"TVMaze":       func(config *Config) { config.Providers.TVMaze.BaseURL = "api.tvmaze.com" },
 		"Wikidata":     func(config *Config) { config.Providers.Wikidata.BaseURL = "wikidata.org" },
 		"OpenOpus":     func(config *Config) { config.Providers.OpenOpus.BaseURL = "api.openopus.org" },
+		"LRCLIB":       func(config *Config) { config.Providers.LRCLIB.BaseURL = "lrclib.net" },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -90,6 +91,8 @@ func validConfig() Config {
 			TVMaze:      TVMazeConfig{BaseURL: "https://api.tvmaze.com", RequestsPerSecond: 2},
 			Wikidata:    WikidataConfig{BaseURL: "https://www.wikidata.org", RequestsPerSecond: 1, UserAgent: "HeyaMetadata/test"},
 			OpenOpus:    OpenOpusConfig{BaseURL: "https://api.openopus.org", RequestsPerSecond: 2},
+			LRCLIB:      LRCLIBConfig{BaseURL: "https://lrclib.net", RequestsPerSecond: 2, UserAgent: "HeyaMetadata/test"},
 		},
+		Chromaprint: ChromaprintConfig{MaxPerRelease: 100},
 	}
 }

@@ -33,6 +33,8 @@ const (
 	ScopeArtwork         Scope = "artwork"
 	ScopeCollections     Scope = "collections"
 	ScopeRecommendations Scope = "recommendations"
+	ScopeLyrics          Scope = "lyrics"
+	ScopeFingerprints    Scope = "fingerprints"
 )
 
 type Identifier struct {

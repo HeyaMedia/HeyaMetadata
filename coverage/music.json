@@ -107,6 +107,20 @@
       "references": [{"name": "Come Together", "external_ids": {"musicbrainz": "9edb3d47-4f3f-4f5f-8f2e-73f78b0d0d32"}, "expected_providers": ["system"]}]
     },
     {
+      "id": "music.recording.fingerprint.preview", "kind": "recording", "category": "fact",
+      "description": "Verified provider previews produce versioned raw Chromaprint evidence without retaining preview audio or signed URLs.",
+      "providers": ["apple", "deezer"],
+      "projection": {"document": "fingerprints", "path": "items"},
+      "references": [{"name": "Come Together", "external_ids": {"musicbrainz": "9edb3d47-4f3f-4f5f-8f2e-73f78b0d0d32"}, "expected_providers": ["apple", "deezer"]}]
+    },
+    {
+      "id": "music.recording.lyrics.lrclib", "kind": "recording", "category": "fact",
+      "description": "Plain, synchronized, and instrumental LRCLIB evidence retains its record ID, response observation, checksum, and retrieval time.",
+      "providers": ["lrclib"],
+      "projection": {"document": "lyrics", "path": "items"},
+      "references": [{"name": "Fuhen", "external_ids": {"musicbrainz": "recording"}, "expected_providers": ["lrclib"]}]
+    },
+    {
       "id": "music.work.boundary", "kind": "musical_work", "category": "capability",
       "description": "The underlying composition and classical catalogue identity remain distinct from recordings and release tracks.",
       "providers": ["system", "musicbrainz", "openopus", "wikidata"],

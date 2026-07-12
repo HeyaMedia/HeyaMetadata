@@ -37,7 +37,7 @@ func FromReleaseGroup(source rgdomain.NormalizedRecordV1) NormalizedRecord {
 			r.Media = append(r.Media, Medium{Position: disc})
 		}
 		m := &r.Media[index]
-		m.Tracks = append(m.Tracks, Track{ProviderID: track.ProviderID, Position: track.Position, Number: strconv.Itoa(track.Number), Sequence: len(m.Tracks) + 1, Title: track.Title, DurationMS: track.DurationMS, Recording: Recording{Provider: source.ProviderRecord.Provider, Namespace: "track", ProviderID: track.ProviderID, Title: track.Title, DurationMS: track.DurationMS, ISRCs: nonEmpty(track.ISRC)}})
+		m.Tracks = append(m.Tracks, Track{ProviderID: track.ProviderID, Position: track.Position, Number: strconv.Itoa(track.Number), Sequence: len(m.Tracks) + 1, Title: track.Title, DurationMS: track.DurationMS, PreviewURL: track.PreviewURL, Recording: Recording{Provider: source.ProviderRecord.Provider, Namespace: "track", ProviderID: track.ProviderID, Title: track.Title, DurationMS: track.DurationMS, ISRCs: nonEmpty(track.ISRC)}})
 		m.TrackCount = len(m.Tracks)
 	}
 	return r

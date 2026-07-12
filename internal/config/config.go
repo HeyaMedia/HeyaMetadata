@@ -18,6 +18,7 @@ type Config struct {
 	RedisURL    string
 	S3          S3Config
 	Worker      WorkerConfig
+	Chromaprint ChromaprintConfig
 	Providers   ProvidersConfig
 }
 
@@ -36,6 +37,11 @@ type WorkerConfig struct {
 	MaxWorkers int
 }
 
+type ChromaprintConfig struct {
+	FPCalcPath    string
+	MaxPerRelease int
+}
+
 type ProvidersConfig struct {
 	TMDB        TMDBConfig
 	OMDB        OMDBConfig
@@ -51,6 +57,13 @@ type ProvidersConfig struct {
 	TVMaze      TVMazeConfig
 	Wikidata    WikidataConfig
 	OpenOpus    OpenOpusConfig
+	LRCLIB      LRCLIBConfig
+}
+
+type LRCLIBConfig struct {
+	BaseURL           string
+	RequestsPerSecond float64
+	UserAgent         string
 }
 
 type AnimeListsConfig struct {
@@ -198,6 +211,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	lrclibRate, err := envFloat("HEYA_METADATA_LRCLIB_REQUESTS_PER_SECOND", 2)
+	if err != nil {
+		return Config{}, err
+	}
+	chromaprintMax, err := envInt("HEYA_METADATA_CHROMAPRINT_MAX_PER_RELEASE", 100)
+	if err != nil {
+		return Config{}, err
+	}
 
 	config := Config{
 		Host:        env("HEYA_METADATA_HOST", "0.0.0.0"),
@@ -217,6 +238,9 @@ func Load() (Config, error) {
 			AutoCreateBucket: autoCreateBucket,
 		},
 		Worker: WorkerConfig{MaxWorkers: maxWorkers},
+		Chromaprint: ChromaprintConfig{
+			FPCalcPath: env("HEYA_METADATA_FPCALC_PATH", ""), MaxPerRelease: chromaprintMax,
+		},
 		Providers: ProvidersConfig{TMDB: TMDBConfig{
 			Token:    env("HEYA_METADATA_TMDB_TOKEN", ""),
 			BaseURL:  env("HEYA_METADATA_TMDB_BASE_URL", "https://api.themoviedb.org/3"),
@@ -258,6 +282,9 @@ func Load() (Config, error) {
 			UserAgent: env("HEYA_METADATA_WIKIDATA_USER_AGENT", "HeyaMetadata/dev (https://github.com/HeyaMedia/HeyaMetadata)"),
 		}, OpenOpus: OpenOpusConfig{
 			BaseURL: env("HEYA_METADATA_OPENOPUS_BASE_URL", "https://api.openopus.org"), RequestsPerSecond: openOpusRate,
+		}, LRCLIB: LRCLIBConfig{
+			BaseURL: env("HEYA_METADATA_LRCLIB_BASE_URL", "https://lrclib.net"), RequestsPerSecond: lrclibRate,
+			UserAgent: env("HEYA_METADATA_LRCLIB_USER_AGENT", "HeyaMetadata/dev (https://github.com/HeyaMedia/HeyaMetadata)"),
 		}},
 	}
 	if err := config.Validate(); err != nil {
@@ -408,6 +435,7 @@ func (c Config) Validate() error {
 	for name, rawURL := range map[string]string{
 		"HEYA_METADATA_WIKIDATA_BASE_URL": c.Providers.Wikidata.BaseURL,
 		"HEYA_METADATA_OPENOPUS_BASE_URL": c.Providers.OpenOpus.BaseURL,
+		"HEYA_METADATA_LRCLIB_BASE_URL":   c.Providers.LRCLIB.BaseURL,
 	} {
 		parsed, parseErr := url.Parse(rawURL)
 		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" {
@@ -417,13 +445,20 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Providers.Wikidata.UserAgent) == "" {
 		return fmt.Errorf("HEYA_METADATA_WIKIDATA_USER_AGENT must not be empty")
 	}
+	if strings.TrimSpace(c.Providers.LRCLIB.UserAgent) == "" {
+		return fmt.Errorf("HEYA_METADATA_LRCLIB_USER_AGENT must not be empty")
+	}
 	for name, rate := range map[string]float64{
 		"HEYA_METADATA_WIKIDATA_REQUESTS_PER_SECOND": c.Providers.Wikidata.RequestsPerSecond,
 		"HEYA_METADATA_OPENOPUS_REQUESTS_PER_SECOND": c.Providers.OpenOpus.RequestsPerSecond,
+		"HEYA_METADATA_LRCLIB_REQUESTS_PER_SECOND":   c.Providers.LRCLIB.RequestsPerSecond,
 	} {
 		if rate <= 0 || rate > 1000 {
 			return fmt.Errorf("%s must be greater than 0 and at most 1000", name)
 		}
+	}
+	if c.Chromaprint.MaxPerRelease < 0 || c.Chromaprint.MaxPerRelease > 1000 {
+		return fmt.Errorf("HEYA_METADATA_CHROMAPRINT_MAX_PER_RELEASE must be between 0 and 1000")
 	}
 	return nil
 }

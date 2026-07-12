@@ -146,6 +146,14 @@ eligible collectors as new external IDs are discovered. Provider-specific
 normalizers feed a deterministic domain combiner; consumers receive one merged
 canonical document rather than separate provider payloads.
 
+Release ingestion also derives raw Chromaprint evidence from verified
+iTunes/Deezer previews when `fpcalc` is installed, and performs LRCLIB
+exact-signature lyric lookups. Evidence is available at
+`GET /api/v2/recordings/{id}/fingerprints` and
+`GET /api/v2/recordings/{id}/lyrics`; preview audio is never retained, and
+signed URLs are not copied beyond the existing 48-hour raw provider evidence.
+On macOS, `brew install chromaprint` provides `fpcalc`.
+
 `GET /api/v2/search` is the low-latency canonical index and accepts a `kind`
 filter. Warm results are served from Redis; upstream providers never block this
 route. `POST /api/v2/discoveries` is the durable smart-search surface for

@@ -15,6 +15,7 @@ import (
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/changelog"
 	releasedomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/release"
+	"github.com/HeyaMedia/HeyaMetadata/internal/fingerprint"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
@@ -71,7 +72,8 @@ func (s *Service) IngestMusicBrainzWithCredentials(ctx context.Context, mbid str
 		return result, err
 	}
 	records := append([]releasedomain.NormalizedRecord{record}, s.collectSupplements(ctx, record, jobID, credentials)...)
-	result, err = s.persist(ctx, records, jobID)
+	evidence := s.collectRecordingEvidence(ctx, records, jobID)
+	result, err = s.persist(ctx, records, evidence, jobID)
 	if err != nil {
 		return result, err
 	}
@@ -84,7 +86,7 @@ func (s *Service) IngestMusicBrainzWithCredentials(ctx context.Context, mbid str
 	return result, nil
 }
 
-func (s *Service) persist(ctx context.Context, records []releasedomain.NormalizedRecord, jobID int64) (Result, error) {
+func (s *Service) persist(ctx context.Context, records []releasedomain.NormalizedRecord, evidence evidenceBundle, jobID int64) (Result, error) {
 	if len(records) == 0 {
 		return Result{}, fmt.Errorf("release persistence requires a MusicBrainz spine")
 	}
@@ -148,6 +150,9 @@ func (s *Service) persist(ctx context.Context, records []releasedomain.Normalize
 				return Result{}, err
 			}
 			_ = recordingVersion
+			if err = persistRecordingEvidence(ctx, tx, recordingID, track.Recording.ProviderID, evidence); err != nil {
+				return Result{}, err
+			}
 			trackSources := []releasedomain.TrackSource{{Provider: "musicbrainz", Namespace: "track", ProviderID: track.ProviderID}}
 			for _, source := range records[1:] {
 				if match := releasedomain.MatchTrack(track, source, medium.Position); match != nil {
@@ -254,6 +259,32 @@ func (s *Service) persistRecording(ctx context.Context, tx pgx.Tx, r releasedoma
 		_, _ = tx.Exec(ctx, `INSERT INTO search_names(entity_id,value,normalized_value,name_type,source_quality)VALUES($1,$2,lower(unaccent($2)),'display',90)ON CONFLICT DO NOTHING`, id, r.Title)
 	}
 	return id, version, err
+}
+
+func persistRecordingEvidence(ctx context.Context, tx pgx.Tx, recordingID, recordingProviderID string, bundle evidenceBundle) error {
+	if recordingID == "" || recordingProviderID == "" {
+		return nil
+	}
+	for _, value := range bundle.Fingerprints {
+		if value.RecordingProviderID != recordingProviderID {
+			continue
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO recording_fingerprints(recording_entity_id,algorithm,algorithm_version,generator_version,source_provider,source_track_id,source_checksum,fingerprint,duration_ms,hash_count,state,failure_class,failure_message,retry_after)VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,0),$10,$11,NULLIF($12,''),NULLIF($13,''),$14)ON CONFLICT(source_provider,source_track_id,algorithm_version)DO UPDATE SET generator_version=EXCLUDED.generator_version,source_checksum=EXCLUDED.source_checksum,fingerprint=EXCLUDED.fingerprint,duration_ms=EXCLUDED.duration_ms,hash_count=EXCLUDED.hash_count,state=EXCLUDED.state,failure_class=EXCLUDED.failure_class,failure_message=EXCLUDED.failure_message,retry_after=EXCLUDED.retry_after,generated_at=now(),updated_at=now() WHERE recording_fingerprints.recording_entity_id=EXCLUDED.recording_entity_id`, recordingID, fingerprint.Algorithm, fingerprint.AlgorithmVersion, value.GeneratorVersion, value.SourceProvider, value.SourceTrackID, value.SourceChecksum, value.Fingerprint, value.DurationMS, value.HashCount, value.State, value.FailureClass, value.FailureMessage, value.RetryAfter)
+		if err != nil {
+			return err
+		}
+	}
+	for _, value := range bundle.Lyrics {
+		if value.RecordingProviderID != recordingProviderID {
+			continue
+		}
+		lyrics := value.Evidence
+		_, err := tx.Exec(ctx, `INSERT INTO recording_lyrics(recording_entity_id,provider,provider_record_id,track_name,artist_name,album_name,duration_ms,instrumental,plain_lyrics,synced_lyrics,content_checksum,source_observation_id,observed_at)VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,0),$8,NULLIF($9,''),NULLIF($10,''),$11,$12,$13)ON CONFLICT(recording_entity_id,provider,provider_record_id)DO UPDATE SET track_name=EXCLUDED.track_name,artist_name=EXCLUDED.artist_name,album_name=EXCLUDED.album_name,duration_ms=EXCLUDED.duration_ms,instrumental=EXCLUDED.instrumental,plain_lyrics=EXCLUDED.plain_lyrics,synced_lyrics=EXCLUDED.synced_lyrics,content_checksum=EXCLUDED.content_checksum,source_observation_id=EXCLUDED.source_observation_id,observed_at=EXCLUDED.observed_at,updated_at=now()`, recordingID, lyrics.Provider, lyrics.ProviderRecordID, lyrics.TrackName, lyrics.ArtistName, lyrics.AlbumName, lyrics.DurationMS, lyrics.Instrumental, lyrics.PlainLyrics, lyrics.SyncedLyrics, lyrics.ContentChecksum, lyrics.PrimaryObservationID, lyrics.ObservedAt)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func resolveOrCreate(ctx context.Context, tx pgx.Tx, kind, provider, namespace, value, title string, y int) (id, slug string, created bool, err error) {

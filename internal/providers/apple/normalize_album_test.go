@@ -1,13 +1,14 @@
 package apple
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestNormalizeAlbumKeepsStorefrontEditionAndTracks(t *testing.T) {
-	body := []byte(`{"resultCount":3,"results":[{"wrapperType":"collection","collectionId":1441164426,"collectionName":"Abbey Road (Remastered)","artistId":136975,"artistName":"The Beatles","collectionViewUrl":"https://music.apple.com/album/1441164426","artworkUrl100":"https://is1-ssl.mzstatic.com/cover.jpg","collectionExplicitness":"notExplicit","trackCount":2,"country":"GBR","releaseDate":"1969-09-26T07:00:00Z","primaryGenreName":"Rock"},{"wrapperType":"track","collectionId":1441164426,"trackId":1441164430,"trackName":"Come Together","trackNumber":1,"discNumber":1,"trackTimeMillis":258947,"artistId":136975,"artistName":"The Beatles"},{"wrapperType":"track","collectionId":999,"trackId":1,"trackName":"Wrong Album"}]}`)
+	body := []byte(`{"resultCount":3,"results":[{"wrapperType":"collection","collectionId":1441164426,"collectionName":"Abbey Road (Remastered)","artistId":136975,"artistName":"The Beatles","collectionViewUrl":"https://music.apple.com/album/1441164426","artworkUrl100":"https://is1-ssl.mzstatic.com/cover.jpg","collectionExplicitness":"notExplicit","trackCount":2,"country":"GBR","releaseDate":"1969-09-26T07:00:00Z","primaryGenreName":"Rock"},{"wrapperType":"track","collectionId":1441164426,"trackId":1441164430,"trackName":"Come Together","trackNumber":1,"discNumber":1,"trackTimeMillis":258947,"artistId":136975,"artistName":"The Beatles","previewUrl":"https://audio-ssl.itunes.apple.com/preview.m4a"},{"wrapperType":"track","collectionId":999,"trackId":1,"trackName":"Wrong Album"}]}`)
 	record, err := NormalizeAlbum(body, "1441164426", "observation", time.Unix(1, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -17,6 +18,13 @@ func TestNormalizeAlbumKeepsStorefrontEditionAndTracks(t *testing.T) {
 	}
 	if len(record.Tracks) != 1 || record.Tracks[0].ProviderID != "1441164430" || record.ArtistCredits[0].ArtistID != "136975" {
 		t.Fatalf("tracks/credits: %+v / %+v", record.Tracks, record.ArtistCredits)
+	}
+	if record.Tracks[0].PreviewURL == "" {
+		t.Fatal("preview URL was not parsed")
+	}
+	encoded, _ := json.Marshal(record)
+	if strings.Contains(string(encoded), "preview.m4a") {
+		t.Fatal("signed preview URL entered normalized JSON")
 	}
 }
 
