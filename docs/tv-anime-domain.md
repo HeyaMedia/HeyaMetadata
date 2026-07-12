@@ -48,12 +48,21 @@ seasonal, cour, aired, DVD, and specials numbering remain named schemes with
 provenance. TV seasons and episodes use the same scheme-aware primitive, but the
 default TV projection does not inherit anime-specific assumptions.
 
-## Implemented first slice
+## Implemented multi-source slice
 
 TVMaze is the initial `tv_show` identity spine. Its canonical document retains
 alternate titles, lifecycle, network, external TVDB/IMDb/TVRage IDs, seasons,
 full episodes, artwork evidence, and TVMaze numbering. Discovery can verify
 known episode titles and numbers before resolution.
+
+An accepted TVMaze `tvdb.series` claim unlocks TVDB extended series evidence.
+An accepted IMDb title claim is resolved through TMDB's external-ID index and
+then unlocks TMDB TV detail plus each conventional season. The deterministic
+mixer keeps TVMaze scalar priority while unioning titles, classifications,
+artwork, and explicit IDs. Episodes match across authorities by exact provider
+number, title, or air date and retain `tvmaze`, `tvdb`, and `tmdb` numbers.
+Season zero is deliberately excluded from the conventional TV projection: both
+TVDB and TMDB can classify hundreds of clips and featurettes as specials.
 
 AniDB AID is the initial `anime` identity spine. The official daily title dump
 is reused for at least 24 hours, then at most the best three candidates are
@@ -66,6 +75,19 @@ Anime detail retains the source episode count while exposing all returned
 episodes. Regular, special, credit, trailer, and parody episode numbers remain
 separate named schemes. Cowboy Bebop therefore reports 26 conventional
 episodes even though supplemental AniDB entries are also retained.
+
+The cached Fribb anime-lists mapping dump is the explicit AniDB-to-MAL,
+AniList, and TVDB bridge. TVDB enrichment is restricted to the mapped season;
+`episode_offset.tvdb` translates split-cour numbering without changing the
+original TVDB number. AniDB resource groups that contain several IDs in the
+same namespace remain ambiguous evidence and are not accepted as canonical
+claims. The mapping authority supplies the selected MAL/AniList identity.
+
+All contributing normalized records are persisted independently and the
+canonical projection records each provider in freshness and provenance. Raw
+TVDB, TMDB, AniDB, TVMaze, and mapping responses use the 48-hour lifecycle
+tier. Request-scoped TMDB and TVDB keys flow to episodic River jobs through the
+same opaque Redis credential references as movie ingestion.
 
 Both kinds reuse River priority, caching, access-frequency refresh,
 observations, search, change-feed, and low-level episodic storage primitives.

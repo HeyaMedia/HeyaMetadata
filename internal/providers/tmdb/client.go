@@ -15,11 +15,69 @@ import (
 )
 
 const appendedMovieScopes = "credits,external_ids,keywords,release_dates,videos,recommendations,images,alternative_titles,translations"
+const appendedTVScopes = "aggregate_credits,external_ids,keywords,content_ratings,videos,recommendations,images,alternative_titles,translations"
 
 type Client struct {
 	config config.TMDBConfig
 	apiKey string
 	http   *providers.HTTPClient
+}
+
+// FindTVByIMDb resolves an explicit IMDb identifier through TMDB's external-ID
+// index. The returned payload is evidence; CollectTV performs the detail fetch.
+func (c *Client) FindTVByIMDb(ctx context.Context, imdbID string) (providers.Payload, error) {
+	imdbID = strings.TrimSpace(imdbID)
+	if !strings.HasPrefix(imdbID, "tt") {
+		return providers.Payload{}, fmt.Errorf("TMDB TV lookup requires an IMDb title ID")
+	}
+	return c.get(ctx, "find/"+url.PathEscape(imdbID), url.Values{
+		"external_source": {"imdb_id"},
+		"language":        {c.config.Language},
+	}, providers.Payload{Provider: "tmdb", ProviderNamespace: "tv_external_lookup", ProviderRecordID: imdbID, RequestKey: "find/" + imdbID + "?external_source=imdb_id&language=" + c.config.Language})
+}
+
+// CollectTV fetches a TV detail document plus every season document so the
+// canonical mixer receives complete episode data rather than only season shells.
+func (c *Client) CollectTV(ctx context.Context, identifier providers.Identifier) ([]providers.Payload, error) {
+	if identifier.Provider != "tmdb" || identifier.Namespace != "tv" {
+		return nil, fmt.Errorf("TMDB TV collector cannot accept %s.%s", identifier.Provider, identifier.Namespace)
+	}
+	id, err := strconv.ParseInt(identifier.Value, 10, 64)
+	if err != nil || id < 1 {
+		return nil, fmt.Errorf("invalid TMDB TV ID %q", identifier.Value)
+	}
+	detail, err := c.get(ctx, fmt.Sprintf("tv/%d", id), url.Values{
+		"append_to_response":     {appendedTVScopes},
+		"include_image_language": {languageFromLocale(c.config.Language) + ",en,null"},
+		"language":               {c.config.Language},
+	}, providers.Payload{Provider: "tmdb", ProviderNamespace: "tv", ProviderRecordID: identifier.Value, RequestKey: fmt.Sprintf("tv/%d?append=%s&language=%s", id, appendedTVScopes, c.config.Language)})
+	if err != nil || detail.StatusCode != http.StatusOK {
+		return []providers.Payload{detail}, err
+	}
+	var envelope struct {
+		Seasons []struct {
+			SeasonNumber int `json:"season_number"`
+		} `json:"seasons"`
+	}
+	if err := json.Unmarshal(detail.Body, &envelope); err != nil {
+		return nil, fmt.Errorf("decode TMDB TV envelope: %w", err)
+	}
+	payloads := []providers.Payload{detail}
+	for _, season := range envelope.Seasons {
+		// Season zero can contain hundreds of clips, featurettes, and trailers.
+		// Those are supplemental assets, not canonical TV episodes.
+		if season.SeasonNumber == 0 {
+			continue
+		}
+		payload, err := c.get(ctx, fmt.Sprintf("tv/%d/season/%d", id, season.SeasonNumber), url.Values{"language": {c.config.Language}}, providers.Payload{
+			Provider: "tmdb", ProviderNamespace: "tv_season", ProviderRecordID: fmt.Sprintf("%d:%d", id, season.SeasonNumber), RequestKey: fmt.Sprintf("tv/%d/season/%d?language=%s", id, season.SeasonNumber, c.config.Language),
+		})
+		if err != nil {
+			return payloads, err
+		}
+		payloads = append(payloads, payload)
+	}
+	return payloads, nil
 }
 
 func New(config config.TMDBConfig) *Client {

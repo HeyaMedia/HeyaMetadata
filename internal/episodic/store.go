@@ -41,6 +41,13 @@ func FailRun(ctx context.Context, runtime *platform.Runtime, jobID int64, err er
 }
 
 func Persist(ctx context.Context, runtime *platform.Runtime, def Definition, record NormalizedRecord, jobID int64) (Result, error) {
+	return PersistMany(ctx, runtime, def, []NormalizedRecord{record}, jobID)
+}
+func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition, records []NormalizedRecord, jobID int64) (Result, error) {
+	if len(records) == 0 {
+		return Result{}, fmt.Errorf("episodic persistence requires at least one normalized record")
+	}
+	record := Merge(records)
 	body, err := json.Marshal(record)
 	if err != nil {
 		return Result{}, err
@@ -52,10 +59,19 @@ func Persist(ctx context.Context, runtime *platform.Runtime, def Definition, rec
 		return Result{}, err
 	}
 	defer tx.Rollback(ctx)
-	var normalizedID string
-	err = tx.QueryRow(ctx, `INSERT INTO normalized_records(entity_kind,provider,provider_namespace,provider_record_id,primary_observation_id,normalizer_version,schema_version,document,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(primary_observation_id,normalizer_version,schema_version) DO UPDATE SET document=EXCLUDED.document RETURNING id`, def.Kind, def.Provider, def.Namespace, record.ProviderID, record.PrimaryObservationID, def.NormalizerVersion, record.SchemaVersion, body, record.ObservedAt).Scan(&normalizedID)
-	if err != nil {
-		return Result{}, err
+	normalizedIDs := []string{}
+	for _, source := range records {
+		sourceBody, _ := json.Marshal(source)
+		version := source.NormalizerVersion
+		if version == "" {
+			version = def.NormalizerVersion
+		}
+		var normalizedID string
+		err = tx.QueryRow(ctx, `INSERT INTO normalized_records(entity_kind,provider,provider_namespace,provider_record_id,primary_observation_id,normalizer_version,schema_version,document,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(primary_observation_id,normalizer_version,schema_version) DO UPDATE SET document=EXCLUDED.document RETURNING id`, def.Kind, source.Provider, source.Namespace, source.ProviderID, source.PrimaryObservationID, version, source.SchemaVersion, sourceBody, source.ObservedAt).Scan(&normalizedID)
+		if err != nil {
+			return Result{}, err
+		}
+		normalizedIDs = append(normalizedIDs, normalizedID)
 	}
 	var entityID, slug string
 	err = tx.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind=$1 AND provider=$2 AND namespace=$3 AND normalized_value=$4 AND state='accepted'`, def.Kind, def.Provider, def.Namespace, record.ProviderID).Scan(&entityID)
@@ -88,19 +104,24 @@ func Persist(ctx context.Context, runtime *platform.Runtime, def Definition, rec
 			return Result{}, err
 		}
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO external_id_claims(entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at) VALUES($1,$2,$3,$4,$5,'accepted',1,$6,$7,$7) ON CONFLICT(entity_kind,provider,namespace,normalized_value) DO UPDATE SET last_observed_at=EXCLUDED.last_observed_at,source_observation_id=EXCLUDED.source_observation_id WHERE external_id_claims.entity_id=EXCLUDED.entity_id`, entityID, def.Kind, def.Provider, def.Namespace, record.ProviderID, record.PrimaryObservationID, record.ObservedAt)
-	if err != nil {
-		return Result{}, err
-	}
-	for _, external := range record.ExternalIDs {
-		if external.Value == "" {
-			continue
+	for _, source := range records {
+		// Claims from an older normalization of this provider that disappeared
+		// are no longer resolvable identity. This matters for upstream documents
+		// that replace an ambiguous related-ID list with one authoritative map.
+		_, _ = tx.Exec(ctx, `UPDATE external_id_claims c SET state='superseded',last_observed_at=$3 WHERE c.entity_id=$1 AND c.entity_kind=$2 AND c.state='accepted' AND EXISTS (SELECT 1 FROM provider_observations o WHERE o.id=c.source_observation_id AND o.provider=$4)`, entityID, def.Kind, source.ObservedAt, source.Provider)
+		claims := append([]ExternalID(nil), source.ExternalIDs...)
+		claims = append(claims, ExternalID{Provider: source.Provider, Namespace: source.Namespace, Value: source.ProviderID})
+		for _, external := range claims {
+			if external.Value == "" {
+				continue
+			}
+			_, _ = tx.Exec(ctx, `INSERT INTO external_id_claims(entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at) VALUES($1,$2,$3,$4,$5,'accepted',1,$6,$7,$7) ON CONFLICT(entity_kind,provider,namespace,normalized_value) DO UPDATE SET state='accepted',last_observed_at=EXCLUDED.last_observed_at,source_observation_id=EXCLUDED.source_observation_id WHERE external_id_claims.entity_id=EXCLUDED.entity_id`, entityID, def.Kind, external.Provider, external.Namespace, strings.ToLower(external.Value), source.PrimaryObservationID, source.ObservedAt)
 		}
-		_, _ = tx.Exec(ctx, `INSERT INTO external_id_claims(entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at) VALUES($1,$2,$3,$4,$5,'accepted',1,$6,$7,$7) ON CONFLICT(entity_kind,provider,namespace,normalized_value) DO NOTHING`, entityID, def.Kind, external.Provider, external.Namespace, strings.ToLower(external.Value), record.PrimaryObservationID, record.ObservedAt)
 	}
-	_, err = tx.Exec(ctx, `UPDATE normalized_records SET entity_id=$1 WHERE id=$2`, entityID, normalizedID)
-	if err != nil {
-		return Result{}, err
+	for _, normalizedID := range normalizedIDs {
+		if _, err = tx.Exec(ctx, `UPDATE normalized_records SET entity_id=$1 WHERE id=$2`, entityID, normalizedID); err != nil {
+			return Result{}, err
+		}
 	}
 	var version int64
 	if err := tx.QueryRow(ctx, `UPDATE entities SET canonical_version=canonical_version+1,updated_at=now() WHERE id=$1 RETURNING canonical_version`, entityID).Scan(&version); err != nil {
@@ -111,7 +132,10 @@ func Persist(ctx context.Context, runtime *platform.Runtime, def Definition, rec
 	if !ended(record.Status, record.EndDate) {
 		freshFor = 48 * time.Hour
 	}
-	fresh := Freshness{State: "fresh", UpdatedAt: now, FreshUntil: now.Add(freshFor), Providers: map[string]ProviderFreshness{def.Provider: {State: "fresh", LastSuccessAt: record.ObservedAt, LastObservationID: record.PrimaryObservationID}}}
+	fresh := Freshness{State: "fresh", UpdatedAt: now, FreshUntil: now.Add(freshFor), Providers: map[string]ProviderFreshness{}}
+	for _, source := range records {
+		fresh.Providers[source.Provider] = ProviderFreshness{State: "fresh", LastSuccessAt: source.ObservedAt, LastObservationID: source.PrimaryObservationID}
+	}
 	display := Display{Title: preferredTitle(record.Titles), OriginalTitle: originalTitle(record.Titles), Year: year(record.StartDate)}
 	publicImages := make([]Image, 0, len(record.Images))
 	for _, image := range record.Images {
@@ -119,11 +143,22 @@ func Persist(ctx context.Context, runtime *platform.Runtime, def Definition, rec
 			continue
 		}
 		var imageID string
-		err := tx.QueryRow(ctx, `INSERT INTO image_candidates(entity_id,provider,provider_image_id,class,source_url,width,height,source_observation_id) VALUES($1,$2,$3,$4,$5,NULLIF($6,0),NULLIF($7,0),$8) ON CONFLICT(entity_id,provider,provider_image_id,class) DO UPDATE SET source_url=EXCLUDED.source_url,width=EXCLUDED.width,height=EXCLUDED.height,source_observation_id=EXCLUDED.source_observation_id RETURNING id`, entityID, def.Provider, image.ProviderID, image.Class, image.URL, image.Width, image.Height, record.PrimaryObservationID).Scan(&imageID)
+		provider := image.Provider
+		if provider == "" {
+			provider = def.Provider
+		}
+		observationID := record.PrimaryObservationID
+		for _, source := range records {
+			if source.Provider == provider {
+				observationID = source.PrimaryObservationID
+				break
+			}
+		}
+		err := tx.QueryRow(ctx, `INSERT INTO image_candidates(entity_id,provider,provider_image_id,class,source_url,width,height,source_observation_id) VALUES($1,$2,$3,$4,$5,NULLIF($6,0),NULLIF($7,0),$8) ON CONFLICT(entity_id,provider,provider_image_id,class) DO UPDATE SET source_url=EXCLUDED.source_url,width=EXCLUDED.width,height=EXCLUDED.height,source_observation_id=EXCLUDED.source_observation_id RETURNING id`, entityID, provider, image.ProviderID, image.Class, image.URL, image.Width, image.Height, observationID).Scan(&imageID)
 		if err != nil {
 			return Result{}, err
 		}
-		publicImages = append(publicImages, Image{ID: imageID, ProviderID: image.ProviderID, Class: image.Class, Width: image.Width, Height: image.Height})
+		publicImages = append(publicImages, Image{ID: imageID, Provider: provider, ProviderID: image.ProviderID, Class: image.Class, Width: image.Width, Height: image.Height})
 		if display.ImageID == "" && image.Class == "poster" {
 			display.ImageID = imageID
 		}
@@ -140,7 +175,11 @@ func Persist(ctx context.Context, runtime *platform.Runtime, def Definition, rec
 	if record.Language != "" {
 		languages = append(languages, record.Language)
 	}
-	doc := Document{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: def.Kind, Slug: slug, Display: display, ExternalIDs: record.ExternalIDs, Data: Data{Titles: record.Titles, Overview: record.Overview, Classification: Classification{Format: record.Format, Status: record.Status, Language: record.Language, Countries: countries, Genres: genres, SourceMaterial: record.SourceMaterial}, Lifecycle: Lifecycle{StartDate: record.StartDate, EndDate: record.EndDate}, RuntimeMinutes: record.RuntimeMinutes, EpisodeCount: record.EpisodeCount, Networks: record.Networks, Studios: record.Studios, Seasons: record.Seasons, Episodes: record.Episodes, Images: publicImages}, Freshness: fresh, Provenance: map[string][]SourceRef{"identity": {{Provider: def.Provider, ObservationID: record.PrimaryObservationID}}, "data": {{Provider: def.Provider, ObservationID: record.PrimaryObservationID}}}}
+	refs := []SourceRef{}
+	for _, source := range records {
+		refs = append(refs, SourceRef{Provider: source.Provider, ObservationID: source.PrimaryObservationID})
+	}
+	doc := Document{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: def.Kind, Slug: slug, Display: display, ExternalIDs: record.ExternalIDs, Data: Data{Titles: record.Titles, Overview: record.Overview, Classification: Classification{Format: record.Format, Status: record.Status, Language: record.Language, Countries: countries, Genres: genres, SourceMaterial: record.SourceMaterial}, Lifecycle: Lifecycle{StartDate: record.StartDate, EndDate: record.EndDate}, RuntimeMinutes: record.RuntimeMinutes, EpisodeCount: record.EpisodeCount, Networks: record.Networks, Studios: record.Studios, Seasons: record.Seasons, Episodes: record.Episodes, Images: publicImages}, Freshness: fresh, Provenance: map[string][]SourceRef{"identity": refs, "data": refs}}
 	docJSON, _ := json.Marshal(doc)
 	table := "canonical_tv_shows"
 	if def.Kind == "anime" {
@@ -169,7 +208,9 @@ func Persist(ctx context.Context, runtime *platform.Runtime, def Definition, rec
 			_, _ = tx.Exec(ctx, `INSERT INTO search_names(entity_id,value,normalized_value,locale,name_type,source_quality) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, entityID, title.Value, normalized, title.Language, title.Type, titleQuality(title.Type))
 		}
 	}
-	_, _ = tx.Exec(ctx, `INSERT INTO provider_refresh_states(entity_id,provider,last_attempt_at,last_success_at,last_observation_id,next_eligible_at) VALUES($1,$2,$3,$3,$4,$5) ON CONFLICT(entity_id,provider) DO UPDATE SET last_attempt_at=EXCLUDED.last_attempt_at,last_success_at=EXCLUDED.last_success_at,last_observation_id=EXCLUDED.last_observation_id,next_eligible_at=EXCLUDED.next_eligible_at,failure_class=NULL,failure_message=NULL`, entityID, def.Provider, record.ObservedAt, record.PrimaryObservationID, fresh.FreshUntil)
+	for _, source := range records {
+		_, _ = tx.Exec(ctx, `INSERT INTO provider_refresh_states(entity_id,provider,last_attempt_at,last_success_at,last_observation_id,next_eligible_at) VALUES($1,$2,$3,$3,$4,$5) ON CONFLICT(entity_id,provider) DO UPDATE SET last_attempt_at=EXCLUDED.last_attempt_at,last_success_at=EXCLUDED.last_success_at,last_observation_id=EXCLUDED.last_observation_id,next_eligible_at=EXCLUDED.next_eligible_at,failure_class=NULL,failure_message=NULL`, entityID, source.Provider, source.ObservedAt, source.PrimaryObservationID, fresh.FreshUntil)
+	}
 	changeType := "updated"
 	if created {
 		changeType = "created"

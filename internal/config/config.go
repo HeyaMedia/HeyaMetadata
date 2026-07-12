@@ -47,9 +47,15 @@ type ProvidersConfig struct {
 	Discogs     DiscogsConfig
 	LastFM      LastFMConfig
 	AniDB       AniDBConfig
+	AnimeLists  AnimeListsConfig
 	TVMaze      TVMazeConfig
 	Wikidata    WikidataConfig
 	OpenOpus    OpenOpusConfig
+}
+
+type AnimeListsConfig struct {
+	URL       string
+	UserAgent string
 }
 
 type WikidataConfig struct {
@@ -242,6 +248,9 @@ func Load() (Config, error) {
 			Client: env("HEYA_METADATA_ANIDB_CLIENT", ""), ClientVersion: anidbClientVersion, BaseURL: env("HEYA_METADATA_ANIDB_BASE_URL", "http://api.anidb.net:9001/httpapi"),
 			TitlesURL: env("HEYA_METADATA_ANIDB_TITLES_URL", "https://anidb.net/api/anime-titles.xml.gz"),
 			UserAgent: env("HEYA_METADATA_ANIDB_USER_AGENT", "heya-media/1.0 anidb-titles-sync"),
+		}, AnimeLists: AnimeListsConfig{
+			URL:       env("HEYA_METADATA_ANIME_LISTS_URL", "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-mini.json"),
+			UserAgent: env("HEYA_METADATA_ANIME_LISTS_USER_AGENT", "heya-media/1.0 anime-lists-sync"),
 		}, TVMaze: TVMazeConfig{
 			BaseURL: env("HEYA_METADATA_TVMAZE_BASE_URL", "https://api.tvmaze.com"), RequestsPerSecond: tvMazeRate,
 		}, Wikidata: WikidataConfig{
@@ -381,6 +390,13 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Providers.AniDB.UserAgent) == "" {
 		return fmt.Errorf("HEYA_METADATA_ANIDB_USER_AGENT is required")
+	}
+	animeListsURL, err := url.Parse(c.Providers.AnimeLists.URL)
+	if err != nil || animeListsURL.Scheme != "https" || animeListsURL.Host == "" {
+		return fmt.Errorf("HEYA_METADATA_ANIME_LISTS_URL must be an absolute HTTPS URL")
+	}
+	if strings.TrimSpace(c.Providers.AnimeLists.UserAgent) == "" {
+		return fmt.Errorf("HEYA_METADATA_ANIME_LISTS_USER_AGENT is required")
 	}
 	tvMazeURL, err := url.Parse(c.Providers.TVMaze.BaseURL)
 	if err != nil || tvMazeURL.Scheme != "https" || tvMazeURL.Host == "" {

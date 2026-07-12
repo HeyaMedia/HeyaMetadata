@@ -10,6 +10,54 @@ type remoteSearchResult struct {
 		ID   int64  `json:"id"`
 		Name string `json:"name"`
 	} `json:"movie"`
+	Series *struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+	} `json:"series"`
+}
+
+type series struct {
+	ID               int64           `json:"id"`
+	Name             string          `json:"name"`
+	Aliases          []alias         `json:"aliases"`
+	Artworks         []artwork       `json:"artworks"`
+	Characters       []character     `json:"characters"`
+	Companies        companies       `json:"companies"`
+	ContentRatings   []contentRating `json:"contentRatings"`
+	FirstAired       string          `json:"firstAired"`
+	LastAired        string          `json:"lastAired"`
+	Genres           []namedRecord   `json:"genres"`
+	Image            string          `json:"image"`
+	OriginalCountry  string          `json:"originalCountry"`
+	OriginalLanguage string          `json:"originalLanguage"`
+	RemoteIDs        []remoteID      `json:"remoteIds"`
+	Runtime          int             `json:"averageRuntime"`
+	Status           status          `json:"status"`
+	Studios          []namedRecord   `json:"studios"`
+	Translations     translations    `json:"translations"`
+	Episodes         []seriesEpisode `json:"episodes"`
+	Seasons          []seriesSeason  `json:"seasons"`
+}
+
+type seriesSeason struct {
+	ID     int64       `json:"id"`
+	Number int         `json:"number"`
+	Name   string      `json:"name"`
+	Image  string      `json:"image"`
+	Type   namedRecord `json:"type"`
+}
+
+type seriesEpisode struct {
+	ID             int64        `json:"id"`
+	Name           string       `json:"name"`
+	Overview       string       `json:"overview"`
+	SeasonNumber   int          `json:"seasonNumber"`
+	Number         int          `json:"number"`
+	AbsoluteNumber int          `json:"absoluteNumber"`
+	Aired          string       `json:"aired"`
+	RuntimeMinutes int          `json:"runtime"`
+	Image          string       `json:"image"`
+	Translations   translations `json:"translations"`
 }
 
 type movie struct {

@@ -377,13 +377,19 @@ cache expired and the new movie then appeared on the local fast path.
 
 TV and Anime are now separate canonical kinds and API families, documented in
 `docs/tv-anime-domain.md`. TVMaze-backed TV discovery and canonical ingestion
-retain seasons, episodes, networks, and explicit remote IDs. AniDB-backed Anime
+retain seasons, episodes, networks, and explicit remote IDs. TV ingestion now
+uses those explicit IDs to mix TVDB extended-series and TMDB TV/season evidence;
+live Game of Thrones combines all three providers into exactly 73 conventional
+episodes, each retaining all three numbering schemes. Season-zero clip catalogs
+are excluded and provider artwork candidates are bounded. AniDB-backed Anime
 discovery uses the official daily title dump, registered client parameters, the
 old `heya-media/1.0 anidb-titles-sync` user agent, and rate-limited detail
-enrichment. Live Game of Thrones produced 8 seasons/73 episodes; Cowboy Bebop
-resolved as AID 23 with 26 aired episodes while supplemental entries stayed in
-special/credit/trailer/parody numbering schemes. Shared primitives exist below
-the domain boundary; there is no `is_anime` flag or shared canonical identity.
+enrichment. Anime now adds the Fribb anime-lists identity bridge and only the
+explicitly mapped TVDB season, including split-cour offsets. Ambiguous AniDB
+related IDs are superseded rather than exposed as canonical claims. Live Cowboy
+Bebop combines AniDB, anime-lists, and TVDB while retaining special/credit/
+trailer/parody schemes. Shared primitives exist below the domain boundary;
+there is no `is_anime` flag or shared canonical identity.
 
 Music release presentation dedup now uses `internal/textmatch`: Kagome IPA
 compound readings, kana romanization, and Unidecode comparison keys bridge
@@ -392,12 +398,12 @@ editions retain all IDs in `sources`; remixes/live/remasters remain distinct.
 
 ## Suggested next turn
 
-1. Add TVDB/TMDB-TV evidence and Anime mapping-authority adapters so the new
-   single-provider canonical spines become multi-source mixers.
-2. Add bounded derived image variants (WebP/AVIF) and class-aware original
+1. Add bounded derived image variants (WebP/AVIF) and class-aware original
    retention before materializing high-volume profile catalogs.
-3. Start the release/edition slice and fetch complete medium/track data so
+2. Start the release/edition slice and fetch complete medium/track data so
    MusicBrainz recordings and release tracks can be modeled separately.
+3. Expand TV/Anime discovery verification with provider-specific episode and
+   season hints, then add credits/content ratings without weakening identity.
 
 The previous repositories may be inspected for provider knowledge and metadata
 coverage, but should not be copied as architectural constraints.

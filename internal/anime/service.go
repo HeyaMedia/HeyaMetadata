@@ -12,8 +12,11 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/episodic"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/anidb"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/animelists"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
 )
 
 var definition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v1", MergeVersion: "anime-combiner/v1"}
@@ -22,6 +25,9 @@ type Service struct{ runtime *platform.Runtime }
 
 func NewService(runtime *platform.Runtime) *Service { return &Service{runtime: runtime} }
 func (s *Service) IngestAniDB(ctx context.Context, id string, jobID int64) (result episodic.Result, returnErr error) {
+	return s.IngestAniDBWithCredentials(ctx, id, jobID, providercredentials.Credentials{})
+}
+func (s *Service) IngestAniDBWithCredentials(ctx context.Context, id string, jobID int64, credentials providercredentials.Credentials) (result episodic.Result, returnErr error) {
 	if n, err := strconv.ParseInt(id, 10, 64); err != nil || n < 1 {
 		return result, fmt.Errorf("invalid AniDB AID")
 	}
@@ -53,7 +59,42 @@ func (s *Service) IngestAniDB(ctx context.Context, id string, jobID int64) (resu
 	if err != nil {
 		return result, err
 	}
-	return episodic.Persist(ctx, s.runtime, definition, record, jobID)
+	record.NormalizerVersion = definition.NormalizerVersion
+	records := []episodic.NormalizedRecord{record}
+
+	mappingBase := animelists.New(s.runtime.Config.Providers.AnimeLists)
+	mappingCache, err := providercache.New(s.runtime, "anime-lists-mapping/v1", mappingBase.Capability().RawRetention, mappingBase.Capability().ResponseCache, jobID)
+	if err != nil {
+		return result, err
+	}
+	mappingPayload, mapping, found, mappingErr := animelists.NewCached(s.runtime.Config.Providers.AnimeLists, mappingCache).Lookup(ctx, id)
+	if mappingErr == nil && found {
+		mappingRecord := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "anime_lists", Namespace: "mapping", ProviderID: id, PrimaryObservationID: mappingPayload.ObservationID, ObservedAt: mappingPayload.ObservedAt, NormalizerVersion: "anime-lists-mapping/v1"}
+		if mapping.MALID > 0 {
+			mappingRecord.ExternalIDs = append(mappingRecord.ExternalIDs, episodic.ExternalID{Provider: "myanimelist", Namespace: "anime", Value: strconv.Itoa(mapping.MALID)})
+		}
+		if mapping.AniListID > 0 {
+			mappingRecord.ExternalIDs = append(mappingRecord.ExternalIDs, episodic.ExternalID{Provider: "anilist", Namespace: "anime", Value: strconv.Itoa(mapping.AniListID)})
+		}
+		if mapping.TVDBID > 0 {
+			mappingRecord.ExternalIDs = append(mappingRecord.ExternalIDs, episodic.ExternalID{Provider: "tvdb", Namespace: "series", Value: strconv.Itoa(mapping.TVDBID)})
+		}
+		records = append(records, mappingRecord)
+		if mapping.TVDBID > 0 && mapping.Season.TVDB != nil && (credentials.APIKey("tvdb") != "" || s.runtime.Config.Providers.TVDB.APIKey != "") {
+			tvdbBase := tvdb.New(s.runtime.Config.Providers.TVDB)
+			tvdbCache, cacheErr := providercache.New(s.runtime, "tvdb-anime-series/v1", tvdbBase.Capability().RawRetention, tvdbBase.Capability().ResponseCache, jobID)
+			if cacheErr != nil {
+				return result, cacheErr
+			}
+			payloads, collectErr := tvdb.NewCached(s.runtime.Config.Providers.TVDB, tvdbCache, credentials.APIKey("tvdb"), s.runtime.Redis).CollectSeries(ctx, providers.Identifier{Provider: "tvdb", Namespace: "series", Value: strconv.Itoa(mapping.TVDBID)})
+			if collectErr == nil && len(payloads) > 0 && payloads[0].StatusCode == http.StatusOK {
+				if supplemental, normalizeErr := normalizeTVDBAnime(payloads[0], *mapping.Season.TVDB, mapping.EpisodeOffset.TVDB); normalizeErr == nil {
+					records = append(records, supplemental)
+				}
+			}
+		}
+	}
+	return episodic.PersistMany(ctx, s.runtime, definition, records, jobID)
 }
 func (s *Service) Resolve(ctx context.Context, provider, namespace, value string) (string, error) {
 	return episodic.Resolve(ctx, s.runtime, "anime", provider, namespace, value)
@@ -136,6 +177,7 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 			record.Genres = append(record.Genres, tag.Name)
 		}
 	}
+	candidates := map[string][]episodic.ExternalID{}
 	for _, resource := range value.Resources {
 		for _, external := range resource.External {
 			if len(external.Identifier) == 0 {
@@ -143,16 +185,22 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 			}
 			switch resource.Type {
 			case 2:
-				record.ExternalIDs = append(record.ExternalIDs, episodic.ExternalID{Provider: "myanimelist", Namespace: "anime", Value: external.Identifier[0]})
+				candidates["myanimelist:anime"] = append(candidates["myanimelist:anime"], episodic.ExternalID{Provider: "myanimelist", Namespace: "anime", Value: external.Identifier[0]})
 			case 43:
-				record.ExternalIDs = append(record.ExternalIDs, episodic.ExternalID{Provider: "imdb", Namespace: "title", Value: external.Identifier[0]})
+				candidates["imdb:title"] = append(candidates["imdb:title"], episodic.ExternalID{Provider: "imdb", Namespace: "title", Value: external.Identifier[0]})
 			case 44:
 				namespace := "tv"
 				if len(external.Identifier) > 1 && external.Identifier[1] != "" {
 					namespace = external.Identifier[1]
 				}
-				record.ExternalIDs = append(record.ExternalIDs, episodic.ExternalID{Provider: "tmdb", Namespace: namespace, Value: external.Identifier[0]})
+				candidates["tmdb:"+namespace] = append(candidates["tmdb:"+namespace], episodic.ExternalID{Provider: "tmdb", Namespace: namespace, Value: external.Identifier[0]})
 			}
+		}
+	}
+	for _, ids := range candidates {
+		unique := uniqueExternalIDs(ids)
+		if len(unique) == 1 {
+			record.ExternalIDs = append(record.ExternalIDs, unique[0])
 		}
 	}
 	record.Genres = episodic.SortStrings(record.Genres)
@@ -182,9 +230,26 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 		return left.Number < right.Number
 	})
 	if value.Picture != "" {
-		record.Images = append(record.Images, episodic.Image{ProviderID: value.Picture, URL: "https://cdn-eu.anidb.net/images/main/" + value.Picture, Class: "poster"})
+		record.Images = append(record.Images, episodic.Image{Provider: "anidb", ProviderID: value.Picture, URL: "https://cdn-eu.anidb.net/images/main/" + value.Picture, Class: "poster"})
 	}
 	return record, nil
+}
+
+func uniqueExternalIDs(ids []episodic.ExternalID) []episodic.ExternalID {
+	result := make([]episodic.ExternalID, 0, len(ids))
+	for _, id := range ids {
+		found := false
+		for _, existing := range result {
+			if existing.Value == id.Value {
+				found = true
+				break
+			}
+		}
+		if !found {
+			result = append(result, id)
+		}
+	}
+	return result
 }
 func normalizeType(value string) string {
 	return strings.NewReplacer(" ", "_", "-", "_").Replace(strings.ToLower(strings.TrimSpace(value)))

@@ -41,38 +41,46 @@ type Network struct {
 }
 type Image struct {
 	ID         string `json:"id,omitempty"`
+	Provider   string `json:"provider,omitempty"`
 	ProviderID string `json:"provider_id"`
 	URL        string `json:"url,omitempty"`
 	Class      string `json:"class"`
 	Width      int    `json:"width,omitempty"`
 	Height     int    `json:"height,omitempty"`
 }
+type Contributor struct {
+	Provider          string `json:"provider"`
+	ObservationID     string `json:"observation_id"`
+	NormalizerVersion string `json:"normalizer_version"`
+}
 type NormalizedRecord struct {
-	SchemaVersion        int          `json:"schema_version"`
-	Kind                 string       `json:"kind"`
-	Provider             string       `json:"provider"`
-	Namespace            string       `json:"namespace"`
-	ProviderID           string       `json:"provider_id"`
-	PrimaryObservationID string       `json:"primary_observation_id"`
-	ObservedAt           time.Time    `json:"observed_at"`
-	ExternalIDs          []ExternalID `json:"external_ids"`
-	Titles               []Title      `json:"titles"`
-	Overview             string       `json:"overview,omitempty"`
-	Format               string       `json:"format,omitempty"`
-	Status               string       `json:"status,omitempty"`
-	Language             string       `json:"language,omitempty"`
-	Countries            []string     `json:"countries,omitempty"`
-	Genres               []string     `json:"genres,omitempty"`
-	StartDate            string       `json:"start_date,omitempty"`
-	EndDate              string       `json:"end_date,omitempty"`
-	RuntimeMinutes       int          `json:"runtime_minutes,omitempty"`
-	EpisodeCount         int          `json:"episode_count,omitempty"`
-	Networks             []Network    `json:"networks,omitempty"`
-	Studios              []string     `json:"studios,omitempty"`
-	SourceMaterial       string       `json:"source_material,omitempty"`
-	Seasons              []Season     `json:"seasons,omitempty"`
-	Episodes             []Episode    `json:"episodes,omitempty"`
-	Images               []Image      `json:"images,omitempty"`
+	SchemaVersion        int           `json:"schema_version"`
+	Kind                 string        `json:"kind"`
+	Provider             string        `json:"provider"`
+	Namespace            string        `json:"namespace"`
+	ProviderID           string        `json:"provider_id"`
+	PrimaryObservationID string        `json:"primary_observation_id"`
+	ObservedAt           time.Time     `json:"observed_at"`
+	NormalizerVersion    string        `json:"normalizer_version"`
+	Contributors         []Contributor `json:"contributors,omitempty"`
+	ExternalIDs          []ExternalID  `json:"external_ids"`
+	Titles               []Title       `json:"titles"`
+	Overview             string        `json:"overview,omitempty"`
+	Format               string        `json:"format,omitempty"`
+	Status               string        `json:"status,omitempty"`
+	Language             string        `json:"language,omitempty"`
+	Countries            []string      `json:"countries,omitempty"`
+	Genres               []string      `json:"genres,omitempty"`
+	StartDate            string        `json:"start_date,omitempty"`
+	EndDate              string        `json:"end_date,omitempty"`
+	RuntimeMinutes       int           `json:"runtime_minutes,omitempty"`
+	EpisodeCount         int           `json:"episode_count,omitempty"`
+	Networks             []Network     `json:"networks,omitempty"`
+	Studios              []string      `json:"studios,omitempty"`
+	SourceMaterial       string        `json:"source_material,omitempty"`
+	Seasons              []Season      `json:"seasons,omitempty"`
+	Episodes             []Episode     `json:"episodes,omitempty"`
+	Images               []Image       `json:"images,omitempty"`
 }
 type Display struct {
 	Title         string `json:"title"`

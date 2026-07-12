@@ -92,6 +92,26 @@ func (c *Client) Collect(ctx context.Context, identifier providers.Identifier) (
 	return append(payloads, detail), nil
 }
 
+// CollectSeries fetches the extended series document including TVDB's episode
+// list. Its identifier must already be supported by explicit cross-ID evidence.
+func (c *Client) CollectSeries(ctx context.Context, identifier providers.Identifier) ([]providers.Payload, error) {
+	if identifier.Provider != "tvdb" || identifier.Namespace != "series" {
+		return nil, fmt.Errorf("TVDB series collector cannot accept %s.%s", identifier.Provider, identifier.Namespace)
+	}
+	id, err := strconv.ParseInt(identifier.Value, 10, 64)
+	if err != nil || id < 1 {
+		return nil, fmt.Errorf("invalid TVDB series ID %q", identifier.Value)
+	}
+	payload, err := c.get(ctx, "/series/"+identifier.Value+"/extended?meta=episodes", providers.Payload{
+		Provider: "tvdb", ProviderNamespace: "series", ProviderRecordID: identifier.Value,
+		RequestKey: "series/" + identifier.Value + "/extended?meta=episodes",
+	}, nil)
+	if err != nil {
+		return nil, err
+	}
+	return []providers.Payload{payload}, nil
+}
+
 func (c *Client) get(ctx context.Context, endpoint string, payload providers.Payload, classify func(*providers.Payload)) (providers.Payload, error) {
 	requestURL := strings.TrimRight(c.config.BaseURL, "/") + endpoint
 	request, err := http.NewRequest(http.MethodGet, requestURL, nil)
