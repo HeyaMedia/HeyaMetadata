@@ -396,12 +396,23 @@ compound readings, kana romanization, and Unidecode comparison keys bridge
 native/romanized titles while preserving originals. Cross-provider equivalent
 editions retain all IDs in `sources`; remixes/live/remasters remain distinct.
 
+The first canonical issued-release slice is live. `release` is distinct from
+`release_group`; ordered media and release-track placements retain printed and
+provider numbering, while referenced MusicBrainz recordings materialize once
+as reusable canonical `recording` entities. The CLI command is
+`heya-metadata release ingest --musicbrainz <release-mbid>`. Resolution and
+dedicated `/api/v2/releases/{id}` and `/api/v2/recordings/{id}` reads work, and
+recordings participate in the fast local search index. Live Ado 残夢 release
+`044d87f2-9fda-475a-b041-47df9443a3f5` produced one medium, 16 release tracks,
+16 canonical recordings, and retained ISRC evidence. ISRC claims stay proposed
+and collisions open conflicts rather than auto-merging recordings.
+
 ## Suggested next turn
 
 1. Add bounded derived image variants (WebP/AVIF) and class-aware original
    retention before materializing high-volume profile catalogs.
-2. Start the release/edition slice and fetch complete medium/track data so
-   MusicBrainz recordings and release tracks can be modeled separately.
+2. Refine the release mixer with Apple, Deezer, and Discogs edition/track
+   adapters, using ISRC plus track-layout evidence without forcing identity.
 3. Expand TV/Anime discovery verification with provider-specific episode and
    season hints, then add credits/content ratings without weakening identity.
 

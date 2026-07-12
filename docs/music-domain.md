@@ -108,6 +108,23 @@ Live, Acoustic, Demo, Remaster, Karaoke, and Instrumental remain distinct.
 Transliteration is matching evidence only and can never establish canonical
 identity by itself.
 
-The first implemented vertical slice is artist. Release-group, release,
-recording, release-track, work, and label normalized schemas follow these
-boundaries rather than being inferred from the artist projection.
+## Implemented release and recording slice
+
+Artists and release groups are implemented, and MusicBrainz issued releases
+now materialize as a separate canonical `release` kind. A release retains its
+status, date, country, barcode, packaging, label/catalog assertions, ordered
+media, disc IDs, and complete track layout. It is available through
+`GET /api/v2/releases/{heya_id}` and direct MusicBrainz release resolution.
+
+Each MusicBrainz recording referenced by a release track materializes once as a
+canonical `recording` entity. The release track remains a placement carrying
+its own credited title, artist credit, medium position, printed number,
+sequence, duration, and MusicBrainz track ID; it references the recording's
+Heya ID. Recordings are searchable locally and readable through
+`GET /api/v2/recordings/{heya_id}`.
+
+ISRC assertions are stored as proposed identity evidence. They never force an
+automatic merge; reuse by another recording opens an identity conflict. Apple,
+Deezer, Spotify, and Discogs adapters can therefore add storefront tracks and
+editions without collapsing release tracks into recordings or treating their
+album IDs as release-group identities.

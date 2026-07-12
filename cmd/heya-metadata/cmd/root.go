@@ -76,6 +76,7 @@ func init() {
 	rootCmd.AddCommand(newMovieCommand())
 	rootCmd.AddCommand(newArtistCommand())
 	rootCmd.AddCommand(newReleaseGroupCommand())
+	rootCmd.AddCommand(newReleaseCommand())
 	rootCmd.AddCommand(newRetentionCommand())
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newOpenAPICommand())

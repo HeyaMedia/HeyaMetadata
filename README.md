@@ -82,9 +82,21 @@ make smoke          # verify River + Postgres + Redis + S3 end to end
 make movie-ingest TMDB_ID=603
 make artist-ingest MUSICBRAINZ_ID=b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d
 make release-group-ingest MUSICBRAINZ_ID=9162580e-5df4-32de-80cc-f45a8d8a9b1d
+make release-ingest MUSICBRAINZ_ID=044d87f2-9fda-475a-b041-47df9443a3f5
 make retention-sweep
 make infra-down
 ```
+
+Issued music releases can be ingested independently from their release group:
+
+```bash
+go run ./cmd/heya-metadata release ingest \
+  --musicbrainz 044d87f2-9fda-475a-b041-47df9443a3f5 \
+  --wait 90s
+```
+
+This stores complete media and track placement data and creates reusable
+canonical recording entities for referenced MusicBrainz recordings.
 
 The smoke command enqueues a real River job and waits for the separate worker.
 It writes an immutable, gzip-compressed, content-addressed observation to S3,

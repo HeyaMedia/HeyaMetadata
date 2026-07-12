@@ -54,7 +54,8 @@ GET /api/v2/search?q=ano&kind=artist&limit=20
 
 Optional filters currently include `year`, `genre`, `country`, `language`, and
 `status`. `kind` should be supplied whenever the caller knows it. Valid search
-kinds are `movie`, `artist`, `release_group`, `tv_show`, and `anime`; TV and
+kinds are `movie`, `artist`, `release_group`, `release`, `recording`,
+`tv_show`, and `anime`; release groups, issued releases, recordings, TV, and
 Anime remain separate domains.
 
 If the caller can confidently select a result, read its `entity_id` and skip
@@ -168,6 +169,15 @@ failed resolution and must not be cached as a successful lookup.
 Resolution is idempotent at the canonical identity/job level. Clients may
 retry the same request after timeouts using normal bounded backoff; they must
 not invent a second local identity while the first resolution is in flight.
+
+An issued edition listed in a release-group document exposes its provider,
+namespace, and provider ID. Resolve a MusicBrainz edition with
+`kind: "release"`, `provider: "musicbrainz"`, and `namespace: "release"`.
+The resulting release embeds ordered media and release-track placements; each
+placement contains the canonical Heya recording ID. Known recordings can also
+be resolved by their MusicBrainz recording MBID. Unknown standalone recording
+resolution intentionally waits for the recording ingestion slice rather than
+guessing from ISRC or title.
 
 ## 4. Read and retain the canonical identity
 
