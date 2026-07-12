@@ -46,7 +46,7 @@ func EnsureRun(ctx context.Context, runtime *platform.Runtime, request Request) 
 	var run Run
 	var requestJSON, document []byte
 	var jobID *int64
-	err = runtime.DB.QueryRow(ctx, `INSERT INTO discovery_runs (request_hash,kind,query,request,state,expires_at) VALUES ($1,$2,$3,$4,'queued',now()+interval '6 hours') ON CONFLICT (request_hash) DO UPDATE SET kind=EXCLUDED.kind,query=EXCLUDED.query,request=EXCLUDED.request,state='queued',river_job_id=NULL,document=NULL,error=NULL,updated_at=now(),completed_at=NULL,expires_at=EXCLUDED.expires_at WHERE discovery_runs.expires_at<=now() RETURNING id,request_hash,state,request,document,river_job_id,COALESCE(error,''),expires_at`, hash, request.Kind, request.Query, body).Scan(&run.ID, &run.RequestHash, &run.State, &requestJSON, &document, &jobID, &run.Error, &run.ExpiresAt)
+	err = runtime.DB.QueryRow(ctx, `INSERT INTO discovery_runs (request_hash,kind,query,request,state,expires_at) VALUES ($1,$2,$3,$4,'queued',now()+interval '6 hours') ON CONFLICT (request_hash) DO UPDATE SET kind=EXCLUDED.kind,query=EXCLUDED.query,request=EXCLUDED.request,state='queued',river_job_id=NULL,document=NULL,error=NULL,updated_at=now(),completed_at=NULL,expires_at=EXCLUDED.expires_at WHERE discovery_runs.expires_at<=now() OR discovery_runs.state='failed' RETURNING id,request_hash,state,request,document,river_job_id,COALESCE(error,''),expires_at`, hash, request.Kind, request.Query, body).Scan(&run.ID, &run.RequestHash, &run.State, &requestJSON, &document, &jobID, &run.Error, &run.ExpiresAt)
 	if err == pgx.ErrNoRows {
 		run, getErr := GetRunByHash(ctx, runtime, hash)
 		if getErr == nil && run.State == "completed" {

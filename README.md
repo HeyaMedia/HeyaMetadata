@@ -114,6 +114,12 @@ curl http://127.0.0.1:3030/api/v2/changes?after=0
 # Provider-backed identity discovery with structured disambiguation hints.
 go run ./cmd/heya-metadata discover artist --query ano --country JP \
   --type person --release '猫猫吐吐:2023'
+
+go run ./cmd/heya-metadata discover movie --query Dune --year 2021 \
+  --language en
+
+go run ./cmd/heya-metadata discover release-group --query 'Abbey Road' \
+  --artist 'The Beatles' --year 1969 --type album --track 'Come Together'
 ```
 
 Provider adapters declare accepted identifiers, supplied metadata scopes, and
@@ -128,6 +134,8 @@ route. `POST /api/v2/discoveries` is the durable smart-search surface for
 unknown identities. Identical normalized requests share a high-priority River
 job and six-hour result, and candidates include confidence, evidence,
 ambiguity, existing canonical IDs, and a ready-to-submit resolution body.
+Movie, Artist, and Release Group have provider-backed discovery; TV and Anime
+remain distinct pending routes.
 The complete consuming-server state machine, including both asynchronous poll
 boundaries, is documented in
 [Canonical entity lookup and resolution flow](./docs/client-resolution-flow.md).

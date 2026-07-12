@@ -95,18 +95,35 @@ func TestIntegrationIdenticalDiscoveryCollapsesToOneJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := InsertDiscovery(ctx, runtime, client, run)
+	firstRef, err := providercredentials.Store(ctx, runtime.Redis, providercredentials.Credentials{APIKeys: map[string]string{"tmdb": "first-discovery-key"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := InsertDiscovery(ctx, runtime, client, run)
+	secondRef, err := providercredentials.Store(ctx, runtime.Redis, providercredentials.Credentials{APIKeys: map[string]string{"tmdb": "second-discovery-key"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := InsertDiscovery(ctx, runtime, client, run, firstRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := InsertDiscovery(ctx, runtime, client, run, secondRef)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.Job.ID != second.Job.ID {
 		t.Fatalf("discovery jobs duplicated: %d != %d", first.Job.ID, second.Job.ID)
 	}
+	var storedRef string
+	if err := runtime.DB.QueryRow(ctx, `SELECT args->>'credential_ref' FROM river_job WHERE id=$1`, first.Job.ID).Scan(&storedRef); err != nil {
+		t.Fatal(err)
+	}
+	if storedRef != secondRef {
+		t.Fatalf("new request credential did not replace queued job credential")
+	}
 	t.Cleanup(func() {
+		_ = providercredentials.Delete(context.Background(), runtime.Redis, firstRef)
+		_ = providercredentials.Delete(context.Background(), runtime.Redis, secondRef)
 		_, _ = runtime.DB.Exec(context.Background(), `DELETE FROM discovery_runs WHERE request_hash=$1`, run.RequestHash)
 		_, _ = runtime.DB.Exec(context.Background(), `DELETE FROM river_job WHERE id=$1`, first.Job.ID)
 	})

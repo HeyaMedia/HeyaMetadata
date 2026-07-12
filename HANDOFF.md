@@ -358,20 +358,34 @@ discovery polling), explicit candidate resolution (including ingestion-job
 polling), and the final canonical entity read. The Heya entity UUID is the
 durable identity; provider IDs remain resolution inputs.
 
+Movie and Release Group now reuse that smart-discovery contract. Movie search
+uses TMDB with request-scoped credentials carried to River by opaque Redis
+reference, and ranks title/original title, year/date, language, country, and
+alternate-title evidence without hard-filtering on possibly imprecise years.
+Release Group search uses MusicBrainz and ranks title/alias, date/year, type,
+credited artist names/MBIDs, and track hints verified through recording release
+relationships. Both return existing canonical IDs and exact resolution bodies.
+The CLI exposes `discover movie` and `discover release-group`.
+
+Live end-to-end checks passed. Dune (2021) was absent locally, discovered as
+TMDB 438631, resolved to Heya entity `247775bd-484e-4e16-82da-335ee91af42f`,
+and combined TMDB, OMDb, TVDB, and Fanart. Ado's 残夢 (2024) was discovered at
+0.99 using artist and verified track evidence, then resolved through the async
+job boundary to `85c83fd2-078c-404e-b482-deb397076656` with MusicBrainz,
+Discogs, and Wikidata evidence. The normal 15-second negative canonical-search
+cache expired and the new movie then appeared on the local fast path.
+
 TV and Anime are explicitly separate future canonical kinds and API families,
 documented in `docs/tv-anime-domain.md`. Shared primitives are allowed, but
 there will be no `is_anime` flag or combined canonical show identity.
 
 ## Suggested next turn
 
-1. Complete smart discovery for the already-canonical Movie and Release Group
-   domains, reusing the artist discovery/job/ranking contract. This makes the
-   documented client flow valid across every currently readable entity kind.
-2. Add dedicated TV and Anime discovery provider routing, followed by their
+1. Add dedicated TV and Anime discovery provider routing, followed by their
    separate canonical APIs.
-3. Add bounded derived image variants (WebP/AVIF) and class-aware original
+2. Add bounded derived image variants (WebP/AVIF) and class-aware original
    retention before materializing high-volume profile catalogs.
-4. Start the release/edition slice and fetch complete medium/track data so
+3. Start the release/edition slice and fetch complete medium/track data so
    MusicBrainz recordings and release tracks can be modeled separately.
 
 The previous repositories may be inspected for provider knowledge and metadata

@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
+var nonSlug = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 var ErrNotFound = fmt.Errorf("release group not found")
 
 type Result struct {

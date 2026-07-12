@@ -5,6 +5,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/discovery"
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/ui"
 	"github.com/spf13/cobra"
 	"strconv"
@@ -15,6 +16,8 @@ import (
 func newDiscoverCommand() *cobra.Command {
 	command := &cobra.Command{Use: "discover", Short: "Discover and rank unknown upstream entities", Args: cobra.NoArgs}
 	command.AddCommand(newDiscoverArtistCommand())
+	command.AddCommand(newDiscoverMovieCommand())
+	command.AddCommand(newDiscoverReleaseGroupCommand())
 	return command
 }
 func newDiscoverArtistCommand() *cobra.Command {
@@ -31,78 +34,142 @@ func newDiscoverArtistCommand() *cobra.Command {
 			}
 			request.Hints.Releases = append(request.Hints.Releases, hint)
 		}
-		runtime, err := platform.Open(cmd.Context(), cfg)
-		if err != nil {
-			return err
-		}
-		defer runtime.Close()
-		if err := runtime.Ensure(cmd.Context(), cfg); err != nil {
-			return err
-		}
-		if err := requireCurrentSchema(cmd.Context(), runtime); err != nil {
-			return err
-		}
-		run, err := discovery.EnsureRun(cmd.Context(), runtime, request)
-		if err != nil {
-			return err
-		}
-		client, err := jobs.NewClient(runtime, cfg.Worker.MaxWorkers, false)
-		if err != nil {
-			return err
-		}
-		if run.State == "queued" {
-			inserted, err := jobs.InsertDiscovery(cmd.Context(), runtime, client, run)
-			if err != nil {
-				return err
-			}
-			run.RiverJobID = inserted.Job.ID
-		}
-		if run.State != "completed" {
-			deadline := time.NewTimer(wait)
-			defer deadline.Stop()
-			ticker := time.NewTicker(50 * time.Millisecond)
-			defer ticker.Stop()
-			for run.State != "completed" && run.State != "failed" {
-				select {
-				case <-cmd.Context().Done():
-					return cmd.Context().Err()
-				case <-deadline.C:
-					return fmt.Errorf("timed out waiting for discovery %s", run.ID)
-				case <-ticker.C:
-					run, err = discovery.GetRun(cmd.Context(), runtime, run.ID)
-					if err != nil {
-						return err
-					}
-				}
-			}
-		}
-		if run.State == "failed" {
-			return fmt.Errorf("discovery failed: %s", run.Error)
-		}
-		if ui.JSONMode {
-			return ui.OutputJSON(run)
-		}
-		ui.Success("Discovery %s: %s", run.ID, run.Result.Recommendation)
-		for _, candidate := range run.Result.Candidates {
-			existing := ""
-			if candidate.ExistingEntityID != "" {
-				existing = " [canonical " + candidate.ExistingEntityID + "]"
-			}
-			fmt.Printf("%d. %.3f %-8s %s — %s%s\n", candidate.Rank, candidate.Confidence, candidate.Match, candidate.Display.Name, candidate.Display.Disambiguation, existing)
-		}
-		return nil
+		return runDiscovery(cmd, request, wait, providercredentials.Credentials{})
 	}}
-	command.Flags().StringVar(&query, "query", "", "Artist name or alias")
 	command.Flags().StringVar(&country, "country", "", "ISO country hint, e.g. JP")
 	command.Flags().StringVar(&artistType, "type", "", "Artist type hint, e.g. person or group")
 	command.Flags().StringVar(&beginDate, "begin-date", "", "Birth/founding date hint")
 	command.Flags().StringVar(&endDate, "end-date", "", "Death/dissolution date hint")
 	command.Flags().StringSliceVar(&aliases, "alias", nil, "Known alias; repeat or comma-separate")
 	command.Flags().StringSliceVar(&releases, "release", nil, "Known release as title or title:year; repeatable")
-	command.Flags().IntVar(&limit, "limit", 10, "Maximum candidates (1-25)")
-	command.Flags().DurationVar(&wait, "wait", 30*time.Second, "Maximum wait for provider discovery")
-	_ = command.MarkFlagRequired("query")
+	addDiscoveryCommonFlags(command, &query, &limit, &wait)
 	return command
+}
+
+func newDiscoverMovieCommand() *cobra.Command {
+	var query, country, language, originalTitle, date, apiKey string
+	var aliases []string
+	var year, limit int
+	var wait time.Duration
+	command := &cobra.Command{Use: "movie", Short: "Discover TMDB movie candidates with structured hints", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		request := discovery.Request{Kind: discovery.KindMovie, Query: query, Limit: limit, Hints: discovery.Hints{Country: country, Language: language, Year: year, Date: date, OriginalTitle: originalTitle, Aliases: aliases}}
+		credentials := providercredentials.Credentials{}
+		if strings.TrimSpace(apiKey) != "" {
+			credentials.APIKeys = map[string]string{"tmdb": apiKey}
+		}
+		return runDiscovery(cmd, request, wait, credentials)
+	}}
+	command.Flags().IntVar(&year, "year", 0, "Release year hint")
+	command.Flags().StringVar(&date, "date", "", "Release date hint (YYYY-MM-DD)")
+	command.Flags().StringVar(&country, "country", "", "ISO origin-country hint")
+	command.Flags().StringVar(&language, "language", "", "ISO original-language hint")
+	command.Flags().StringVar(&originalTitle, "original-title", "", "Known original title")
+	command.Flags().StringSliceVar(&aliases, "alias", nil, "Known alternate title; repeat or comma-separate")
+	command.Flags().StringVar(&apiKey, "api-key", "", "Request-scoped TMDB API key")
+	addDiscoveryCommonFlags(command, &query, &limit, &wait)
+	return command
+}
+
+func newDiscoverReleaseGroupCommand() *cobra.Command {
+	var query, releaseType, date string
+	var artists, artistIDs, tracks []string
+	var year, limit int
+	var wait time.Duration
+	command := &cobra.Command{Use: "release-group", Short: "Discover MusicBrainz release-group candidates with structured hints", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		request := discovery.Request{Kind: discovery.KindReleaseGroup, Query: query, Limit: limit, Hints: discovery.Hints{Year: year, Date: date, Type: releaseType, Artists: artists, ArtistIDs: artistIDs, Tracks: tracks}}
+		return runDiscovery(cmd, request, wait, providercredentials.Credentials{})
+	}}
+	command.Flags().IntVar(&year, "year", 0, "First-release year hint")
+	command.Flags().StringVar(&date, "date", "", "First-release date hint")
+	command.Flags().StringVar(&releaseType, "type", "", "Primary or secondary type hint, e.g. album or soundtrack")
+	command.Flags().StringSliceVar(&artists, "artist", nil, "Credited artist name; repeat or comma-separate")
+	command.Flags().StringSliceVar(&artistIDs, "artist-mbid", nil, "Credited MusicBrainz artist ID; repeat or comma-separate")
+	command.Flags().StringSliceVar(&tracks, "track", nil, "Known track title; repeat or comma-separate")
+	addDiscoveryCommonFlags(command, &query, &limit, &wait)
+	return command
+}
+
+func addDiscoveryCommonFlags(command *cobra.Command, query *string, limit *int, wait *time.Duration) {
+	command.Flags().StringVar(query, "query", "", "Name or title to discover")
+	command.Flags().IntVar(limit, "limit", 10, "Maximum candidates (1-25)")
+	command.Flags().DurationVar(wait, "wait", 30*time.Second, "Maximum wait for provider discovery")
+	_ = command.MarkFlagRequired("query")
+}
+
+func runDiscovery(cmd *cobra.Command, request discovery.Request, wait time.Duration, credentials providercredentials.Credentials) error {
+	runtime, err := platform.Open(cmd.Context(), cfg)
+	if err != nil {
+		return err
+	}
+	defer runtime.Close()
+	if err := runtime.Ensure(cmd.Context(), cfg); err != nil {
+		return err
+	}
+	if err := requireCurrentSchema(cmd.Context(), runtime); err != nil {
+		return err
+	}
+	run, err := discovery.EnsureRun(cmd.Context(), runtime, request)
+	if err != nil {
+		return err
+	}
+	client, err := jobs.NewClient(runtime, cfg.Worker.MaxWorkers, false)
+	if err != nil {
+		return err
+	}
+	if run.State == "queued" {
+		credentialRef, err := providercredentials.Store(cmd.Context(), runtime.Redis, credentials)
+		if err != nil {
+			return err
+		}
+		inserted, err := jobs.InsertDiscovery(cmd.Context(), runtime, client, run, credentialRef)
+		if err != nil {
+			_ = providercredentials.Delete(cmd.Context(), runtime.Redis, credentialRef)
+			return err
+		}
+		run.RiverJobID = inserted.Job.ID
+	}
+	if run.State != "completed" {
+		deadline := time.NewTimer(wait)
+		defer deadline.Stop()
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		for run.State != "completed" && run.State != "failed" {
+			select {
+			case <-cmd.Context().Done():
+				return cmd.Context().Err()
+			case <-deadline.C:
+				return fmt.Errorf("timed out waiting for discovery %s", run.ID)
+			case <-ticker.C:
+				run, err = discovery.GetRun(cmd.Context(), runtime, run.ID)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if run.State == "failed" {
+		return fmt.Errorf("discovery failed: %s", run.Error)
+	}
+	if ui.JSONMode {
+		return ui.OutputJSON(run)
+	}
+	ui.Success("Discovery %s: %s", run.ID, run.Result.Recommendation)
+	for _, candidate := range run.Result.Candidates {
+		existing := ""
+		if candidate.ExistingEntityID != "" {
+			existing = " [canonical " + candidate.ExistingEntityID + "]"
+		}
+		label := candidate.Display.Name
+		if label == "" {
+			label = candidate.Display.Title
+		}
+		detail := candidate.Display.Disambiguation
+		if detail == "" && candidate.Display.Year > 0 {
+			detail = strconv.Itoa(candidate.Display.Year)
+		}
+		fmt.Printf("%d. %.3f %-8s %s — %s%s\n", candidate.Rank, candidate.Confidence, candidate.Match, label, detail, existing)
+	}
+	return nil
 }
 func parseReleaseHint(value string) (discovery.ReleaseHint, error) {
 	value = strings.TrimSpace(value)

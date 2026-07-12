@@ -98,6 +98,33 @@ func (c *Client) Collect(ctx context.Context, identifier providers.Identifier) (
 	return payloads, nil
 }
 
+// SearchMovies returns one explicitly paged set of identity candidates. Search
+// results are evidence only; callers must resolve the selected TMDB ID before
+// it becomes a canonical identity claim.
+func (c *Client) SearchMovies(ctx context.Context, query string, year, page int) (providers.Payload, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return providers.Payload{}, fmt.Errorf("TMDB movie search query must not be empty")
+	}
+	if page < 1 || page > 500 {
+		page = 1
+	}
+	values := url.Values{
+		"query":         {query},
+		"page":          {strconv.Itoa(page)},
+		"include_adult": {"false"},
+		"language":      {c.config.Language},
+	}
+	if year >= 1800 && year <= 2200 {
+		values.Set("year", strconv.Itoa(year))
+	}
+	payload := providers.Payload{
+		Provider: "tmdb", ProviderNamespace: "movie_search", ProviderRecordID: query,
+		RequestKey: "search/movie?" + values.Encode(),
+	}
+	return c.get(ctx, "search/movie", values, payload)
+}
+
 func (c *Client) get(ctx context.Context, endpoint string, query url.Values, payload providers.Payload) (providers.Payload, error) {
 	base := strings.TrimRight(c.config.BaseURL, "/") + "/" + endpoint
 	requestURL, err := url.Parse(base)

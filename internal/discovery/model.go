@@ -21,13 +21,20 @@ type Request struct {
 	Hints Hints  `json:"hints,omitempty"`
 }
 type Hints struct {
-	Country   string        `json:"country,omitempty"`
-	Area      string        `json:"area,omitempty"`
-	Type      string        `json:"type,omitempty"`
-	BeginDate string        `json:"begin_date,omitempty"`
-	EndDate   string        `json:"end_date,omitempty"`
-	Aliases   []string      `json:"aliases,omitempty"`
-	Releases  []ReleaseHint `json:"releases,omitempty"`
+	Country       string        `json:"country,omitempty"`
+	Language      string        `json:"language,omitempty"`
+	Area          string        `json:"area,omitempty"`
+	Type          string        `json:"type,omitempty"`
+	Year          int           `json:"year,omitempty"`
+	Date          string        `json:"date,omitempty"`
+	OriginalTitle string        `json:"original_title,omitempty"`
+	BeginDate     string        `json:"begin_date,omitempty"`
+	EndDate       string        `json:"end_date,omitempty"`
+	Aliases       []string      `json:"aliases,omitempty"`
+	Artists       []string      `json:"artists,omitempty"`
+	ArtistIDs     []string      `json:"artist_ids,omitempty"`
+	Tracks        []string      `json:"tracks,omitempty"`
+	Releases      []ReleaseHint `json:"releases,omitempty"`
 }
 type ReleaseHint struct {
 	Title string `json:"title"`
@@ -46,16 +53,30 @@ type ExternalID struct {
 	Value     string `json:"value"`
 }
 type Display struct {
-	Name           string   `json:"name"`
-	SortName       string   `json:"sort_name,omitempty"`
-	Disambiguation string   `json:"disambiguation,omitempty"`
-	Type           string   `json:"type,omitempty"`
-	Country        string   `json:"country,omitempty"`
-	Area           string   `json:"area,omitempty"`
-	BeginDate      string   `json:"begin_date,omitempty"`
-	EndDate        string   `json:"end_date,omitempty"`
-	Ended          *bool    `json:"ended,omitempty"`
-	Aliases        []string `json:"aliases,omitempty"`
+	Name           string          `json:"name,omitempty"`
+	Title          string          `json:"title,omitempty"`
+	OriginalTitle  string          `json:"original_title,omitempty"`
+	SortName       string          `json:"sort_name,omitempty"`
+	Disambiguation string          `json:"disambiguation,omitempty"`
+	Type           string          `json:"type,omitempty"`
+	Country        string          `json:"country,omitempty"`
+	Countries      []string        `json:"countries,omitempty"`
+	Language       string          `json:"language,omitempty"`
+	Year           int             `json:"year,omitempty"`
+	Date           string          `json:"date,omitempty"`
+	Popularity     float64         `json:"popularity,omitempty"`
+	Artists        []ArtistDisplay `json:"artists,omitempty"`
+	SecondaryTypes []string        `json:"secondary_types,omitempty"`
+	Area           string          `json:"area,omitempty"`
+	BeginDate      string          `json:"begin_date,omitempty"`
+	EndDate        string          `json:"end_date,omitempty"`
+	Ended          *bool           `json:"ended,omitempty"`
+	Aliases        []string        `json:"aliases,omitempty"`
+}
+type ArtistDisplay struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
+	Join string `json:"join,omitempty"`
 }
 type Resolution struct {
 	Kind      string `json:"kind"`
@@ -71,6 +92,7 @@ type Candidate struct {
 	Identity         ExternalID    `json:"identity"`
 	Display          Display       `json:"display"`
 	MatchedReleases  []ReleaseHint `json:"matched_releases,omitempty"`
+	MatchedTracks    []string      `json:"matched_tracks,omitempty"`
 	Evidence         []Evidence    `json:"evidence"`
 	ExistingEntityID string        `json:"existing_entity_id,omitempty"`
 	Resolution       Resolution    `json:"resolution"`

@@ -5,6 +5,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/discovery"
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -13,8 +14,9 @@ import (
 )
 
 type discoveryCreateInput struct {
-	Prefer string `header:"Prefer" doc:"respond-async or wait=N (maximum 5 seconds)"`
-	Body   discovery.Request
+	Prefer     string `header:"Prefer" doc:"respond-async or wait=N (maximum 5 seconds)"`
+	TMDBAPIKey string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
+	Body       discovery.Request
 }
 type discoveryGetInput struct {
 	ID string `path:"id" format:"uuid"`
@@ -41,13 +43,13 @@ func registerDiscovery(api huma.API, runtime *platform.Runtime) {
 			panic(err)
 		}
 	}
-	huma.Register(api, huma.Operation{OperationID: "create-discovery", Method: http.MethodPost, Path: "/api/v2/discoveries", Summary: "Discover and rank upstream identity candidates", Description: "Searches providers only when an entity is not yet known. Structured hints produce explainable, resolution-ready candidates. TV and Anime are distinct discovery kinds; artist is the first implemented provider route.", Tags: []string{"Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *discoveryCreateInput) (*discoveryOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "create-discovery", Method: http.MethodPost, Path: "/api/v2/discoveries", Summary: "Discover and rank upstream identity candidates", Description: "Searches providers only when an entity is not yet known. Structured hints produce explainable, resolution-ready candidates for Movie, Artist, and Release Group. TV and Anime are distinct pending discovery kinds.", Tags: []string{"Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *discoveryCreateInput) (*discoveryOutput, error) {
 		if runtime == nil || client == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
 		request := discovery.NormalizeRequest(input.Body)
-		if request.Kind != discovery.KindArtist {
-			return nil, huma.Error400BadRequest("artist discovery is implemented; movie, tv_show, anime, and release_group routing is pending")
+		if request.Kind != discovery.KindArtist && request.Kind != discovery.KindMovie && request.Kind != discovery.KindReleaseGroup {
+			return nil, huma.Error400BadRequest("discovery kind must be artist, movie, or release_group; tv_show and anime routing is pending")
 		}
 		run, err := discovery.EnsureRun(ctx, runtime, request)
 		if err != nil {
@@ -57,8 +59,17 @@ func registerDiscovery(api huma.API, runtime *platform.Runtime) {
 			return &discoveryOutput{Status: http.StatusOK, Body: discoveryRunResource(run)}, nil
 		}
 		if run.State == "queued" {
-			inserted, insertErr := jobs.InsertDiscovery(ctx, runtime, client, run)
+			credentials := providercredentials.Credentials{}
+			if input.TMDBAPIKey != "" {
+				credentials.APIKeys = map[string]string{"tmdb": input.TMDBAPIKey}
+			}
+			credentialRef, credentialErr := providercredentials.Store(ctx, runtime.Redis, credentials)
+			if credentialErr != nil {
+				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
+			}
+			inserted, insertErr := jobs.InsertDiscovery(ctx, runtime, client, run, credentialRef)
 			if insertErr != nil {
+				_ = providercredentials.Delete(context.WithoutCancel(ctx), runtime.Redis, credentialRef)
 				return nil, insertErr
 			}
 			run.RiverJobID = inserted.Job.ID

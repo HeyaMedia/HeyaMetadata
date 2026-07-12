@@ -31,7 +31,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
+var nonSlug = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 
 type Result struct {
 	EntityID          string

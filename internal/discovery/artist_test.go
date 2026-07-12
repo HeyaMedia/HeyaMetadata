@@ -60,3 +60,41 @@ func TestReleaseHintEvidenceIsDeduplicated(t *testing.T) {
 		t.Fatalf("hints: %+v", values)
 	}
 }
+
+func TestMovieHintsSeparateSameTitleRemakes(t *testing.T) {
+	request := NormalizeRequest(Request{Kind: KindMovie, Query: "Dune", Hints: Hints{Year: 2021, Language: "en"}})
+	current := Candidate{ProviderScore: 100, Display: Display{Title: "Dune", Year: 2021, Language: "en"}}
+	older := Candidate{ProviderScore: 96, Display: Display{Title: "Dune", Year: 1984, Language: "en"}}
+	scoreMovieCandidate(request, &current)
+	scoreMovieCandidate(request, &older)
+	if current.Confidence <= older.Confidence || current.Match != "likely" {
+		t.Fatalf("movie hints did not separate remakes: current=%+v older=%+v", current, older)
+	}
+}
+
+func TestReleaseGroupHintsSeparateSameTitleReleases(t *testing.T) {
+	request := NormalizeRequest(Request{Kind: KindReleaseGroup, Query: "Greatest Hits", Hints: Hints{Year: 1980, Type: "album", Artists: []string{"Queen"}, Tracks: []string{"Another One Bites the Dust"}}})
+	queen := Candidate{ProviderScore: 100, Display: Display{Title: "Greatest Hits", Year: 1980, Type: "album", Artists: []ArtistDisplay{{ID: "queen", Name: "Queen"}}}, MatchedTracks: request.Hints.Tracks}
+	other := Candidate{ProviderScore: 100, Display: Display{Title: "Greatest Hits", Year: 1990, Type: "album", Artists: []ArtistDisplay{{ID: "other", Name: "Other"}}}}
+	scoreReleaseGroupCandidate(request, &queen)
+	scoreReleaseGroupCandidate(request, &other)
+	if queen.Confidence <= other.Confidence || queen.Match != "strong" {
+		t.Fatalf("release-group hints did not separate releases: queen=%+v other=%+v", queen, other)
+	}
+}
+
+func TestNormalizeRequestMakesCrossDomainHintsDeterministic(t *testing.T) {
+	left := NormalizeRequest(Request{Kind: KindReleaseGroup, Query: "Album", Hints: Hints{Language: " EN ", Artists: []string{"Queen", "queen"}, ArtistIDs: []string{"B10BBBFC-CF9E-42E0-BE17-E2C3E1D2600D"}, Tracks: []string{"Two", "One"}}})
+	right := NormalizeRequest(Request{Kind: KindReleaseGroup, Query: "Album", Hints: Hints{Language: "en", Artists: []string{"Queen"}, ArtistIDs: []string{"b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"}, Tracks: []string{"One", "Two"}}})
+	leftHash, _, err := RequestHash(left)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightHash, _, err := RequestHash(right)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leftHash != rightHash {
+		t.Fatalf("normalized cross-domain hints differ: %+v / %+v", left, right)
+	}
+}

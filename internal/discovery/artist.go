@@ -165,11 +165,17 @@ func NormalizeRequest(request Request) Request {
 		request.Limit = 10
 	}
 	request.Hints.Country = strings.ToUpper(strings.TrimSpace(request.Hints.Country))
+	request.Hints.Language = strings.ToLower(strings.TrimSpace(request.Hints.Language))
 	request.Hints.Area = strings.TrimSpace(request.Hints.Area)
 	request.Hints.Type = normalizeType(request.Hints.Type)
+	request.Hints.Date = strings.TrimSpace(request.Hints.Date)
+	request.Hints.OriginalTitle = strings.TrimSpace(request.Hints.OriginalTitle)
 	request.Hints.BeginDate = strings.TrimSpace(request.Hints.BeginDate)
 	request.Hints.EndDate = strings.TrimSpace(request.Hints.EndDate)
 	request.Hints.Aliases = cleanSorted(request.Hints.Aliases)
+	request.Hints.Artists = cleanSorted(request.Hints.Artists)
+	request.Hints.ArtistIDs = cleanSortedLower(request.Hints.ArtistIDs)
+	request.Hints.Tracks = cleanSorted(request.Hints.Tracks)
 	releases := make([]ReleaseHint, 0, len(request.Hints.Releases))
 	seen := map[string]bool{}
 	for _, hint := range request.Hints.Releases {
@@ -357,6 +363,12 @@ func cleanSorted(values []string) []string {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
+}
+func cleanSortedLower(values []string) []string {
+	for i := range values {
+		values[i] = strings.ToLower(strings.TrimSpace(values[i]))
+	}
+	return cleanSorted(values)
 }
 func appendUniqueReleaseHint(values []ReleaseHint, hint ReleaseHint) []ReleaseHint {
 	for _, existing := range values {

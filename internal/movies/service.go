@@ -30,7 +30,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-var slugNonAlphanumeric = regexp.MustCompile(`[^a-z0-9]+`)
+var slugNonAlphanumeric = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 
 type Result struct {
 	EntityID          string
