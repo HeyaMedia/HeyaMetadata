@@ -44,6 +44,7 @@ func newServer(version string, checker ReadinessChecker, runtime *platform.Runti
 	registerMovies(api, runtime)
 	registerImages(api, runtime)
 	registerDiscovery(api, runtime)
+	registerEpisodic(api, runtime)
 
 	return &Server{handler: mux, api: api}
 }

@@ -375,14 +375,25 @@ job boundary to `85c83fd2-078c-404e-b482-deb397076656` with MusicBrainz,
 Discogs, and Wikidata evidence. The normal 15-second negative canonical-search
 cache expired and the new movie then appeared on the local fast path.
 
-TV and Anime are explicitly separate future canonical kinds and API families,
-documented in `docs/tv-anime-domain.md`. Shared primitives are allowed, but
-there will be no `is_anime` flag or combined canonical show identity.
+TV and Anime are now separate canonical kinds and API families, documented in
+`docs/tv-anime-domain.md`. TVMaze-backed TV discovery and canonical ingestion
+retain seasons, episodes, networks, and explicit remote IDs. AniDB-backed Anime
+discovery uses the official daily title dump, registered client parameters, the
+old `heya-media/1.0 anidb-titles-sync` user agent, and rate-limited detail
+enrichment. Live Game of Thrones produced 8 seasons/73 episodes; Cowboy Bebop
+resolved as AID 23 with 26 aired episodes while supplemental entries stayed in
+special/credit/trailer/parody numbering schemes. Shared primitives exist below
+the domain boundary; there is no `is_anime` flag or shared canonical identity.
+
+Music release presentation dedup now uses `internal/textmatch`: Kagome IPA
+compound readings, kana romanization, and Unidecode comparison keys bridge
+native/romanized titles while preserving originals. Cross-provider equivalent
+editions retain all IDs in `sources`; remixes/live/remasters remain distinct.
 
 ## Suggested next turn
 
-1. Add dedicated TV and Anime discovery provider routing, followed by their
-   separate canonical APIs.
+1. Add TVDB/TMDB-TV evidence and Anime mapping-authority adapters so the new
+   single-provider canonical spines become multi-source mixers.
 2. Add bounded derived image variants (WebP/AVIF) and class-aware original
    retention before materializing high-volume profile catalogs.
 3. Start the release/edition slice and fetch complete medium/track data so

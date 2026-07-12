@@ -18,6 +18,50 @@ func newDiscoverCommand() *cobra.Command {
 	command.AddCommand(newDiscoverArtistCommand())
 	command.AddCommand(newDiscoverMovieCommand())
 	command.AddCommand(newDiscoverReleaseGroupCommand())
+	command.AddCommand(newDiscoverTVCommand())
+	command.AddCommand(newDiscoverAnimeCommand())
+	return command
+}
+
+func newDiscoverTVCommand() *cobra.Command {
+	var query, country, language, network, status string
+	var year, limit int
+	var episodes []string
+	var wait time.Duration
+	command := &cobra.Command{Use: "tv", Short: "Discover conventional TV shows through TVMaze", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		hints := discovery.Hints{Country: country, Language: language, Network: network, Status: status, Year: year}
+		for _, title := range episodes {
+			hints.Episodes = append(hints.Episodes, discovery.EpisodeHint{Title: title})
+		}
+		return runDiscovery(cmd, discovery.Request{Kind: discovery.KindTVShow, Query: query, Limit: limit, Hints: hints}, wait, providercredentials.Credentials{})
+	}}
+	command.Flags().IntVar(&year, "year", 0, "Premiere year hint")
+	command.Flags().StringVar(&country, "country", "", "ISO country hint")
+	command.Flags().StringVar(&language, "language", "", "ISO original-language hint")
+	command.Flags().StringVar(&network, "network", "", "Broadcast network or streaming service hint")
+	command.Flags().StringVar(&status, "status", "", "Show status hint")
+	command.Flags().StringSliceVar(&episodes, "episode", nil, "Known episode title; repeat or comma-separate")
+	addDiscoveryCommonFlags(command, &query, &limit, &wait)
+	return command
+}
+
+func newDiscoverAnimeCommand() *cobra.Command {
+	var query, format string
+	var year, count, limit int
+	var episodes []string
+	var wait time.Duration
+	command := &cobra.Command{Use: "anime", Short: "Discover Anime through AniDB", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		hints := discovery.Hints{Year: year, Type: format, EpisodeCount: count}
+		for _, title := range episodes {
+			hints.Episodes = append(hints.Episodes, discovery.EpisodeHint{Title: title})
+		}
+		return runDiscovery(cmd, discovery.Request{Kind: discovery.KindAnime, Query: query, Limit: limit, Hints: hints}, wait, providercredentials.Credentials{})
+	}}
+	command.Flags().IntVar(&year, "year", 0, "Start year hint")
+	command.Flags().StringVar(&format, "type", "", "Anime format hint, e.g. tv_series, movie, or ova")
+	command.Flags().IntVar(&count, "episode-count", 0, "Known episode count")
+	command.Flags().StringSliceVar(&episodes, "episode", nil, "Known episode title; repeat or comma-separate")
+	addDiscoveryCommonFlags(command, &query, &limit, &wait)
 	return command
 }
 func newDiscoverArtistCommand() *cobra.Command {

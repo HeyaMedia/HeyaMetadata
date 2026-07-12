@@ -90,6 +90,24 @@ Normalized records preserve every source claim. Combination is deterministic:
 - no provider-global score is presented as a universal rating;
 - user overrides may select presentation winners without deleting source facts.
 
+### Cross-script release presentation deduplication
+
+Provider catalog objects remain separate evidence, but the public edition list
+must not show the same logical release once in native script and again in a
+romanization. Comparison keys use Kagome with its IPA dictionary for Japanese
+compound readings, kana-to-romaji conversion, and Unidecode coverage for
+Chinese, Thai, Cyrillic, Greek, Hangul, and other scripts. Thus `初夏`, `ショカ`,
+and `Shoka` can produce shared comparison evidence without overwriting any
+original title.
+
+Cross-provider editions collapse in presentation when barcode matches, or when
+romanized/normalized title, compatible year, and compatible track count agree.
+Every contributing provider ID/link remains in `edition.sources`. Commercial
+SKU annotations such as Deluxe/Expanded/Bonus Track may collapse, while Remix,
+Live, Acoustic, Demo, Remaster, Karaoke, and Instrumental remain distinct.
+Transliteration is matching evidence only and can never establish canonical
+identity by itself.
+
 The first implemented vertical slice is artist. Release-group, release,
 recording, release-track, work, and label normalized schemas follow these
 boundaries rather than being inferred from the artist projection.

@@ -175,7 +175,7 @@ func validateSourceURL(value *url.URL, allowHTTP bool) error {
 }
 func providerHostAllowed(provider, host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	allowed := map[string][]string{"tmdb": {"image.tmdb.org"}, "tvdb": {"artworks.thetvdb.com"}, "fanart": {"assets.fanart.tv"}, "discogs": {"i.discogs.com", "st.discogs.com"}, "deezer": {"cdn-images.dzcdn.net"}, "lastfm": {"lastfm.freetls.fastly.net"}, "wikidata": {"commons.wikimedia.org", "upload.wikimedia.org"}}
+	allowed := map[string][]string{"tmdb": {"image.tmdb.org"}, "tvdb": {"artworks.thetvdb.com"}, "tvmaze": {"static.tvmaze.com"}, "anidb": {"cdn-eu.anidb.net"}, "fanart": {"assets.fanart.tv"}, "discogs": {"i.discogs.com", "st.discogs.com"}, "deezer": {"cdn-images.dzcdn.net"}, "lastfm": {"lastfm.freetls.fastly.net"}, "wikidata": {"commons.wikimedia.org", "upload.wikimedia.org"}}
 	for _, suffix := range allowed[strings.ToLower(provider)] {
 		if host == suffix || strings.HasSuffix(host, "."+suffix) {
 			return true

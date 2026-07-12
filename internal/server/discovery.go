@@ -18,6 +18,15 @@ type discoveryCreateInput struct {
 	TMDBAPIKey string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
 	Body       discovery.Request
 }
+type dedicatedDiscoveryRequest struct {
+	Query string          `json:"query"`
+	Limit int             `json:"limit,omitempty"`
+	Hints discovery.Hints `json:"hints,omitempty"`
+}
+type dedicatedDiscoveryInput struct {
+	Prefer string `header:"Prefer" doc:"respond-async or wait=N (maximum 5 seconds)"`
+	Body   dedicatedDiscoveryRequest
+}
 type discoveryGetInput struct {
 	ID string `path:"id" format:"uuid"`
 }
@@ -43,13 +52,13 @@ func registerDiscovery(api huma.API, runtime *platform.Runtime) {
 			panic(err)
 		}
 	}
-	huma.Register(api, huma.Operation{OperationID: "create-discovery", Method: http.MethodPost, Path: "/api/v2/discoveries", Summary: "Discover and rank upstream identity candidates", Description: "Searches providers only when an entity is not yet known. Structured hints produce explainable, resolution-ready candidates for Movie, Artist, and Release Group. TV and Anime are distinct pending discovery kinds.", Tags: []string{"Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *discoveryCreateInput) (*discoveryOutput, error) {
+	create := func(ctx context.Context, request discovery.Request, prefer, tmdbAPIKey string) (*discoveryOutput, error) {
 		if runtime == nil || client == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
-		request := discovery.NormalizeRequest(input.Body)
-		if request.Kind != discovery.KindArtist && request.Kind != discovery.KindMovie && request.Kind != discovery.KindReleaseGroup {
-			return nil, huma.Error400BadRequest("discovery kind must be artist, movie, or release_group; tv_show and anime routing is pending")
+		request = discovery.NormalizeRequest(request)
+		if request.Kind != discovery.KindArtist && request.Kind != discovery.KindMovie && request.Kind != discovery.KindReleaseGroup && request.Kind != discovery.KindTVShow && request.Kind != discovery.KindAnime {
+			return nil, huma.Error400BadRequest("discovery kind must be movie, artist, release_group, tv_show, or anime")
 		}
 		run, err := discovery.EnsureRun(ctx, runtime, request)
 		if err != nil {
@@ -60,8 +69,8 @@ func registerDiscovery(api huma.API, runtime *platform.Runtime) {
 		}
 		if run.State == "queued" {
 			credentials := providercredentials.Credentials{}
-			if input.TMDBAPIKey != "" {
-				credentials.APIKeys = map[string]string{"tmdb": input.TMDBAPIKey}
+			if tmdbAPIKey != "" {
+				credentials.APIKeys = map[string]string{"tmdb": tmdbAPIKey}
 			}
 			credentialRef, credentialErr := providercredentials.Store(ctx, runtime.Redis, credentials)
 			if credentialErr != nil {
@@ -75,10 +84,10 @@ func registerDiscovery(api huma.API, runtime *platform.Runtime) {
 			run.RiverJobID = inserted.Job.ID
 		}
 		wait := 1200 * time.Millisecond
-		if preferredWait(input.Prefer) > 0 {
-			wait = preferredWait(input.Prefer)
+		if preferredWait(prefer) > 0 {
+			wait = preferredWait(prefer)
 		}
-		if input.Prefer == "respond-async" {
+		if prefer == "respond-async" {
 			wait = 0
 		}
 		if wait > 0 {
@@ -106,6 +115,15 @@ func registerDiscovery(api huma.API, runtime *platform.Runtime) {
 		}
 	accepted:
 		return &discoveryOutput{Status: http.StatusAccepted, Body: discoveryRunResource(run)}, nil
+	}
+	huma.Register(api, huma.Operation{OperationID: "create-discovery", Method: http.MethodPost, Path: "/api/v2/discoveries", Summary: "Discover and rank upstream identity candidates", Description: "Searches providers only when an entity is not yet known. Structured hints produce explainable, resolution-ready candidates for every current canonical domain.", Tags: []string{"Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *discoveryCreateInput) (*discoveryOutput, error) {
+		return create(ctx, input.Body, input.Prefer, input.TMDBAPIKey)
+	})
+	huma.Register(api, huma.Operation{OperationID: "discover-tv-show", Method: http.MethodPost, Path: "/api/v2/tv/discoveries", Summary: "Discover conventional television shows", Tags: []string{"TV", "Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
+		return create(ctx, discovery.Request{Kind: discovery.KindTVShow, Query: input.Body.Query, Limit: input.Body.Limit, Hints: input.Body.Hints}, input.Prefer, "")
+	})
+	huma.Register(api, huma.Operation{OperationID: "discover-anime", Method: http.MethodPost, Path: "/api/v2/anime/discoveries", Summary: "Discover AniDB anime identities", Tags: []string{"Anime", "Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
+		return create(ctx, discovery.Request{Kind: discovery.KindAnime, Query: input.Body.Query, Limit: input.Body.Limit, Hints: input.Body.Hints}, input.Prefer, "")
 	})
 	huma.Register(api, huma.Operation{OperationID: "get-discovery", Method: http.MethodGet, Path: "/api/v2/discoveries/{id}", Summary: "Get smart-discovery status and candidates", Tags: []string{"Discovery"}}, func(ctx context.Context, input *discoveryGetInput) (*discoveryOutput, error) {
 		if runtime == nil {

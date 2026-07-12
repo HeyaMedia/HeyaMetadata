@@ -98,3 +98,13 @@ func TestNormalizeRequestMakesCrossDomainHintsDeterministic(t *testing.T) {
 		t.Fatalf("normalized cross-domain hints differ: %+v / %+v", left, right)
 	}
 }
+
+func TestAniDBTitleDumpParsing(t *testing.T) {
+	values, err := parseAnimeTitleDump([]byte(`<animetitles><anime aid="23"><title type="main" xml:lang="x-jat">Cowboy Bebop</title><title type="official" xml:lang="ja">カウボーイビバップ</title></anime></animetitles>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values[0].AID != "23" || len(values[0].Titles) != 2 {
+		t.Fatalf("titles: %+v", values)
+	}
+}

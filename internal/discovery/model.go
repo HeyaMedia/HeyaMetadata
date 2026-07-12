@@ -34,7 +34,19 @@ type Hints struct {
 	Artists       []string      `json:"artists,omitempty"`
 	ArtistIDs     []string      `json:"artist_ids,omitempty"`
 	Tracks        []string      `json:"tracks,omitempty"`
+	Network       string        `json:"network,omitempty"`
+	Status        string        `json:"status,omitempty"`
+	Season        string        `json:"season,omitempty"`
+	Source        string        `json:"source,omitempty"`
+	EpisodeCount  int           `json:"episode_count,omitempty"`
+	Studios       []string      `json:"studios,omitempty"`
+	Episodes      []EpisodeHint `json:"episodes,omitempty"`
 	Releases      []ReleaseHint `json:"releases,omitempty"`
+}
+type EpisodeHint struct {
+	Title  string `json:"title,omitempty"`
+	Season int    `json:"season,omitempty"`
+	Number int    `json:"number,omitempty"`
 }
 type ReleaseHint struct {
 	Title string `json:"title"`
@@ -67,6 +79,12 @@ type Display struct {
 	Popularity     float64         `json:"popularity,omitempty"`
 	Artists        []ArtistDisplay `json:"artists,omitempty"`
 	SecondaryTypes []string        `json:"secondary_types,omitempty"`
+	Network        string          `json:"network,omitempty"`
+	Status         string          `json:"status,omitempty"`
+	Season         string          `json:"season,omitempty"`
+	Source         string          `json:"source,omitempty"`
+	EpisodeCount   int             `json:"episode_count,omitempty"`
+	Studios        []string        `json:"studios,omitempty"`
 	Area           string          `json:"area,omitempty"`
 	BeginDate      string          `json:"begin_date,omitempty"`
 	EndDate        string          `json:"end_date,omitempty"`
@@ -93,6 +111,7 @@ type Candidate struct {
 	Display          Display       `json:"display"`
 	MatchedReleases  []ReleaseHint `json:"matched_releases,omitempty"`
 	MatchedTracks    []string      `json:"matched_tracks,omitempty"`
+	MatchedEpisodes  []EpisodeHint `json:"matched_episodes,omitempty"`
 	Evidence         []Evidence    `json:"evidence"`
 	ExistingEntityID string        `json:"existing_entity_id,omitempty"`
 	Resolution       Resolution    `json:"resolution"`

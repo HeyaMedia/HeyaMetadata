@@ -2,8 +2,11 @@ package releasegroup
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/HeyaMedia/HeyaMetadata/internal/textmatch"
 )
 
 type ExternalID struct {
@@ -54,20 +57,27 @@ type ProjectedImage struct {
 	Provider string `json:"provider"`
 }
 type ProjectedEdition struct {
-	Provider   string    `json:"provider"`
-	Namespace  string    `json:"namespace"`
-	ProviderID string    `json:"provider_id"`
-	Title      string    `json:"title"`
-	Status     string    `json:"status,omitempty"`
-	Date       DateValue `json:"date"`
-	Country    string    `json:"country,omitempty"`
-	Barcode    string    `json:"barcode,omitempty"`
-	TrackCount int       `json:"track_count,omitempty"`
-	DurationMS int64     `json:"duration_ms,omitempty"`
-	Explicit   *bool     `json:"explicit,omitempty"`
-	Formats    []string  `json:"formats"`
-	Link       string    `json:"link,omitempty"`
-	ImageID    string    `json:"image_id,omitempty"`
+	Provider   string          `json:"provider"`
+	Namespace  string          `json:"namespace"`
+	ProviderID string          `json:"provider_id"`
+	Title      string          `json:"title"`
+	Status     string          `json:"status,omitempty"`
+	Date       DateValue       `json:"date"`
+	Country    string          `json:"country,omitempty"`
+	Barcode    string          `json:"barcode,omitempty"`
+	TrackCount int             `json:"track_count,omitempty"`
+	DurationMS int64           `json:"duration_ms,omitempty"`
+	Explicit   *bool           `json:"explicit,omitempty"`
+	Formats    []string        `json:"formats"`
+	Link       string          `json:"link,omitempty"`
+	ImageID    string          `json:"image_id,omitempty"`
+	Sources    []EditionSource `json:"sources"`
+}
+type EditionSource struct {
+	Provider   string `json:"provider"`
+	Namespace  string `json:"namespace"`
+	ProviderID string `json:"provider_id"`
+	Link       string `json:"link,omitempty"`
 }
 type ProjectedTrack struct {
 	Track
@@ -235,11 +245,29 @@ func Combine(entityID, slug string, version int64, records []RecordInput, imageI
 				continue
 			}
 			seen[key] = true
-			projected := ProjectedEdition{Provider: value.Provider, Namespace: value.Namespace, ProviderID: value.ProviderID, Title: value.Title, Status: value.Status, Date: value.Date, Country: value.Country, Barcode: value.Barcode, TrackCount: value.TrackCount, DurationMS: value.DurationMS, Explicit: value.Explicit, Formats: value.Formats, Link: value.Link}
+			projected := ProjectedEdition{Provider: value.Provider, Namespace: value.Namespace, ProviderID: value.ProviderID, Title: value.Title, Status: value.Status, Date: value.Date, Country: value.Country, Barcode: value.Barcode, TrackCount: value.TrackCount, DurationMS: value.DurationMS, Explicit: value.Explicit, Formats: value.Formats, Link: value.Link, Sources: []EditionSource{{Provider: value.Provider, Namespace: value.Namespace, ProviderID: value.ProviderID, Link: value.Link}}}
 			if value.Image != nil {
 				projected.ImageID = imageIDs[ImageKey(provider, *value.Image)]
 			}
-			detail.Data.Editions = append(detail.Data.Editions, projected)
+			if index := equivalentEditionIndex(detail.Data.Editions, projected); index >= 0 {
+				existing := &detail.Data.Editions[index]
+				existing.Sources = append(existing.Sources, projected.Sources...)
+				existing.Formats = unionReleaseGroupStrings(existing.Formats, projected.Formats)
+				if existing.ImageID == "" {
+					existing.ImageID = projected.ImageID
+				}
+				if existing.Barcode == "" {
+					existing.Barcode = projected.Barcode
+				}
+				if existing.TrackCount == 0 {
+					existing.TrackCount = projected.TrackCount
+				}
+				if existing.DurationMS == 0 {
+					existing.DurationMS = projected.DurationMS
+				}
+			} else {
+				detail.Data.Editions = append(detail.Data.Editions, projected)
+			}
 		}
 		for _, value := range record.Tracks {
 			key := "track:" + provider + ":" + value.ProviderID + ":" + value.Position + ":" + strings.ToLower(value.Title)
@@ -267,6 +295,35 @@ func Combine(entityID, slug string, version int64, records []RecordInput, imageI
 	}
 	summary := SummaryDocument{SchemaVersion: ProjectionSchemaVersion, ProjectionVersion: version, ID: entityID, Kind: "release_group", Slug: slug, Display: detail.Display, PrimaryType: detail.Data.Classification.PrimaryType, SecondaryTypes: detail.Data.Classification.SecondaryTypes, Genres: genres, ExternalIDs: detail.ExternalIDs, Freshness: detail.Freshness}
 	return Projection{Detail: detail, Summary: summary, SearchTitles: detail.Data.Titles}
+}
+
+func equivalentEditionIndex(values []ProjectedEdition, incoming ProjectedEdition) int {
+	for i, existing := range values {
+		if existing.Provider == incoming.Provider {
+			continue
+		}
+		if existing.Barcode != "" && incoming.Barcode != "" && existing.Barcode == incoming.Barcode {
+			return i
+		}
+		leftYear, rightYear := dateYear(existing.Date.Value), dateYear(incoming.Date.Value)
+		if leftYear > 0 && rightYear > 0 && leftYear != rightYear {
+			continue
+		}
+		if existing.TrackCount > 0 && incoming.TrackCount > 0 && existing.TrackCount != incoming.TrackCount {
+			continue
+		}
+		if textmatch.EquivalentRelease(existing.Title, leftYear, incoming.Title, rightYear) {
+			return i
+		}
+	}
+	return -1
+}
+func dateYear(value string) int {
+	if len(value) < 4 {
+		return 0
+	}
+	year, _ := strconv.Atoi(value[:4])
+	return year
 }
 func ImageKey(provider string, image Image) string {
 	return provider + ":" + image.Class + ":" + image.ProviderImageID

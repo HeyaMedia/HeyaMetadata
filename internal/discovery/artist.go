@@ -176,6 +176,31 @@ func NormalizeRequest(request Request) Request {
 	request.Hints.Artists = cleanSorted(request.Hints.Artists)
 	request.Hints.ArtistIDs = cleanSortedLower(request.Hints.ArtistIDs)
 	request.Hints.Tracks = cleanSorted(request.Hints.Tracks)
+	request.Hints.Network = strings.TrimSpace(request.Hints.Network)
+	request.Hints.Status = normalizeType(request.Hints.Status)
+	request.Hints.Season = normalizeType(request.Hints.Season)
+	request.Hints.Source = normalizeType(request.Hints.Source)
+	request.Hints.Studios = cleanSorted(request.Hints.Studios)
+	episodes := make([]EpisodeHint, 0, len(request.Hints.Episodes))
+	seenEpisodes := map[string]bool{}
+	for _, hint := range request.Hints.Episodes {
+		hint.Title = strings.TrimSpace(hint.Title)
+		key := normalizedText(hint.Title) + ":" + strconv.Itoa(hint.Season) + ":" + strconv.Itoa(hint.Number)
+		if key != "::0" && !seenEpisodes[key] {
+			seenEpisodes[key] = true
+			episodes = append(episodes, hint)
+		}
+	}
+	sort.Slice(episodes, func(i, j int) bool {
+		if episodes[i].Season != episodes[j].Season {
+			return episodes[i].Season < episodes[j].Season
+		}
+		if episodes[i].Number != episodes[j].Number {
+			return episodes[i].Number < episodes[j].Number
+		}
+		return episodes[i].Title < episodes[j].Title
+	})
+	request.Hints.Episodes = episodes
 	releases := make([]ReleaseHint, 0, len(request.Hints.Releases))
 	seen := map[string]bool{}
 	for _, hint := range request.Hints.Releases {

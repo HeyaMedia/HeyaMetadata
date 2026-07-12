@@ -64,9 +64,10 @@ treated as a durable identity match.
 
 ## 2. Discover upstream candidates
 
-Movie, Artist, and Release Group discovery are implemented provider-backed
-routes. `tv_show` and `anime` are part of the contract but currently return
-`400` until their separate provider routing and canonical models are built.
+Movie, Artist, Release Group, TV Show, and Anime all have implemented
+provider-backed discovery routes. TV and Anime additionally expose dedicated
+`/api/v2/tv/discoveries` and `/api/v2/anime/discoveries` entry points that
+inject the correct kind for the caller.
 
 ```http
 POST /api/v2/discoveries
@@ -131,6 +132,9 @@ Useful structured hints vary by domain:
 - Release Group: `year`, `date`, `type`, credited `artists`, MusicBrainz
   `artist_ids`, and known `tracks`. Track titles are verified against
   MusicBrainz recording/release relationships rather than compared loosely.
+- TV Show: premiere `year`, `country`, `language`, `network`, `status`, and
+  known `episodes`.
+- Anime: start `year`, format in `type`, `episode_count`, and known `episodes`.
 
 ## 3. Resolve the selected provider identity
 
@@ -197,6 +201,7 @@ or Postgres. The OpenAPI document is authoritative for the supported headers.
    if the API adds it. Do not poll in a tight loop.
 5. Pass `candidate.resolution` through unchanged.
 6. Persist and expose only the resulting Heya `entity_id` as canonical identity.
-7. Do not collapse `tv_show` and `anime`, or provider IDs and Heya IDs.
+7. Do not collapse `tv_show` and `anime`, or provider IDs and Heya IDs. Read
+   them through `/api/v2/tv/shows/{id}` and `/api/v2/anime/{id}` respectively.
 8. Treat discovery ranking as evidence for identity selection, not metadata to
    merge into the final entity.

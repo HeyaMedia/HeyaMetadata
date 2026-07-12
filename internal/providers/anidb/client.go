@@ -77,6 +77,7 @@ func (c *Client) Collect(ctx context.Context, identifier providers.Identifier) (
 		return nil, fmt.Errorf("build AniDB request: %w", err)
 	}
 	request.Header.Set("Accept", "application/xml, text/xml")
+	request.Header.Set("User-Agent", c.config.UserAgent)
 	payload, err := c.http.DoClassified(ctx, request, providers.Payload{
 		Provider: "anidb", ProviderNamespace: "anime", ProviderRecordID: identifier.Value,
 		RequestKey: "anime/" + identifier.Value + "?protover=1",
@@ -90,6 +91,29 @@ func (c *Client) Collect(ctx context.Context, identifier providers.Identifier) (
 		return nil, err
 	}
 	return []providers.Payload{payload}, nil
+}
+
+// Titles downloads AniDB's official daily title dump. It is the supported
+// title-to-AID lookup surface; the detail HTTP API only accepts a known AID.
+func (c *Client) Titles(ctx context.Context) (providers.Payload, error) {
+	requestURL := strings.TrimSpace(c.config.TitlesURL)
+	if requestURL == "" {
+		return providers.Payload{}, fmt.Errorf("AniDB titles URL is not configured")
+	}
+	request, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	if err != nil {
+		return providers.Payload{}, fmt.Errorf("build AniDB title dump request: %w", err)
+	}
+	request.Header.Set("Accept", "application/gzip, application/xml")
+	request.Header.Set("User-Agent", c.config.UserAgent)
+	payload := providers.Payload{Provider: "anidb", ProviderNamespace: "anime_title_dump", ProviderRecordID: "daily", RequestKey: "anime-titles.xml.gz"}
+	return c.http.DoClassified(ctx, request, payload, nil, func(payload *providers.Payload) {
+		if payload.StatusCode != http.StatusOK || len(payload.Body) == 0 {
+			return
+		}
+		day := 24 * time.Hour
+		payload.ReuseDurationOverride = &day
+	})
 }
 
 func classify(expectedID string) func(*providers.Payload) {

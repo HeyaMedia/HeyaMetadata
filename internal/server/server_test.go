@@ -82,6 +82,8 @@ func TestOpenAPIDocumentContainsPublicRoutes(t *testing.T) {
 		"/api/v2/entities/{id}", "/api/v2/resolutions", "/api/v2/jobs/{id}", "/api/v2/search", "/api/v2/changes",
 		"/api/v2/images/{id}",
 		"/api/v2/discoveries", "/api/v2/discoveries/{id}",
+		"/api/v2/tv/discoveries", "/api/v2/anime/discoveries",
+		"/api/v2/tv/shows/{id}", "/api/v2/anime/{id}",
 	} {
 		if !strings.Contains(text, path) {
 			t.Errorf("OpenAPI document does not contain %s", path)

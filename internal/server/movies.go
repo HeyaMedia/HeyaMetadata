@@ -11,12 +11,14 @@ import (
 	"strings"
 	"time"
 
+	animeservice "github.com/HeyaMedia/HeyaMetadata/internal/anime"
 	"github.com/HeyaMedia/HeyaMetadata/internal/artists"
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/movies"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/releasegroups"
+	"github.com/HeyaMedia/HeyaMetadata/internal/tvshows"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -44,7 +46,7 @@ type resolutionInput struct {
 	DiscogsAPIKey string `header:"X-Heya-Discogs-API-Key" doc:"Optional request-scoped Discogs token; never persisted"`
 	LastFMAPIKey  string `header:"X-Heya-LastFM-API-Key" doc:"Optional request-scoped Last.fm API key; never persisted"`
 	Body          struct {
-		Kind      string `json:"kind" enum:"movie,artist,release_group"`
+		Kind      string `json:"kind" enum:"movie,artist,release_group,tv_show,anime"`
 		Provider  string `json:"provider" example:"tmdb"`
 		Namespace string `json:"namespace" example:"movie"`
 		Value     string `json:"value" example:"603"`
@@ -119,11 +121,15 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 	var service *movies.Service
 	var artistService *artists.Service
 	var releaseGroupService *releasegroups.Service
+	var tvService *tvshows.Service
+	var animeService *animeservice.Service
 	var client *river.Client[pgx.Tx]
 	if runtime != nil {
 		service = movies.NewService(runtime)
 		artistService = artists.NewService(runtime)
 		releaseGroupService = releasegroups.NewService(runtime)
+		tvService = tvshows.NewService(runtime)
+		animeService = animeservice.NewService(runtime)
 		var err error
 		client, err = jobs.NewClient(runtime, runtime.Config.Worker.MaxWorkers, false)
 		if err != nil {
@@ -166,6 +172,20 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 					}
 				}
 				document.Freshness.State = "stale"
+			}
+			return &entityOutput{Body: document}, nil
+		}
+		if kind == "tv_show" {
+			document, _, err := tvService.Detail(ctx, input.ID)
+			if err != nil {
+				return nil, err
+			}
+			return &entityOutput{Body: document}, nil
+		}
+		if kind == "anime" {
+			document, _, err := animeService.Detail(ctx, input.ID)
+			if err != nil {
+				return nil, err
 			}
 			return &entityOutput{Body: document}, nil
 		}
@@ -241,8 +261,56 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			}
 			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.ReleaseGroupIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
+		if input.Body.Kind == "tv_show" {
+			entityID, err := tvService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
+			if err == nil {
+				document, _, detailErr := tvService.Detail(ctx, entityID)
+				if detailErr != nil {
+					return nil, detailErr
+				}
+				return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: document}}, nil
+			}
+			if err != pgx.ErrNoRows {
+				return nil, err
+			}
+			if !strings.EqualFold(input.Body.Provider, "tvmaze") || !strings.EqualFold(input.Body.Namespace, "show") {
+				return nil, huma.Error404NotFound("external ID is not known and no TV collector accepts it")
+			}
+			if value, parseErr := strconv.ParseInt(input.Body.Value, 10, 64); parseErr != nil || value < 1 {
+				return nil, huma.Error400BadRequest("invalid TVMaze show ID")
+			}
+			inserted, insertErr := jobs.InsertTVShow(ctx, runtime, client, jobs.TVShowIngestArgs{TVMazeID: input.Body.Value, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
+			if insertErr != nil {
+				return nil, insertErr
+			}
+			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.TVShowIngestKind, State: string(inserted.Job.State)}}}, nil
+		}
+		if input.Body.Kind == "anime" {
+			entityID, err := animeService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
+			if err == nil {
+				document, _, detailErr := animeService.Detail(ctx, entityID)
+				if detailErr != nil {
+					return nil, detailErr
+				}
+				return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: document}}, nil
+			}
+			if err != pgx.ErrNoRows {
+				return nil, err
+			}
+			if !strings.EqualFold(input.Body.Provider, "anidb") || !strings.EqualFold(input.Body.Namespace, "anime") {
+				return nil, huma.Error404NotFound("external ID is not known and no Anime collector accepts it")
+			}
+			if value, parseErr := strconv.ParseInt(input.Body.Value, 10, 64); parseErr != nil || value < 1 {
+				return nil, huma.Error400BadRequest("invalid AniDB AID")
+			}
+			inserted, insertErr := jobs.InsertAnime(ctx, runtime, client, jobs.AnimeIngestArgs{AniDBID: input.Body.Value, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
+			if insertErr != nil {
+				return nil, insertErr
+			}
+			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.AnimeIngestKind, State: string(inserted.Job.State)}}}, nil
+		}
 		if input.Body.Kind != "movie" {
-			return nil, huma.Error400BadRequest("kind must be movie, artist, or release_group")
+			return nil, huma.Error400BadRequest("kind must be movie, artist, release_group, tv_show, or anime")
 		}
 		entityID, err := service.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
 		if err == nil {
@@ -334,6 +402,28 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			}
 			return &refreshOutput{Status: http.StatusAccepted, Body: jobResource{ID: inserted.Job.ID, Kind: jobs.ReleaseGroupIngestKind, State: string(inserted.Job.State)}}, nil
 		}
+		if kind == "tv_show" {
+			var value string
+			if err := runtime.DB.QueryRow(ctx, `SELECT normalized_value FROM external_id_claims WHERE entity_id=$1 AND provider='tvmaze' AND namespace='show' AND state='accepted'`, input.ID).Scan(&value); err != nil {
+				return nil, huma.Error404NotFound("entity has no TVMaze show claim")
+			}
+			inserted, err := jobs.InsertTVShow(ctx, runtime, client, jobs.TVShowIngestArgs{TVMazeID: value, Reason: "manual_refresh"}, jobs.PriorityInteractive)
+			if err != nil {
+				return nil, err
+			}
+			return &refreshOutput{Status: http.StatusAccepted, Body: jobResource{ID: inserted.Job.ID, Kind: jobs.TVShowIngestKind, State: string(inserted.Job.State)}}, nil
+		}
+		if kind == "anime" {
+			var value string
+			if err := runtime.DB.QueryRow(ctx, `SELECT normalized_value FROM external_id_claims WHERE entity_id=$1 AND provider='anidb' AND namespace='anime' AND state='accepted'`, input.ID).Scan(&value); err != nil {
+				return nil, huma.Error404NotFound("entity has no AniDB anime claim")
+			}
+			inserted, err := jobs.InsertAnime(ctx, runtime, client, jobs.AnimeIngestArgs{AniDBID: value, Reason: "manual_refresh"}, jobs.PriorityInteractive)
+			if err != nil {
+				return nil, err
+			}
+			return &refreshOutput{Status: http.StatusAccepted, Body: jobResource{ID: inserted.Job.ID, Kind: jobs.AnimeIngestKind, State: string(inserted.Job.State)}}, nil
+		}
 		tmdbID, err := service.TMDBID(ctx, input.ID)
 		if err == movies.ErrNotFound {
 			return nil, huma.Error404NotFound("entity has no TMDB movie claim")
@@ -369,6 +459,9 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		}
 		if entityID == nil && failure == nil {
 			_ = runtime.DB.QueryRow(ctx, `SELECT entity_id,error FROM release_group_ingestion_runs WHERE river_job_id=$1`, input.ID).Scan(&entityID, &failure)
+		}
+		if entityID == nil && failure == nil {
+			_ = runtime.DB.QueryRow(ctx, `SELECT entity_id,error FROM episodic_ingestion_runs WHERE river_job_id=$1`, input.ID).Scan(&entityID, &failure)
 		}
 		if entityID != nil {
 			resource.EntityID = *entityID

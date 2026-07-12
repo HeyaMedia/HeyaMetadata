@@ -19,7 +19,7 @@ func TestProviderImageHostsAreExplicit(t *testing.T) {
 	tests := map[string]struct {
 		provider, host string
 		want           bool
-	}{"discogs": {"discogs", "i.discogs.com", true}, "discogs subdomain": {"discogs", "cdn.i.discogs.com", true}, "wrong provider": {"deezer", "i.discogs.com", false}, "arbitrary": {"wikidata", "example.com", false}, "commons": {"wikidata", "upload.wikimedia.org", true}}
+	}{"discogs": {"discogs", "i.discogs.com", true}, "discogs subdomain": {"discogs", "cdn.i.discogs.com", true}, "tvmaze": {"tvmaze", "static.tvmaze.com", true}, "anidb": {"anidb", "cdn-eu.anidb.net", true}, "wrong provider": {"deezer", "i.discogs.com", false}, "arbitrary": {"wikidata", "example.com", false}, "commons": {"wikidata", "upload.wikimedia.org", true}}
 	for name, test := range tests {
 		if got := providerHostAllowed(test.provider, test.host); got != test.want {
 			t.Errorf("%s: got %v want %v", name, got, test.want)

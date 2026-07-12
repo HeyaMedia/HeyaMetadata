@@ -230,7 +230,11 @@ AniDB uses its official HTTP XML API on the mandated `api.anidb.net:9001`
 endpoint. Configuration rejects lookalike hosts or accidental HTTPS variants,
 and a real fetch requires a registered lowercase 4-16 letter client name and
 positive client version. All clients share a hard one-request-per-two-seconds
-gate. More importantly, exact anime responses are reused for a full 24 hours,
+gate and send the configured AniDB User-Agent; the default retains the old
+server's `heya-media/1.0 anidb-titles-sync` identity. Provider-backed discovery
+uses AniDB's official daily `anime-titles.xml.gz` dump for title-to-AID lookup
+and never downloads it more than once per day. Exact anime responses are also
+reused for a full 24 hours,
 matching AniDB's warning that requesting the same dataset repeatedly in one day
 can cause a ban. XML `<error>` envelopes are classified separately from HTTP
 status and are never shared except a one-hour explicit not-found response. Raw

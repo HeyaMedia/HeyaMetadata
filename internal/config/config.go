@@ -67,6 +67,8 @@ type AniDBConfig struct {
 	Client        string
 	ClientVersion int
 	BaseURL       string
+	TitlesURL     string
+	UserAgent     string
 }
 
 type TVMazeConfig struct {
@@ -238,6 +240,8 @@ func Load() (Config, error) {
 			APIKey: env("HEYA_METADATA_LASTFM_API_KEY", ""), BaseURL: env("HEYA_METADATA_LASTFM_BASE_URL", "https://ws.audioscrobbler.com/2.0/"), RequestsPerSecond: lastFMRate,
 		}, AniDB: AniDBConfig{
 			Client: env("HEYA_METADATA_ANIDB_CLIENT", ""), ClientVersion: anidbClientVersion, BaseURL: env("HEYA_METADATA_ANIDB_BASE_URL", "http://api.anidb.net:9001/httpapi"),
+			TitlesURL: env("HEYA_METADATA_ANIDB_TITLES_URL", "https://anidb.net/api/anime-titles.xml.gz"),
+			UserAgent: env("HEYA_METADATA_ANIDB_USER_AGENT", "heya-media/1.0 anidb-titles-sync"),
 		}, TVMaze: TVMazeConfig{
 			BaseURL: env("HEYA_METADATA_TVMAZE_BASE_URL", "https://api.tvmaze.com"), RequestsPerSecond: tvMazeRate,
 		}, Wikidata: WikidataConfig{
@@ -370,6 +374,13 @@ func (c Config) Validate() error {
 	}
 	if c.Providers.AniDB.ClientVersion < 1 {
 		return fmt.Errorf("HEYA_METADATA_ANIDB_CLIENT_VERSION must be positive")
+	}
+	anidbTitlesURL, err := url.Parse(c.Providers.AniDB.TitlesURL)
+	if err != nil || anidbTitlesURL.Scheme != "https" || anidbTitlesURL.Hostname() != "anidb.net" || anidbTitlesURL.Path != "/api/anime-titles.xml.gz" {
+		return fmt.Errorf("HEYA_METADATA_ANIDB_TITLES_URL must be AniDB's official HTTPS title dump")
+	}
+	if strings.TrimSpace(c.Providers.AniDB.UserAgent) == "" {
+		return fmt.Errorf("HEYA_METADATA_ANIDB_USER_AGENT is required")
 	}
 	tvMazeURL, err := url.Parse(c.Providers.TVMaze.BaseURL)
 	if err != nil || tvMazeURL.Scheme != "https" || tvMazeURL.Host == "" {
