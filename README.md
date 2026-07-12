@@ -128,6 +128,9 @@ route. `POST /api/v2/discoveries` is the durable smart-search surface for
 unknown identities. Identical normalized requests share a high-priority River
 job and six-hour result, and candidates include confidence, evidence,
 ambiguity, existing canonical IDs, and a ready-to-submit resolution body.
+The complete consuming-server state machine, including both asynchronous poll
+boundaries, is documented in
+[Canonical entity lookup and resolution flow](./docs/client-resolution-flow.md).
 
 MusicBrainz artist IDs now run through a canonical artist pipeline that uses
 explicit MusicBrainz URL relationships to unlock Apple, Deezer, Discogs,

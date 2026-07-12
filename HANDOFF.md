@@ -352,17 +352,26 @@ the Japanese artist at 0.99 over the German rapper; `Balloon` stayed ambiguous
 without hints and became a strong match using Monstersound/Pussylovers; Haku
 release hints selected the populated `ハク。` entry over its duplicate shell.
 
+The consuming-server contract is captured in
+`docs/client-resolution-flow.md`: local search, upstream discovery (including
+discovery polling), explicit candidate resolution (including ingestion-job
+polling), and the final canonical entity read. The Heya entity UUID is the
+durable identity; provider IDs remain resolution inputs.
+
 TV and Anime are explicitly separate future canonical kinds and API families,
 documented in `docs/tv-anime-domain.md`. Shared primitives are allowed, but
 there will be no `is_anime` flag or combined canonical show identity.
 
 ## Suggested next turn
 
-1. Add dedicated TV and Anime discovery provider routing, followed by their
+1. Complete smart discovery for the already-canonical Movie and Release Group
+   domains, reusing the artist discovery/job/ranking contract. This makes the
+   documented client flow valid across every currently readable entity kind.
+2. Add dedicated TV and Anime discovery provider routing, followed by their
    separate canonical APIs.
-2. Add bounded derived image variants (WebP/AVIF) and class-aware original
+3. Add bounded derived image variants (WebP/AVIF) and class-aware original
    retention before materializing high-volume profile catalogs.
-3. Start the release/edition slice and fetch complete medium/track data so
+4. Start the release/edition slice and fetch complete medium/track data so
    MusicBrainz recordings and release tracks can be modeled separately.
 
 The previous repositories may be inspected for provider knowledge and metadata
