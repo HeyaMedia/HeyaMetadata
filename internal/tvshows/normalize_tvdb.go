@@ -46,6 +46,16 @@ type tvdbSeries struct {
 		Name, Overview, Aired                         string
 		SeasonNumber, Number, AbsoluteNumber, Runtime int
 	} `json:"episodes"`
+	Characters []struct {
+		ID             int64  `json:"id"`
+		PeopleID       int64  `json:"peopleId"`
+		PersonName     string `json:"personName"`
+		PeopleType     string `json:"peopleType"`
+		Name           string `json:"name"`
+		Sort           int    `json:"sort"`
+		PersonImageURL string `json:"personImgURL"`
+	} `json:"characters"`
+	Score float64 `json:"score"`
 }
 
 func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *int, episodeOffset int) (episodic.NormalizedRecord, error) {
@@ -58,6 +68,20 @@ func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *i
 		return episodic.NormalizedRecord{}, fmt.Errorf("invalid TVDB series detail")
 	}
 	r := episodic.NormalizedRecord{SchemaVersion: 1, Kind: kind, Provider: "tvdb", Namespace: "series", ProviderID: strconv.FormatInt(v.ID, 10), PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, NormalizerVersion: tvdbSeriesNormalizerVersion, Titles: []episodic.Title{{Value: v.Name, Type: "main"}}, Status: normalizeType(v.Status.Name), Language: v.OriginalLanguage, Countries: []string{v.OriginalCountry}, StartDate: v.FirstAired, EndDate: v.LastAired, RuntimeMinutes: v.AverageRuntime, ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "series", Value: strconv.FormatInt(v.ID, 10)}}}
+	if v.Score > 0 && v.Score <= 10 {
+		r.Ratings = append(r.Ratings, episodic.Rating{System: "tvdb", Value: v.Score, ScaleMin: 0, ScaleMax: 10})
+	}
+	for _, character := range v.Characters {
+		creditType := "crew"
+		if strings.EqualFold(character.PeopleType, "actor") {
+			creditType = "cast"
+		}
+		personID := character.PeopleID
+		if personID == 0 {
+			personID = character.ID
+		}
+		r.Credits = append(r.Credits, episodic.Credit{Provider: "tvdb", ProviderPersonID: strconv.FormatInt(personID, 10), DisplayName: character.PersonName, CreditType: creditType, Character: character.Name, Job: character.PeopleType, Order: character.Sort, ProfileURL: tvdbArtworkURL(character.PersonImageURL)})
+	}
 	for _, x := range v.Aliases {
 		r.Titles = append(r.Titles, episodic.Title{Value: x.Name, Language: x.Language, Type: "alias"})
 	}

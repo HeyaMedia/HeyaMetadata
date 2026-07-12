@@ -286,3 +286,17 @@ Last.fm collector can consume a MusicBrainz artist MBID. Optional `--api-key`
 values are stored only behind the existing two-hour Redis credential reference
 and deleted by the worker. Cache reuse points to the original observation and
 does not create synthetic evidence.
+
+## Books and audio identity
+
+Open Library and Google Books use the shared cache/observation contract for
+book works, authors, editions, ISBN lookup, and Google volume supplementation.
+Open Library carries an identified contact User-Agent and a shared three-
+request-per-second gate. Google Books accepts a server key or transient request
+key; credentials are excluded from request fingerprints.
+
+AcoustID is deliberately different: a client audio fingerprint is short-lived
+request data, not reusable provider metadata. Its lookup runs inside the durable
+fingerprint-match job, uses `X-Heya-AcoustID-API-Key` through an opaque
+credential reference, and erases the submitted fingerprint when the run
+completes.

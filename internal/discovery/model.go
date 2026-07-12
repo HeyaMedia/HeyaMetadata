@@ -13,6 +13,7 @@ const (
 	KindArtist       = "artist"
 	KindReleaseGroup = "release_group"
 	KindRecording    = "recording"
+	KindBookWork     = "book_work"
 )
 
 type Request struct {
@@ -45,6 +46,8 @@ type Hints struct {
 	Releases      []ReleaseHint `json:"releases,omitempty"`
 	DurationMS    int64         `json:"duration_ms,omitempty"`
 	ISRCs         []string      `json:"isrcs,omitempty"`
+	Authors       []string      `json:"authors,omitempty"`
+	ISBNs         []string      `json:"isbns,omitempty"`
 }
 type EpisodeHint struct {
 	Title  string `json:"title,omitempty"`
@@ -77,6 +80,7 @@ type Display struct {
 	Country        string          `json:"country,omitempty"`
 	Countries      []string        `json:"countries,omitempty"`
 	Language       string          `json:"language,omitempty"`
+	Languages      []string        `json:"languages,omitempty"`
 	Year           int             `json:"year,omitempty"`
 	Date           string          `json:"date,omitempty"`
 	Popularity     float64         `json:"popularity,omitempty"`
@@ -96,6 +100,9 @@ type Display struct {
 	DurationMS     int64           `json:"duration_ms,omitempty"`
 	ISRCs          []string        `json:"isrcs,omitempty"`
 	Releases       []ReleaseHint   `json:"releases,omitempty"`
+	Authors        []string        `json:"authors,omitempty"`
+	EditionCount   int             `json:"edition_count,omitempty"`
+	ISBNs          []string        `json:"isbns,omitempty"`
 }
 type ArtistDisplay struct {
 	ID   string `json:"id,omitempty"`

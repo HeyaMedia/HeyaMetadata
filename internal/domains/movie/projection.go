@@ -51,6 +51,7 @@ type ProjectedCompany struct {
 }
 
 type ProjectedCredit struct {
+	Provider         string `json:"provider"`
 	ProviderPersonID string `json:"provider_person_id"`
 	DisplayName      string `json:"display_name"`
 	CreditType       string `json:"credit_type"`
@@ -295,7 +296,7 @@ func Combine(entityID, slug string, projectionVersion int64, records []RecordInp
 				continue
 			}
 			seenCredits[key] = true
-			detail.Data.Credits = append(detail.Data.Credits, ProjectedCredit{ProviderPersonID: credit.ProviderPersonID, DisplayName: credit.DisplayName, CreditType: credit.CreditType, Character: credit.Character, Department: credit.Department, Job: credit.Job, Order: credit.Order, ProfileImageID: imageIDs[AuxiliaryImageKey(record.ProviderRecord.Provider, "credit", credit.ProviderPersonID, credit.ProfileURL)]})
+			detail.Data.Credits = append(detail.Data.Credits, ProjectedCredit{Provider: record.ProviderRecord.Provider, ProviderPersonID: credit.ProviderPersonID, DisplayName: credit.DisplayName, CreditType: credit.CreditType, Character: credit.Character, Department: credit.Department, Job: credit.Job, Order: credit.Order, ProfileImageID: imageIDs[AuxiliaryImageKey(record.ProviderRecord.Provider, "credit", credit.ProviderPersonID, credit.ProfileURL)]})
 		}
 		for _, candidate := range record.Images {
 			key := record.ProviderRecord.Provider + ":" + candidate.Class + ":" + candidate.ProviderImageID

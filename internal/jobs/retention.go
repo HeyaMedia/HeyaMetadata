@@ -33,6 +33,7 @@ func NewBlobRetentionWorker(runtime *platform.Runtime) *BlobRetentionWorker {
 }
 
 func (w *BlobRetentionWorker) Work(ctx context.Context, _ *river.Job[BlobRetentionArgs]) error {
+	_, _ = w.runtime.DB.Exec(ctx, `DELETE FROM fingerprint_match_runs WHERE expires_at<=now()`)
 	_, err := SweepExpiredBlobs(ctx, w.runtime, 500, 24*time.Hour)
 	return err
 }

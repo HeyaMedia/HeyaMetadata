@@ -109,6 +109,14 @@ go run ./cmd/heya-metadata recording ingest \
   --musicbrainz 72feb5de-7912-4ad4-b507-21a1d5e199fd --wait 90s
 ```
 
+Books use separate work, edition, and author identities:
+
+```bash
+go run ./cmd/heya-metadata discover book --query 'The Hobbit' \
+  --author 'J. R. R. Tolkien' --year 1937
+go run ./cmd/heya-metadata book ingest --openlibrary OL27482W --wait 3m
+```
+
 LRCLIB's slower external-source fan-out is an internal scheduled job on a
 single-worker background queue. There is deliberately no public endpoint for
 starting evidence refreshes.
@@ -169,13 +177,20 @@ exact-signature lyric lookups. Evidence is available at
 signed URLs are not copied beyond the existing 48-hour raw provider evidence.
 On macOS, `brew install chromaprint` provides `fpcalc`.
 
+`POST /api/v2/fingerprint-matches` accepts raw `base64-uint32le` evidence for
+indexed local matching and/or a compressed Chromaprint for AcoustID. The
+short-lived River run erases submitted fingerprints after completion. Full TV
+and movie metadata is available through paginated
+`GET /api/v2/entities/{id}/credits` and `/ratings`; ordinary detail embeds at
+most 50 credits.
+
 `GET /api/v2/search` is the low-latency canonical index and accepts a `kind`
 filter. Warm results are served from Redis; upstream providers never block this
 route. `POST /api/v2/discoveries` is the durable smart-search surface for
 unknown identities. Identical normalized requests share a high-priority River
 job and six-hour result, and candidates include confidence, evidence,
 ambiguity, existing canonical IDs, and a ready-to-submit resolution body.
-Movie, Artist, Release Group, TV Show, and Anime have provider-backed discovery.
+Movie, Artist, Release Group, Recording, TV Show, Anime, and Book Work have provider-backed discovery.
 TV and Anime retain separate canonical kinds, jobs, tables, and API families.
 The complete consuming-server state machine, including both asynchronous poll
 boundaries, is documented in

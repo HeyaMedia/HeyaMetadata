@@ -163,6 +163,24 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 			display.ImageID = imageID
 		}
 	}
+	for i := range record.Credits {
+		credit := &record.Credits[i]
+		if credit.ProfileURL == "" || credit.ProviderPersonID == "" {
+			continue
+		}
+		observationID := record.PrimaryObservationID
+		for _, source := range records {
+			if source.Provider == credit.Provider {
+				observationID = source.PrimaryObservationID
+				break
+			}
+		}
+		var imageID string
+		if err := tx.QueryRow(ctx, `INSERT INTO image_candidates(entity_id,provider,provider_image_id,class,source_url,source_observation_id)VALUES($1,$2,$3,'profile',$4,$5)ON CONFLICT(entity_id,provider,provider_image_id,class)DO UPDATE SET source_url=EXCLUDED.source_url,source_observation_id=EXCLUDED.source_observation_id RETURNING id`, entityID, credit.Provider, "person:"+credit.ProviderPersonID, credit.ProfileURL, observationID).Scan(&imageID); err != nil {
+			return Result{}, err
+		}
+		credit.ProfileImageID = imageID
+	}
 	genres := record.Genres
 	if genres == nil {
 		genres = []string{}
@@ -179,7 +197,26 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 	for _, source := range records {
 		refs = append(refs, SourceRef{Provider: source.Provider, ObservationID: source.PrimaryObservationID})
 	}
-	doc := Document{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: def.Kind, Slug: slug, Display: display, ExternalIDs: record.ExternalIDs, Data: Data{Titles: record.Titles, Overview: record.Overview, Classification: Classification{Format: record.Format, Status: record.Status, Language: record.Language, Countries: countries, Genres: genres, SourceMaterial: record.SourceMaterial}, Lifecycle: Lifecycle{StartDate: record.StartDate, EndDate: record.EndDate}, RuntimeMinutes: record.RuntimeMinutes, EpisodeCount: record.EpisodeCount, Networks: record.Networks, Studios: record.Studios, Seasons: record.Seasons, Episodes: record.Episodes, Images: publicImages}, Freshness: fresh, Provenance: map[string][]SourceRef{"identity": refs, "data": refs}}
+	if _, err = tx.Exec(ctx, `DELETE FROM entity_credit_projections WHERE entity_id=$1`, entityID); err != nil {
+		return Result{}, err
+	}
+	for _, credit := range record.Credits {
+		if _, err = tx.Exec(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,character_name,department,job,credit_order,profile_image_id,projection_version)VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),$9,NULLIF($10,'')::uuid,$11)`, entityID, credit.Provider, credit.ProviderPersonID, credit.DisplayName, credit.CreditType, credit.Character, credit.Department, credit.Job, credit.Order, credit.ProfileImageID, version); err != nil {
+			return Result{}, err
+		}
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM entity_rating_projections WHERE entity_id=$1`, entityID); err != nil {
+		return Result{}, err
+	}
+	for _, rating := range record.Ratings {
+		if _, err = tx.Exec(ctx, `INSERT INTO entity_rating_projections(entity_id,system,value,scale_min,scale_max,votes,projection_version)VALUES($1,$2,$3,$4,$5,$6,$7)`, entityID, rating.System, rating.Value, rating.ScaleMin, rating.ScaleMax, rating.Votes, version); err != nil {
+			return Result{}, err
+		}
+	}
+	if len(record.Credits) > 50 {
+		record.Credits = record.Credits[:50]
+	}
+	doc := Document{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: def.Kind, Slug: slug, Display: display, ExternalIDs: record.ExternalIDs, Data: Data{Titles: record.Titles, Overview: record.Overview, Classification: Classification{Format: record.Format, Status: record.Status, Language: record.Language, Countries: countries, Genres: genres, SourceMaterial: record.SourceMaterial}, Lifecycle: Lifecycle{StartDate: record.StartDate, EndDate: record.EndDate}, RuntimeMinutes: record.RuntimeMinutes, EpisodeCount: record.EpisodeCount, Networks: record.Networks, Studios: record.Studios, Seasons: record.Seasons, Episodes: record.Episodes, Images: publicImages, Ratings: record.Ratings, Credits: record.Credits}, Freshness: fresh, Provenance: map[string][]SourceRef{"identity": refs, "data": refs}}
 	docJSON, _ := json.Marshal(doc)
 	table := "canonical_tv_shows"
 	if def.Kind == "anime" {

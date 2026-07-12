@@ -14,6 +14,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/accessstats"
 	animeservice "github.com/HeyaMedia/HeyaMetadata/internal/anime"
 	"github.com/HeyaMedia/HeyaMetadata/internal/artists"
+	"github.com/HeyaMedia/HeyaMetadata/internal/books"
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/movies"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
@@ -28,28 +29,43 @@ import (
 )
 
 type entityInput struct {
-	ID            string `path:"id" format:"uuid"`
-	TMDBAPIKey    string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
-	OMDBAPIKey    string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
-	TVDBAPIKey    string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
-	FanartAPIKey  string `header:"X-Heya-Fanart-API-Key" doc:"Optional request-scoped Fanart.tv personal API key; never persisted"`
-	AppleAPIKey   string `header:"X-Heya-Apple-API-Key" doc:"Optional request-scoped Apple Music developer token; never persisted"`
-	DiscogsAPIKey string `header:"X-Heya-Discogs-API-Key" doc:"Optional request-scoped Discogs token; never persisted"`
-	LastFMAPIKey  string `header:"X-Heya-LastFM-API-Key" doc:"Optional request-scoped Last.fm API key; never persisted"`
+	ID                string `path:"id" format:"uuid"`
+	TMDBAPIKey        string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
+	OMDBAPIKey        string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
+	TVDBAPIKey        string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
+	FanartAPIKey      string `header:"X-Heya-Fanart-API-Key" doc:"Optional request-scoped Fanart.tv personal API key; never persisted"`
+	AppleAPIKey       string `header:"X-Heya-Apple-API-Key" doc:"Optional request-scoped Apple Music developer token; never persisted"`
+	DiscogsAPIKey     string `header:"X-Heya-Discogs-API-Key" doc:"Optional request-scoped Discogs token; never persisted"`
+	LastFMAPIKey      string `header:"X-Heya-LastFM-API-Key" doc:"Optional request-scoped Last.fm API key; never persisted"`
+	GoogleBooksAPIKey string `header:"X-Heya-Google-Books-API-Key" doc:"Optional request-scoped Google Books API key; never persisted"`
 }
 type entityOutput struct{ Body any }
+type entityMetadataInput struct {
+	ID     string `path:"id" format:"uuid"`
+	Offset int    `query:"offset" minimum:"0" default:"0"`
+	Limit  int    `query:"limit" minimum:"1" maximum:"250" default:"100"`
+}
+type entityMetadataOutput struct {
+	Body struct {
+		Results any `json:"results"`
+		Total   int `json:"total"`
+		Offset  int `json:"offset"`
+		Limit   int `json:"limit"`
+	}
+}
 
 type resolutionInput struct {
-	Prefer        string `header:"Prefer"`
-	TMDBAPIKey    string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
-	OMDBAPIKey    string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
-	TVDBAPIKey    string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
-	FanartAPIKey  string `header:"X-Heya-Fanart-API-Key" doc:"Optional request-scoped Fanart.tv personal API key; never persisted"`
-	AppleAPIKey   string `header:"X-Heya-Apple-API-Key" doc:"Optional request-scoped Apple Music developer token; never persisted"`
-	DiscogsAPIKey string `header:"X-Heya-Discogs-API-Key" doc:"Optional request-scoped Discogs token; never persisted"`
-	LastFMAPIKey  string `header:"X-Heya-LastFM-API-Key" doc:"Optional request-scoped Last.fm API key; never persisted"`
-	Body          struct {
-		Kind      string `json:"kind" enum:"movie,artist,release_group,release,recording,tv_show,anime"`
+	Prefer            string `header:"Prefer"`
+	TMDBAPIKey        string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
+	OMDBAPIKey        string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
+	TVDBAPIKey        string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
+	FanartAPIKey      string `header:"X-Heya-Fanart-API-Key" doc:"Optional request-scoped Fanart.tv personal API key; never persisted"`
+	AppleAPIKey       string `header:"X-Heya-Apple-API-Key" doc:"Optional request-scoped Apple Music developer token; never persisted"`
+	DiscogsAPIKey     string `header:"X-Heya-Discogs-API-Key" doc:"Optional request-scoped Discogs token; never persisted"`
+	LastFMAPIKey      string `header:"X-Heya-LastFM-API-Key" doc:"Optional request-scoped Last.fm API key; never persisted"`
+	GoogleBooksAPIKey string `header:"X-Heya-Google-Books-API-Key" doc:"Optional request-scoped Google Books API key; never persisted"`
+	Body              struct {
+		Kind      string `json:"kind" enum:"movie,artist,release_group,release,recording,tv_show,anime,book_work,book_edition,author"`
 		Provider  string `json:"provider" example:"tmdb"`
 		Namespace string `json:"namespace" example:"movie"`
 		Value     string `json:"value" example:"603"`
@@ -85,7 +101,7 @@ type jobOutput struct{ Body jobResource }
 
 type searchInput struct {
 	Query    string `query:"q" minLength:"1"`
-	Kind     string `query:"kind" enum:"movie,artist,release_group,release,recording,tv_show,anime" doc:"Optional canonical domain filter; release groups, issued releases, and recordings are distinct kinds"`
+	Kind     string `query:"kind" enum:"movie,artist,release_group,release,recording,tv_show,anime,book_work,book_edition,author" doc:"Optional canonical domain filter"`
 	Limit    int    `query:"limit" minimum:"1" maximum:"100" default:"20"`
 	Year     int    `query:"year" minimum:"1800" maximum:"2200"`
 	Genre    string `query:"genre"`
@@ -128,6 +144,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 	var recordingService *recordings.Service
 	var tvService *tvshows.Service
 	var animeService *animeservice.Service
+	var bookService *books.Service
 	var client *river.Client[pgx.Tx]
 	if runtime != nil {
 		service = movies.NewService(runtime)
@@ -137,6 +154,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		recordingService = recordings.NewService(runtime)
 		tvService = tvshows.NewService(runtime)
 		animeService = animeservice.NewService(runtime)
+		bookService = books.NewService(runtime)
 		var err error
 		client, err = jobs.NewClient(runtime, runtime.Config.Worker.MaxWorkers, false)
 		if err != nil {
@@ -217,6 +235,27 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			}
 			return &entityOutput{Body: document}, nil
 		}
+		if kind == "book_work" || kind == "book_edition" {
+			document, fresh, err := bookService.Detail(ctx, input.ID)
+			if err != nil {
+				return nil, huma.Error404NotFound("book entity not found")
+			}
+			if !fresh && kind == "book_work" {
+				if workID, claimErr := bookService.OpenLibraryWorkID(ctx, input.ID); claimErr == nil {
+					credentialRef, _ := storeProviderCredentials(ctx, runtime, "", "", "", "", "", "", "", input.GoogleBooksAPIKey)
+					_, _ = jobs.InsertBook(ctx, runtime, client, jobs.BookIngestArgs{OpenLibraryWorkID: workID, CredentialRef: credentialRef, Reason: "stale_read"}, jobs.PriorityStaleRead)
+				}
+				document.Freshness.State = "stale"
+			}
+			return &entityOutput{Body: document}, nil
+		}
+		if kind == "author" {
+			var body []byte
+			if err := runtime.DB.QueryRow(ctx, `SELECT document FROM api_documents WHERE entity_id=$1 AND document_kind='detail'`, input.ID).Scan(&body); err != nil {
+				return nil, huma.Error404NotFound("author not found")
+			}
+			return &entityOutput{Body: json.RawMessage(body)}, nil
+		}
 		document, fresh, err := service.Detail(ctx, input.ID)
 		if err == movies.ErrNotFound {
 			return nil, huma.Error404NotFound("entity not found")
@@ -233,6 +272,29 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			document.Freshness.State = "stale"
 		}
 		return &entityOutput{Body: document}, nil
+	})
+
+	huma.Register(api, huma.Operation{OperationID: "entity-credits", Method: http.MethodGet, Path: "/api/v2/entities/{id}/credits", Summary: "Get canonical cast and crew credits", Tags: []string{"Entities", "Credits"}}, func(ctx context.Context, input *entityMetadataInput) (*entityMetadataOutput, error) {
+		if runtime == nil {
+			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
+		}
+		var exists bool
+		if err := runtime.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM entities WHERE id=$1 AND kind IN('movie','tv_show','anime') AND deleted_at IS NULL)`, input.ID).Scan(&exists); err != nil || !exists {
+			return nil, huma.Error404NotFound("entity not found")
+		}
+		offset, limit := metadataPage(input.Offset, input.Limit)
+		return creditProjectionPage(ctx, runtime, input.ID, offset, limit)
+	})
+	huma.Register(api, huma.Operation{OperationID: "entity-ratings", Method: http.MethodGet, Path: "/api/v2/entities/{id}/ratings", Summary: "Get provider-native ratings without scale coercion", Tags: []string{"Entities", "Ratings"}}, func(ctx context.Context, input *entityMetadataInput) (*entityMetadataOutput, error) {
+		if runtime == nil {
+			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
+		}
+		var exists bool
+		if err := runtime.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM entities WHERE id=$1 AND kind IN('movie','tv_show','anime') AND deleted_at IS NULL)`, input.ID).Scan(&exists); err != nil || !exists {
+			return nil, huma.Error404NotFound("entity not found")
+		}
+		offset, limit := metadataPage(input.Offset, input.Limit)
+		return ratingProjectionPage(ctx, runtime, input.ID, offset, limit)
 	})
 
 	huma.Register(api, huma.Operation{OperationID: "resolve-entity", Method: http.MethodPost, Path: "/api/v2/resolutions", Summary: "Resolve or ingest an external entity ID", Tags: []string{"Entities"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *resolutionInput) (*resolutionOutput, error) {
@@ -390,6 +452,38 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 				return nil, insertErr
 			}
 			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.AnimeIngestKind, State: string(inserted.Job.State)}}}, nil
+		}
+		if input.Body.Kind == "book_work" || input.Body.Kind == "book_edition" || input.Body.Kind == "author" {
+			entityID, err := bookService.Resolve(ctx, input.Body.Kind, input.Body.Provider, input.Body.Namespace, input.Body.Value)
+			if err == nil {
+				if input.Body.Kind == "author" {
+					var body []byte
+					if e := runtime.DB.QueryRow(ctx, `SELECT document FROM api_documents WHERE entity_id=$1 AND document_kind='detail'`, entityID).Scan(&body); e != nil {
+						return nil, e
+					}
+					return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: json.RawMessage(body)}}, nil
+				}
+				document, _, detailErr := bookService.Detail(ctx, entityID)
+				if detailErr != nil {
+					return nil, detailErr
+				}
+				return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: document}}, nil
+			}
+			if err != pgx.ErrNoRows {
+				return nil, err
+			}
+			if input.Body.Kind != "book_work" || !strings.EqualFold(input.Body.Provider, "openlibrary") || !strings.EqualFold(input.Body.Namespace, "work") {
+				return nil, huma.Error404NotFound("external book ID is not known and no collector accepts it")
+			}
+			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, "", "", "", "", "", "", "", input.GoogleBooksAPIKey)
+			if credentialErr != nil {
+				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
+			}
+			inserted, insertErr := jobs.InsertBook(ctx, runtime, client, jobs.BookIngestArgs{OpenLibraryWorkID: strings.ToUpper(input.Body.Value), CredentialRef: credentialRef, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
+			if insertErr != nil {
+				return nil, insertErr
+			}
+			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.BookIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
 		if input.Body.Kind != "movie" {
 			return nil, huma.Error400BadRequest("kind must be movie, artist, release_group, release, recording, tv_show, or anime")
@@ -577,6 +671,9 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if entityID == nil && failure == nil {
 			_ = runtime.DB.QueryRow(ctx, `SELECT entity_id,error FROM episodic_ingestion_runs WHERE river_job_id=$1`, input.ID).Scan(&entityID, &failure)
 		}
+		if entityID == nil && failure == nil {
+			_ = runtime.DB.QueryRow(ctx, `SELECT entity_id,error FROM book_ingestion_runs WHERE river_job_id=$1`, input.ID).Scan(&entityID, &failure)
+		}
 		if entityID != nil {
 			resource.EntityID = *entityID
 		}
@@ -686,7 +783,7 @@ func searchAllEntities(ctx context.Context, runtime *platform.Runtime, input *se
 	return result, nil
 }
 
-func storeProviderCredentials(ctx context.Context, runtime *platform.Runtime, tmdbAPIKey, omdbAPIKey, tvdbAPIKey, fanartAPIKey, appleAPIKey, discogsAPIKey, lastFMAPIKey string) (string, error) {
+func storeProviderCredentials(ctx context.Context, runtime *platform.Runtime, tmdbAPIKey, omdbAPIKey, tvdbAPIKey, fanartAPIKey, appleAPIKey, discogsAPIKey, lastFMAPIKey string, extra ...string) (string, error) {
 	apiKeys := map[string]string{}
 	if value := strings.TrimSpace(tmdbAPIKey); value != "" {
 		apiKeys["tmdb"] = value
@@ -708,6 +805,11 @@ func storeProviderCredentials(ctx context.Context, runtime *platform.Runtime, tm
 	}
 	if value := strings.TrimSpace(lastFMAPIKey); value != "" {
 		apiKeys["lastfm"] = value
+	}
+	if len(extra) > 0 {
+		if value := strings.TrimSpace(extra[0]); value != "" {
+			apiKeys["googlebooks"] = value
+		}
 	}
 	if len(apiKeys) == 0 {
 		return "", nil
@@ -733,4 +835,58 @@ func preferredWait(header string) time.Duration {
 		return time.Duration(seconds) * time.Second
 	}
 	return 0
+}
+
+func metadataPage(offset, limit int) (int, int) {
+	if offset < 0 {
+		offset = 0
+	}
+	if limit < 1 || limit > 250 {
+		limit = 100
+	}
+	return offset, limit
+}
+func creditProjectionPage(ctx context.Context, runtime *platform.Runtime, entityID string, offset, limit int) (*entityMetadataOutput, error) {
+	out := &entityMetadataOutput{}
+	out.Body.Offset, out.Body.Limit = offset, limit
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM entity_credit_projections WHERE entity_id=$1`, entityID).Scan(&out.Body.Total); err != nil {
+		return nil, err
+	}
+	rows, err := runtime.DB.Query(ctx, `SELECT jsonb_strip_nulls(jsonb_build_object('provider',provider,'provider_person_id',provider_person_id,'display_name',display_name,'credit_type',credit_type,'character',character_name,'department',department,'job',job,'order',NULLIF(credit_order,0),'profile_image_id',profile_image_id))FROM entity_credit_projections WHERE entity_id=$1 ORDER BY CASE credit_type WHEN 'cast' THEN 0 ELSE 1 END,credit_order,id OFFSET $2 LIMIT $3`, entityID, offset, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []json.RawMessage{}
+	for rows.Next() {
+		var body []byte
+		if err = rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		items = append(items, json.RawMessage(body))
+	}
+	out.Body.Results = items
+	return out, rows.Err()
+}
+func ratingProjectionPage(ctx context.Context, runtime *platform.Runtime, entityID string, offset, limit int) (*entityMetadataOutput, error) {
+	out := &entityMetadataOutput{}
+	out.Body.Offset, out.Body.Limit = offset, limit
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM entity_rating_projections WHERE entity_id=$1`, entityID).Scan(&out.Body.Total); err != nil {
+		return nil, err
+	}
+	rows, err := runtime.DB.Query(ctx, `SELECT jsonb_strip_nulls(jsonb_build_object('system',system,'value',value,'scale_min',scale_min,'scale_max',scale_max,'votes',NULLIF(votes,0)))FROM entity_rating_projections WHERE entity_id=$1 ORDER BY system OFFSET $2 LIMIT $3`, entityID, offset, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []json.RawMessage{}
+	for rows.Next() {
+		var body []byte
+		if err = rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		items = append(items, json.RawMessage(body))
+	}
+	out.Body.Results = items
+	return out, rows.Err()
 }

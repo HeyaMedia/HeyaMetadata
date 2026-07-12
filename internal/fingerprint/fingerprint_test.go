@@ -14,6 +14,17 @@ func TestPackRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLandmarkTokensAreStableAndBounded(t *testing.T) {
+	data := Pack([]uint32{0x10203040, 2, 3, 4, 0x10203040, 6, 7, 8})
+	a, b := LandmarkTokens(data), LandmarkTokens(data)
+	if !slices.Equal(a, b) {
+		t.Fatalf("landmarks changed: %v %v", a, b)
+	}
+	if len(a) == 0 || len(a) > 4 {
+		t.Fatalf("unexpected landmarks: %v", a)
+	}
+}
+
 func TestPreviewURLAllowlistRejectsSSRFAndCredentials(t *testing.T) {
 	for _, raw := range []string{"http://cdnt-preview.dzcdn.net/a", "https://127.0.0.1/a", "https://user:pass@audio-ssl.itunes.apple.com/a", "https://dzcdn.net.attacker.test/a"} {
 		parsed, _ := url.Parse(raw)

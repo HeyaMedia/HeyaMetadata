@@ -461,12 +461,20 @@ actually demand-aware.
 
 ## Suggested next turn
 
-1. Add bounded derived image variants (WebP/AVIF) and class-aware original
-   retention before materializing high-volume profile catalogs.
-2. Add conflict-safe AcoustID lookup and authenticated client fingerprint
-   observations without exposing generic enrichment controls.
-3. Expand TV/Anime discovery verification with provider-specific episode and
-   season hints, then add credits/content ratings without weakening identity.
+Books are now implemented as separate work, edition, and author identities.
+Open Library drives discovery/identity and Google Books supplements ISBN-matched
+editions; the real Hobbit acceptance run materialized 50 editions and nine
+Google volume matches. TV and movies now expose full indexed, paginated credit
+and native-scale rating projections while detail embeds at most 50 credits.
+Client Chromaprints run through a short-lived River match resource with indexed
+local matching and optional AcoustID/MusicBrainz resolution evidence.
+
+1. Add bounded derived image variants (WebP/AVIF) before materializing more
+   high-volume cover/profile catalogs.
+2. Deepen book catalogs with Open Library dump imports, series relationships,
+   and audiobook evidence without crawling the interactive API.
+3. Continue music depth with AcoustID production credentials, ListenBrainz,
+   TheAudioDB, and musical-work/label canonical slices.
 
 The previous repositories may be inspected for provider knowledge and metadata
 coverage, but should not be copied as architectural constraints.

@@ -280,9 +280,20 @@ func persistRecordingEvidence(ctx context.Context, tx pgx.Tx, recordingID, recor
 		if value.RecordingProviderID != recordingProviderID {
 			continue
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO recording_fingerprints(recording_entity_id,algorithm,algorithm_version,generator_version,source_provider,source_track_id,source_checksum,fingerprint,duration_ms,hash_count,state,failure_class,failure_message,retry_after)VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,0),$10,$11,NULLIF($12,''),NULLIF($13,''),$14)ON CONFLICT(source_provider,source_track_id,algorithm_version)DO UPDATE SET generator_version=EXCLUDED.generator_version,source_checksum=EXCLUDED.source_checksum,fingerprint=EXCLUDED.fingerprint,duration_ms=EXCLUDED.duration_ms,hash_count=EXCLUDED.hash_count,state=EXCLUDED.state,failure_class=EXCLUDED.failure_class,failure_message=EXCLUDED.failure_message,retry_after=EXCLUDED.retry_after,generated_at=now(),updated_at=now() WHERE recording_fingerprints.recording_entity_id=EXCLUDED.recording_entity_id`, recordingID, fingerprint.Algorithm, fingerprint.AlgorithmVersion, value.GeneratorVersion, value.SourceProvider, value.SourceTrackID, value.SourceChecksum, value.Fingerprint, value.DurationMS, value.HashCount, value.State, value.FailureClass, value.FailureMessage, value.RetryAfter)
+		var fingerprintID string
+		err := tx.QueryRow(ctx, `INSERT INTO recording_fingerprints(recording_entity_id,algorithm,algorithm_version,generator_version,source_provider,source_track_id,source_checksum,fingerprint,duration_ms,hash_count,state,failure_class,failure_message,retry_after)VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,0),$10,$11,NULLIF($12,''),NULLIF($13,''),$14)ON CONFLICT(source_provider,source_track_id,algorithm_version)DO UPDATE SET generator_version=EXCLUDED.generator_version,source_checksum=EXCLUDED.source_checksum,fingerprint=EXCLUDED.fingerprint,duration_ms=EXCLUDED.duration_ms,hash_count=EXCLUDED.hash_count,state=EXCLUDED.state,failure_class=EXCLUDED.failure_class,failure_message=EXCLUDED.failure_message,retry_after=EXCLUDED.retry_after,generated_at=now(),updated_at=now() WHERE recording_fingerprints.recording_entity_id=EXCLUDED.recording_entity_id RETURNING id`, recordingID, fingerprint.Algorithm, fingerprint.AlgorithmVersion, value.GeneratorVersion, value.SourceProvider, value.SourceTrackID, value.SourceChecksum, value.Fingerprint, value.DurationMS, value.HashCount, value.State, value.FailureClass, value.FailureMessage, value.RetryAfter).Scan(&fingerprintID)
 		if err != nil {
 			return err
+		}
+		if value.State == "ready" {
+			if _, err = tx.Exec(ctx, `DELETE FROM recording_fingerprint_landmarks WHERE fingerprint_id=$1`, fingerprintID); err != nil {
+				return err
+			}
+			for _, token := range fingerprint.LandmarkTokens(value.Fingerprint) {
+				if _, err = tx.Exec(ctx, `INSERT INTO recording_fingerprint_landmarks(fingerprint_id,token)VALUES($1,$2)ON CONFLICT DO NOTHING`, fingerprintID, token); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	for _, value := range bundle.Lyrics {

@@ -48,6 +48,25 @@ type Image struct {
 	Width      int    `json:"width,omitempty"`
 	Height     int    `json:"height,omitempty"`
 }
+type Rating struct {
+	System   string  `json:"system"`
+	Value    float64 `json:"value"`
+	ScaleMin float64 `json:"scale_min"`
+	ScaleMax float64 `json:"scale_max"`
+	Votes    int     `json:"votes,omitempty"`
+}
+type Credit struct {
+	Provider         string `json:"provider"`
+	ProviderPersonID string `json:"provider_person_id"`
+	DisplayName      string `json:"display_name"`
+	CreditType       string `json:"credit_type"`
+	Character        string `json:"character,omitempty"`
+	Department       string `json:"department,omitempty"`
+	Job              string `json:"job,omitempty"`
+	Order            int    `json:"order,omitempty"`
+	ProfileURL       string `json:"-"`
+	ProfileImageID   string `json:"profile_image_id,omitempty"`
+}
 type Contributor struct {
 	Provider          string `json:"provider"`
 	ObservationID     string `json:"observation_id"`
@@ -81,6 +100,8 @@ type NormalizedRecord struct {
 	Seasons              []Season      `json:"seasons,omitempty"`
 	Episodes             []Episode     `json:"episodes,omitempty"`
 	Images               []Image       `json:"images,omitempty"`
+	Ratings              []Rating      `json:"ratings,omitempty"`
+	Credits              []Credit      `json:"credits,omitempty"`
 }
 type Display struct {
 	Title         string `json:"title"`
@@ -112,6 +133,8 @@ type Data struct {
 	Seasons        []Season       `json:"seasons,omitempty"`
 	Episodes       []Episode      `json:"episodes,omitempty"`
 	Images         []Image        `json:"images,omitempty"`
+	Ratings        []Rating       `json:"ratings,omitempty"`
+	Credits        []Credit       `json:"credits,omitempty"`
 }
 type Freshness struct {
 	State      string                       `json:"state"`

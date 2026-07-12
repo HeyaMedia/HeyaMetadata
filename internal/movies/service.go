@@ -507,6 +507,25 @@ func (s *Service) merge(ctx context.Context, normalizedID string, additionalNorm
 	}
 	now := time.Now().UTC()
 	projection := moviedomain.Combine(entityID, slug, projectionVersion, records, imageIDs, now)
+	if _, err := tx.Exec(ctx, `DELETE FROM entity_credit_projections WHERE entity_id=$1`, entityID); err != nil {
+		return Result{}, err
+	}
+	for _, credit := range projection.Detail.Data.Credits {
+		if _, err := tx.Exec(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,character_name,department,job,credit_order,profile_image_id,projection_version)VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),$9,NULLIF($10,'')::uuid,$11)`, entityID, credit.Provider, credit.ProviderPersonID, credit.DisplayName, credit.CreditType, credit.Character, credit.Department, credit.Job, credit.Order, credit.ProfileImageID, projectionVersion); err != nil {
+			return Result{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM entity_rating_projections WHERE entity_id=$1`, entityID); err != nil {
+		return Result{}, err
+	}
+	for _, rating := range projection.Detail.Data.Ratings {
+		if _, err := tx.Exec(ctx, `INSERT INTO entity_rating_projections(entity_id,system,value,scale_min,scale_max,votes,projection_version)VALUES($1,$2,$3,$4,$5,$6,$7)`, entityID, rating.System, rating.Value, rating.ScaleMin, rating.ScaleMax, rating.Votes, projectionVersion); err != nil {
+			return Result{}, err
+		}
+	}
+	if len(projection.Detail.Data.Credits) > 50 {
+		projection.Detail.Data.Credits = projection.Detail.Data.Credits[:50]
+	}
 	detailJSON, _ := json.Marshal(projection.Detail)
 	summaryJSON, _ := json.Marshal(projection.Summary)
 	provenanceJSON, _ := json.Marshal(projection.Detail.Provenance)

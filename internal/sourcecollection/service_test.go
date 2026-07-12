@@ -11,7 +11,7 @@ func TestRegisteredProvidersAreStableAndUnique(t *testing.T) {
 		}
 		seen[provider] = true
 	}
-	for _, expected := range []string{"anidb", "apple", "deezer", "discogs", "lastfm", "musicbrainz", "openopus", "tvmaze", "wikidata"} {
+	for _, expected := range []string{"anidb", "apple", "deezer", "discogs", "googlebooks", "lastfm", "musicbrainz", "openlibrary", "openopus", "tvmaze", "wikidata"} {
 		if !seen[expected] {
 			t.Fatalf("provider %s is not registered", expected)
 		}

@@ -18,8 +18,10 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/apple"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/deezer"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/discogs"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/googlebooks"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/lastfm"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/openlibrary"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/openopus"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvmaze"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/wikidata"
@@ -168,11 +170,21 @@ func specification(runtime *platform.Runtime, provider string, credentials provi
 		return factory{version, capability, func(resolver providers.PayloadResolver) providers.Collector {
 			return openopus.NewCached(runtime.Config.Providers.OpenOpus, resolver)
 		}}, nil
+	case "openlibrary":
+		capability := openlibrary.New(runtime.Config.Providers.OpenLibrary).Capability()
+		return factory{version, capability, func(resolver providers.PayloadResolver) providers.Collector {
+			return openlibrary.NewCached(runtime.Config.Providers.OpenLibrary, resolver)
+		}}, nil
+	case "googlebooks":
+		capability := googlebooks.New(runtime.Config.Providers.GoogleBooks).Capability()
+		return factory{version, capability, func(resolver providers.PayloadResolver) providers.Collector {
+			return googlebooks.NewCached(runtime.Config.Providers.GoogleBooks, resolver, credentials.APIKey("googlebooks"))
+		}}, nil
 	default:
 		return factory{}, fmt.Errorf("source collector %q is not registered", provider)
 	}
 }
 
 func RegisteredProviders() []string {
-	return []string{"anidb", "apple", "deezer", "discogs", "lastfm", "musicbrainz", "openopus", "tvmaze", "wikidata"}
+	return []string{"anidb", "apple", "deezer", "discogs", "googlebooks", "lastfm", "musicbrainz", "openlibrary", "openopus", "tvmaze", "wikidata"}
 }

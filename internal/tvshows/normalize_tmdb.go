@@ -14,17 +14,19 @@ import (
 const tmdbTVNormalizerVersion = "tmdb-tv-show/v1"
 
 type tmdbTV struct {
-	ID               int64  `json:"id"`
-	Name             string `json:"name"`
-	OriginalName     string `json:"original_name"`
-	OriginalLanguage string `json:"original_language"`
-	Overview         string `json:"overview"`
-	FirstAirDate     string `json:"first_air_date"`
-	LastAirDate      string `json:"last_air_date"`
-	Status           string `json:"status"`
-	Type             string `json:"type"`
-	EpisodeRunTime   []int  `json:"episode_run_time"`
-	NumberEpisodes   int    `json:"number_of_episodes"`
+	ID               int64   `json:"id"`
+	Name             string  `json:"name"`
+	OriginalName     string  `json:"original_name"`
+	OriginalLanguage string  `json:"original_language"`
+	Overview         string  `json:"overview"`
+	FirstAirDate     string  `json:"first_air_date"`
+	LastAirDate      string  `json:"last_air_date"`
+	Status           string  `json:"status"`
+	Type             string  `json:"type"`
+	EpisodeRunTime   []int   `json:"episode_run_time"`
+	NumberEpisodes   int     `json:"number_of_episodes"`
+	VoteAverage      float64 `json:"vote_average"`
+	VoteCount        int     `json:"vote_count"`
 	Genres           []struct {
 		Name string `json:"name"`
 	} `json:"genres"`
@@ -66,6 +68,28 @@ type tmdbTV struct {
 			Height   int    `json:"height"`
 		}
 	} `json:"images"`
+	AggregateCredits struct {
+		Cast []struct {
+			ID          int64  `json:"id"`
+			Name        string `json:"name"`
+			Order       int    `json:"order"`
+			ProfilePath string `json:"profile_path"`
+			Roles       []struct {
+				Character    string `json:"character"`
+				EpisodeCount int    `json:"episode_count"`
+			} `json:"roles"`
+		} `json:"cast"`
+		Crew []struct {
+			ID          int64  `json:"id"`
+			Name        string `json:"name"`
+			Department  string `json:"department"`
+			ProfilePath string `json:"profile_path"`
+			Jobs        []struct {
+				Job          string `json:"job"`
+				EpisodeCount int    `json:"episode_count"`
+			} `json:"jobs"`
+		} `json:"crew"`
+	} `json:"aggregate_credits"`
 }
 
 type tmdbSeason struct {
@@ -103,6 +127,21 @@ func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, e
 	}
 	if len(value.EpisodeRunTime) > 0 {
 		r.RuntimeMinutes = value.EpisodeRunTime[0]
+	}
+	if value.VoteAverage > 0 {
+		r.Ratings = append(r.Ratings, episodic.Rating{System: "tmdb", Value: value.VoteAverage, ScaleMin: 0, ScaleMax: 10, Votes: value.VoteCount})
+	}
+	for _, cast := range value.AggregateCredits.Cast {
+		character := ""
+		if len(cast.Roles) > 0 {
+			character = cast.Roles[0].Character
+		}
+		r.Credits = append(r.Credits, episodic.Credit{Provider: "tmdb", ProviderPersonID: strconv.FormatInt(cast.ID, 10), DisplayName: cast.Name, CreditType: "cast", Character: character, Order: cast.Order, ProfileURL: tmdbProfileURL(cast.ProfilePath)})
+	}
+	for _, crew := range value.AggregateCredits.Crew {
+		for _, job := range crew.Jobs {
+			r.Credits = append(r.Credits, episodic.Credit{Provider: "tmdb", ProviderPersonID: strconv.FormatInt(crew.ID, 10), DisplayName: crew.Name, CreditType: "crew", Department: crew.Department, Job: job.Job, ProfileURL: tmdbProfileURL(crew.ProfilePath)})
+		}
 	}
 	if value.ExternalIDs.IMDbID != "" {
 		r.ExternalIDs = append(r.ExternalIDs, episodic.ExternalID{Provider: "imdb", Namespace: "title", Value: value.ExternalIDs.IMDbID})
@@ -152,4 +191,10 @@ func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, e
 		}
 	}
 	return r, nil
+}
+func tmdbProfileURL(path string) string {
+	if path == "" {
+		return ""
+	}
+	return "https://image.tmdb.org/t/p/original" + path
 }

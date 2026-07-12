@@ -85,6 +85,8 @@ func TestOpenAPIDocumentContainsPublicRoutes(t *testing.T) {
 		"/api/v2/tv/discoveries", "/api/v2/anime/discoveries",
 		"/api/v2/tv/shows/{id}", "/api/v2/anime/{id}",
 		"/api/v2/recordings/{id}/fingerprints", "/api/v2/recordings/{id}/lyrics",
+		"/api/v2/fingerprint-matches", "/api/v2/fingerprint-matches/{id}",
+		"/api/v2/entities/{id}/credits", "/api/v2/entities/{id}/ratings",
 	} {
 		if !strings.Contains(text, path) {
 			t.Errorf("OpenAPI document does not contain %s", path)
@@ -102,12 +104,12 @@ func TestOpenAPIDocumentContainsPublicRoutes(t *testing.T) {
 	if !strings.Contains(text, "X-Heya-Fanart-API-Key") {
 		t.Error("OpenAPI document does not expose request-scoped Fanart.tv credentials")
 	}
-	for _, header := range []string{"X-Heya-Apple-API-Key", "X-Heya-Discogs-API-Key", "X-Heya-LastFM-API-Key"} {
+	for _, header := range []string{"X-Heya-Apple-API-Key", "X-Heya-Discogs-API-Key", "X-Heya-LastFM-API-Key", "X-Heya-Google-Books-API-Key", "X-Heya-AcoustID-API-Key"} {
 		if !strings.Contains(text, header) {
 			t.Errorf("OpenAPI document does not expose %s", header)
 		}
 	}
-	for _, kind := range []string{"tv_show", "anime"} {
+	for _, kind := range []string{"tv_show", "anime", "book_work", "book_edition"} {
 		if !strings.Contains(text, kind) {
 			t.Errorf("OpenAPI document does not preserve distinct %s kind", kind)
 		}

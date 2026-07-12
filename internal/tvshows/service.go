@@ -109,13 +109,16 @@ func (s *Service) Detail(ctx context.Context, id string) (episodic.Document, boo
 type show struct {
 	ID                                                      int64 `json:"id"`
 	Name, Type, Language, Status, Premiered, Ended, Summary string
-	Runtime                                                 int                               `json:"runtime"`
-	AverageRuntime                                          int                               `json:"averageRuntime"`
-	Genres                                                  []string                          `json:"genres"`
-	Image                                                   struct{ Medium, Original string } `json:"image"`
-	Network                                                 *network                          `json:"network"`
-	WebChannel                                              *network                          `json:"webChannel"`
-	Externals                                               struct {
+	Runtime                                                 int      `json:"runtime"`
+	AverageRuntime                                          int      `json:"averageRuntime"`
+	Genres                                                  []string `json:"genres"`
+	Rating                                                  struct {
+		Average float64 `json:"average"`
+	} `json:"rating"`
+	Image      struct{ Medium, Original string } `json:"image"`
+	Network    *network                          `json:"network"`
+	WebChannel *network                          `json:"webChannel"`
+	Externals  struct {
 		TVDB   int64  `json:"thetvdb"`
 		IMDb   string `json:"imdb"`
 		TVRage int64  `json:"tvrage"`
@@ -154,6 +157,28 @@ type show struct {
 				Height int    `json:"height"`
 			} `json:"resolutions"`
 		} `json:"images"`
+		Cast []struct {
+			Person struct {
+				ID    int64  `json:"id"`
+				Name  string `json:"name"`
+				Image struct {
+					Original string `json:"original"`
+				} `json:"image"`
+			} `json:"person"`
+			Character struct {
+				Name string `json:"name"`
+			} `json:"character"`
+		} `json:"cast"`
+		Crew []struct {
+			Type   string `json:"type"`
+			Person struct {
+				ID    int64  `json:"id"`
+				Name  string `json:"name"`
+				Image struct {
+					Original string `json:"original"`
+				} `json:"image"`
+			} `json:"person"`
+		} `json:"crew"`
 	} `json:"_embedded"`
 }
 type network struct {
@@ -174,6 +199,15 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 	record := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "tv_show", Provider: "tvmaze", Namespace: "show", ProviderID: strconv.FormatInt(value.ID, 10), PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, Titles: []episodic.Title{{Value: value.Name, Language: languageCode(value.Language), Type: "main"}}, Overview: cleanHTML(value.Summary), Format: normalizeType(value.Type), Status: normalizeType(value.Status), Language: languageCode(value.Language), Genres: episodic.SortStrings(value.Genres), StartDate: value.Premiered, EndDate: value.Ended, RuntimeMinutes: value.Runtime, ExternalIDs: []episodic.ExternalID{{Provider: "tvmaze", Namespace: "show", Value: strconv.FormatInt(value.ID, 10)}}}
 	if record.RuntimeMinutes == 0 {
 		record.RuntimeMinutes = value.AverageRuntime
+	}
+	if value.Rating.Average > 0 {
+		record.Ratings = append(record.Ratings, episodic.Rating{System: "tvmaze", Value: value.Rating.Average, ScaleMin: 0, ScaleMax: 10})
+	}
+	for i, cast := range value.Embedded.Cast {
+		record.Credits = append(record.Credits, episodic.Credit{Provider: "tvmaze", ProviderPersonID: strconv.FormatInt(cast.Person.ID, 10), DisplayName: cast.Person.Name, CreditType: "cast", Character: cast.Character.Name, Order: i, ProfileURL: cast.Person.Image.Original})
+	}
+	for _, crew := range value.Embedded.Crew {
+		record.Credits = append(record.Credits, episodic.Credit{Provider: "tvmaze", ProviderPersonID: strconv.FormatInt(crew.Person.ID, 10), DisplayName: crew.Person.Name, CreditType: "crew", Job: crew.Type, ProfileURL: crew.Person.Image.Original})
 	}
 	if value.Externals.TVDB > 0 {
 		record.ExternalIDs = append(record.ExternalIDs, episodic.ExternalID{Provider: "tvdb", Namespace: "series", Value: strconv.FormatInt(value.Externals.TVDB, 10)})

@@ -55,8 +55,8 @@ GET /api/v2/search?q=ano&kind=artist&limit=20
 Optional filters currently include `year`, `genre`, `country`, `language`, and
 `status`. `kind` should be supplied whenever the caller knows it. Valid search
 kinds are `movie`, `artist`, `release_group`, `release`, `recording`,
-`tv_show`, and `anime`; release groups, issued releases, recordings, TV, and
-Anime remain separate domains.
+`tv_show`, `anime`, `book_work`, `book_edition`, and `author`; issued releases,
+recordings, book works/editions, TV, and Anime remain separate domains.
 
 If the caller can confidently select a result, read its `entity_id` and skip
 discovery. An empty list, or results that do not satisfy the caller's identity
@@ -65,7 +65,7 @@ treated as a durable identity match.
 
 ## 2. Discover upstream candidates
 
-Movie, Artist, Release Group, Recording, TV Show, and Anime all have implemented
+Movie, Artist, Release Group, Recording, TV Show, Anime, and Book Work all have implemented
 provider-backed discovery routes. TV and Anime additionally expose dedicated
 `/api/v2/tv/discoveries` and `/api/v2/anime/discoveries` entry points that
 inject the correct kind for the caller.
@@ -139,6 +139,7 @@ Useful structured hints vary by domain:
 - TV Show: premiere `year`, `country`, `language`, `network`, `status`, and
   known `episodes`.
 - Anime: start `year`, format in `type`, `episode_count`, and known `episodes`.
+- Book Work: first-publication `year`, known `authors`, and exact `isbns`.
 
 ## 3. Resolve the selected provider identity
 

@@ -130,6 +130,19 @@ unsigned object path is retained as provenance.
 provider track, checksum, and generation time. Failed permanent previews are
 kept as a bounded retry/negative-cache state but are not exposed publicly.
 
+Clients match audio through `POST /api/v2/fingerprint-matches`. A raw
+`base64-uint32le` fingerprint is prefiltered through indexed Chromaprint
+landmarks, then verified with the full offset-tolerant bit-error matcher.
+Clients may also submit the standard compressed Chromaprint form for AcoustID.
+The River job combines local and AcoustID evidence, returns existing Heya
+recording IDs where known, and otherwise returns a normal MusicBrainz recording
+resolution object. Scores rank candidates; they never merge identity.
+
+Submitted fingerprints live only in the short-lived match run, expire after one
+hour, and are erased immediately after completion. AcoustID keys may be supplied
+with `X-Heya-AcoustID-API-Key`; the key uses the opaque Redis credential handoff
+and is never stored in River or Postgres.
+
 The same release job performs LRCLIB's bounded, cached exact-signature lookup
 with track, artist, album, and rounded duration. Exact responses run through
 the shared Redis/S3 provider cache and observation system before plain and synchronized

@@ -208,6 +208,24 @@ func Unpack(data []byte) []uint32 {
 	return out
 }
 
+// LandmarkTokens are a bounded, lossy prefilter for selecting candidate
+// fingerprints. Match remains the authority; landmarks can only reduce work.
+func LandmarkTokens(data []byte) []int32 {
+	seen := map[int32]bool{}
+	out := []int32{}
+	for pos := 0; pos+3 < len(data); pos += 16 {
+		for band := 0; band < 2; band++ {
+			i := pos + band*2
+			token := int32(band*65536 + int(data[i])*256 + int(data[i+1]))
+			if !seen[token] {
+				seen[token] = true
+				out = append(out, token)
+			}
+		}
+	}
+	return out
+}
+
 func Match(a, b Fingerprint) MatchResult {
 	left, right := trim(a.Hashes), trim(b.Hashes)
 	if len(left) < MinOverlapItems || len(right) < MinOverlapItems {

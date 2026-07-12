@@ -58,6 +58,28 @@ type ProvidersConfig struct {
 	Wikidata    WikidataConfig
 	OpenOpus    OpenOpusConfig
 	LRCLIB      LRCLIBConfig
+	OpenLibrary OpenLibraryConfig
+	GoogleBooks GoogleBooksConfig
+	AcoustID    AcoustIDConfig
+}
+
+type AcoustIDConfig struct {
+	APIKey            string
+	BaseURL           string
+	RequestsPerSecond float64
+}
+
+type OpenLibraryConfig struct {
+	BaseURL           string
+	CoversBaseURL     string
+	RequestsPerSecond float64
+	UserAgent         string
+}
+
+type GoogleBooksConfig struct {
+	APIKey            string
+	BaseURL           string
+	RequestsPerSecond float64
 }
 
 type LRCLIBConfig struct {
@@ -215,6 +237,18 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	openLibraryRate, err := envFloat("HEYA_METADATA_OPENLIBRARY_REQUESTS_PER_SECOND", 3)
+	if err != nil {
+		return Config{}, err
+	}
+	googleBooksRate, err := envFloat("HEYA_METADATA_GOOGLE_BOOKS_REQUESTS_PER_SECOND", 5)
+	if err != nil {
+		return Config{}, err
+	}
+	acoustIDRate, err := envFloat("HEYA_METADATA_ACOUSTID_REQUESTS_PER_SECOND", 3)
+	if err != nil {
+		return Config{}, err
+	}
 	chromaprintMax, err := envInt("HEYA_METADATA_CHROMAPRINT_MAX_PER_RELEASE", 100)
 	if err != nil {
 		return Config{}, err
@@ -285,6 +319,13 @@ func Load() (Config, error) {
 		}, LRCLIB: LRCLIBConfig{
 			BaseURL: env("HEYA_METADATA_LRCLIB_BASE_URL", "https://lrclib.net"), RequestsPerSecond: lrclibRate,
 			UserAgent: env("HEYA_METADATA_LRCLIB_USER_AGENT", "HeyaMetadata/dev (https://github.com/HeyaMedia/HeyaMetadata)"),
+		}, OpenLibrary: OpenLibraryConfig{
+			BaseURL: env("HEYA_METADATA_OPENLIBRARY_BASE_URL", "https://openlibrary.org"), CoversBaseURL: env("HEYA_METADATA_OPENLIBRARY_COVERS_BASE_URL", "https://covers.openlibrary.org"),
+			RequestsPerSecond: openLibraryRate, UserAgent: env("HEYA_METADATA_OPENLIBRARY_USER_AGENT", "HeyaMetadata/dev (https://github.com/HeyaMedia/HeyaMetadata; metadata@heya.media)"),
+		}, GoogleBooks: GoogleBooksConfig{
+			APIKey: env("HEYA_METADATA_GOOGLE_BOOKS_API_KEY", ""), BaseURL: env("HEYA_METADATA_GOOGLE_BOOKS_BASE_URL", "https://www.googleapis.com/books/v1"), RequestsPerSecond: googleBooksRate,
+		}, AcoustID: AcoustIDConfig{
+			APIKey: env("HEYA_METADATA_ACOUSTID_API_KEY", ""), BaseURL: env("HEYA_METADATA_ACOUSTID_BASE_URL", "https://api.acoustid.org"), RequestsPerSecond: acoustIDRate,
 		}},
 	}
 	if err := config.Validate(); err != nil {
@@ -433,9 +474,13 @@ func (c Config) Validate() error {
 		return fmt.Errorf("HEYA_METADATA_TVMAZE_REQUESTS_PER_SECOND must be greater than 0 and at most 1000")
 	}
 	for name, rawURL := range map[string]string{
-		"HEYA_METADATA_WIKIDATA_BASE_URL": c.Providers.Wikidata.BaseURL,
-		"HEYA_METADATA_OPENOPUS_BASE_URL": c.Providers.OpenOpus.BaseURL,
-		"HEYA_METADATA_LRCLIB_BASE_URL":   c.Providers.LRCLIB.BaseURL,
+		"HEYA_METADATA_WIKIDATA_BASE_URL":           c.Providers.Wikidata.BaseURL,
+		"HEYA_METADATA_OPENOPUS_BASE_URL":           c.Providers.OpenOpus.BaseURL,
+		"HEYA_METADATA_LRCLIB_BASE_URL":             c.Providers.LRCLIB.BaseURL,
+		"HEYA_METADATA_OPENLIBRARY_BASE_URL":        c.Providers.OpenLibrary.BaseURL,
+		"HEYA_METADATA_OPENLIBRARY_COVERS_BASE_URL": c.Providers.OpenLibrary.CoversBaseURL,
+		"HEYA_METADATA_GOOGLE_BOOKS_BASE_URL":       c.Providers.GoogleBooks.BaseURL,
+		"HEYA_METADATA_ACOUSTID_BASE_URL":           c.Providers.AcoustID.BaseURL,
 	} {
 		parsed, parseErr := url.Parse(rawURL)
 		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" {
@@ -448,10 +493,16 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Providers.LRCLIB.UserAgent) == "" {
 		return fmt.Errorf("HEYA_METADATA_LRCLIB_USER_AGENT must not be empty")
 	}
+	if strings.TrimSpace(c.Providers.OpenLibrary.UserAgent) == "" {
+		return fmt.Errorf("HEYA_METADATA_OPENLIBRARY_USER_AGENT must not be empty")
+	}
 	for name, rate := range map[string]float64{
-		"HEYA_METADATA_WIKIDATA_REQUESTS_PER_SECOND": c.Providers.Wikidata.RequestsPerSecond,
-		"HEYA_METADATA_OPENOPUS_REQUESTS_PER_SECOND": c.Providers.OpenOpus.RequestsPerSecond,
-		"HEYA_METADATA_LRCLIB_REQUESTS_PER_SECOND":   c.Providers.LRCLIB.RequestsPerSecond,
+		"HEYA_METADATA_WIKIDATA_REQUESTS_PER_SECOND":     c.Providers.Wikidata.RequestsPerSecond,
+		"HEYA_METADATA_OPENOPUS_REQUESTS_PER_SECOND":     c.Providers.OpenOpus.RequestsPerSecond,
+		"HEYA_METADATA_LRCLIB_REQUESTS_PER_SECOND":       c.Providers.LRCLIB.RequestsPerSecond,
+		"HEYA_METADATA_OPENLIBRARY_REQUESTS_PER_SECOND":  c.Providers.OpenLibrary.RequestsPerSecond,
+		"HEYA_METADATA_GOOGLE_BOOKS_REQUESTS_PER_SECOND": c.Providers.GoogleBooks.RequestsPerSecond,
+		"HEYA_METADATA_ACOUSTID_REQUESTS_PER_SECOND":     c.Providers.AcoustID.RequestsPerSecond,
 	} {
 		if rate <= 0 || rate > 1000 {
 			return fmt.Errorf("%s must be greater than 0 and at most 1000", name)

@@ -10,7 +10,7 @@ const (
 	TVDBNormalizerVersion   = "tvdb-movie/v1"
 	FanartNormalizerVersion = "fanart-movie/v1"
 	MergeVersion            = "movie-merge/v1"
-	ProjectionSchemaVersion = 1
+	ProjectionSchemaVersion = 2
 )
 
 type ProviderRecord struct {

@@ -78,6 +78,7 @@ func init() {
 	rootCmd.AddCommand(newReleaseGroupCommand())
 	rootCmd.AddCommand(newReleaseCommand())
 	rootCmd.AddCommand(newRecordingCommand())
+	rootCmd.AddCommand(newBookCommand())
 	rootCmd.AddCommand(newRetentionCommand())
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newOpenAPICommand())

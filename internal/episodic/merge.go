@@ -17,6 +17,8 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 	out.Seasons = nil
 	out.Episodes = nil
 	out.Images = nil
+	out.Ratings = nil
+	out.Credits = nil
 	for _, record := range records {
 		out.Contributors = append(out.Contributors, Contributor{Provider: record.Provider, ObservationID: record.PrimaryObservationID, NormalizerVersion: record.NormalizerVersion})
 		for _, id := range record.ExternalIDs {
@@ -127,8 +129,34 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 				out.Images = append(out.Images, image)
 			}
 		}
+		for _, rating := range record.Ratings {
+			if !hasRating(out.Ratings, rating) {
+				out.Ratings = append(out.Ratings, rating)
+			}
+		}
+		for _, credit := range record.Credits {
+			if !hasCredit(out.Credits, credit) {
+				out.Credits = append(out.Credits, credit)
+			}
+		}
 	}
 	return out
+}
+func hasRating(values []Rating, value Rating) bool {
+	for _, v := range values {
+		if v.System == value.System {
+			return true
+		}
+	}
+	return false
+}
+func hasCredit(values []Credit, value Credit) bool {
+	for _, v := range values {
+		if v.Provider == value.Provider && v.ProviderPersonID == value.ProviderPersonID && v.CreditType == value.CreditType && v.Character == value.Character && v.Job == value.Job {
+			return true
+		}
+	}
+	return false
 }
 func hasExternal(values []ExternalID, value ExternalID) bool {
 	for _, existing := range values {

@@ -71,3 +71,21 @@ func TestMusicCatalogIsValidAndRetainsProviderFloor(t *testing.T) {
 		}
 	}
 }
+
+func TestBooksAndTVCatalogsAreValid(t *testing.T) {
+	t.Parallel()
+	books, err := Books()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(books.Entries) < 8 {
+		t.Fatalf("book coverage entries: %d", len(books.Entries))
+	}
+	tv, err := TV()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tv.Entries) < 4 {
+		t.Fatalf("TV coverage entries: %d", len(tv.Entries))
+	}
+}

@@ -21,6 +21,22 @@ func newDiscoverCommand() *cobra.Command {
 	command.AddCommand(newDiscoverRecordingCommand())
 	command.AddCommand(newDiscoverTVCommand())
 	command.AddCommand(newDiscoverAnimeCommand())
+	command.AddCommand(newDiscoverBookCommand())
+	return command
+}
+
+func newDiscoverBookCommand() *cobra.Command {
+	var query string
+	var authors, isbns []string
+	var year, limit int
+	var wait time.Duration
+	command := &cobra.Command{Use: "book", Short: "Discover Open Library book works", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		return runDiscovery(cmd, discovery.Request{Kind: discovery.KindBookWork, Query: query, Limit: limit, Hints: discovery.Hints{Authors: authors, ISBNs: isbns, Year: year}}, wait, providercredentials.Credentials{})
+	}}
+	command.Flags().StringSliceVar(&authors, "author", nil, "Known author; repeat or comma-separate")
+	command.Flags().StringSliceVar(&isbns, "isbn", nil, "Known ISBN; repeat or comma-separate")
+	command.Flags().IntVar(&year, "year", 0, "First publication year hint")
+	addDiscoveryCommonFlags(command, &query, &limit, &wait)
 	return command
 }
 

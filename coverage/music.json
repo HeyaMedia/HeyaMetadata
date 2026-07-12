@@ -128,6 +128,20 @@
       "references": [{"name": "Fuhen", "external_ids": {"musicbrainz": "recording"}, "expected_providers": ["lrclib"]}]
     },
     {
+      "id": "music.recording.fingerprint.client_match", "kind": "recording", "category": "capability",
+      "description": "A short-lived durable match job compares submitted Chromaprint evidence without retaining the client fingerprint.",
+      "providers": ["system", "apple", "deezer"],
+      "projection": {"document": "fingerprint_match", "path": "candidates"},
+      "references": [{"name": "Fuhen", "external_ids": {"musicbrainz": "72feb5de-7912-4ad4-b507-21a1d5e199fd"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "music.recording.fingerprint.acoustid", "kind": "recording", "category": "capability",
+      "description": "AcoustID evidence returns MusicBrainz recording resolutions and never establishes identity by score alone.",
+      "providers": ["acoustid", "musicbrainz"],
+      "projection": {"document": "fingerprint_match", "path": "candidates.resolution"},
+      "references": [{"name": "Fuhen", "external_ids": {"musicbrainz": "72feb5de-7912-4ad4-b507-21a1d5e199fd"}, "expected_providers": ["acoustid"]}]
+    },
+    {
       "id": "music.work.boundary", "kind": "musical_work", "category": "capability",
       "description": "The underlying composition and classical catalogue identity remain distinct from recordings and release tracks.",
       "providers": ["system", "musicbrainz", "openopus", "wikidata"],
