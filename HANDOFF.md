@@ -336,10 +336,30 @@ into seven strong IDs, 28 editions, 52 provider-scoped tracks, and nine image
 candidates without partial failure. Last.fm's contract was corrected: its
 album lookup consumes a MusicBrainz release MBID, not a release-group MBID.
 
+Smart upstream discovery is now separate from canonical search.
+`GET /api/v2/search` remains local-only, accepts a canonical `kind` filter, and
+uses short Redis caching; live warm artist search was below 1 ms at the API.
+`POST /api/v2/discoveries` creates or reuses `discovery_search_v1`, waits only a
+1.2-second default budget, and otherwise returns `202` while the interactive
+River job continues. Normalized identical requests share a six-hour result.
+
+Artist discovery currently searches MusicBrainz and ranks candidates using
+provider score, normalized primary/alias match, country, area, artist type,
+birth/founding and end dates, and verified release-group title/year hints.
+Every result includes weighted evidence, ambiguity recommendation, existing
+canonical entity ID, and the exact resolution payload. Live `ano` hints chose
+the Japanese artist at 0.99 over the German rapper; `Balloon` stayed ambiguous
+without hints and became a strong match using Monstersound/Pussylovers; Haku
+release hints selected the populated `ハク。` entry over its duplicate shell.
+
+TV and Anime are explicitly separate future canonical kinds and API families,
+documented in `docs/tv-anime-domain.md`. Shared primitives are allowed, but
+there will be no `is_anime` flag or combined canonical show identity.
+
 ## Suggested next turn
 
-1. Add service-level integration tests for identity conflict quarantine,
-   provider partial failure, refresh idempotency, and artist API resolution.
+1. Add dedicated TV and Anime discovery provider routing, followed by their
+   separate canonical APIs.
 2. Add bounded derived image variants (WebP/AVIF) and class-aware original
    retention before materializing high-volume profile catalogs.
 3. Start the release/edition slice and fetch complete medium/track data so

@@ -81,6 +81,7 @@ func TestOpenAPIDocumentContainsPublicRoutes(t *testing.T) {
 		"/api/v2/health/live", "/api/v2/health/ready",
 		"/api/v2/entities/{id}", "/api/v2/resolutions", "/api/v2/jobs/{id}", "/api/v2/search", "/api/v2/changes",
 		"/api/v2/images/{id}",
+		"/api/v2/discoveries", "/api/v2/discoveries/{id}",
 	} {
 		if !strings.Contains(text, path) {
 			t.Errorf("OpenAPI document does not contain %s", path)
@@ -101,6 +102,11 @@ func TestOpenAPIDocumentContainsPublicRoutes(t *testing.T) {
 	for _, header := range []string{"X-Heya-Apple-API-Key", "X-Heya-Discogs-API-Key", "X-Heya-LastFM-API-Key"} {
 		if !strings.Contains(text, header) {
 			t.Errorf("OpenAPI document does not expose %s", header)
+		}
+	}
+	for _, kind := range []string{"tv_show", "anime"} {
+		if !strings.Contains(text, kind) {
+			t.Errorf("OpenAPI document does not preserve distinct %s kind", kind)
 		}
 	}
 }

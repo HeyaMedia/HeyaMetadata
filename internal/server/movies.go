@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -78,6 +80,7 @@ type jobOutput struct{ Body jobResource }
 
 type searchInput struct {
 	Query    string `query:"q" minLength:"1"`
+	Kind     string `query:"kind" enum:"movie,artist,release_group,tv_show,anime" doc:"Optional canonical domain filter; TV and Anime are distinct kinds"`
 	Limit    int    `query:"limit" minimum:"1" maximum:"100" default:"20"`
 	Year     int    `query:"year" minimum:"1800" maximum:"2200"`
 	Genre    string `query:"genre"`
@@ -427,6 +430,16 @@ func searchAllEntities(ctx context.Context, runtime *platform.Runtime, input *se
 	if limit < 1 || limit > 100 {
 		limit = 20
 	}
+	kind := strings.ToLower(strings.TrimSpace(input.Kind))
+	cacheInput, _ := json.Marshal([]any{strings.ToLower(query), kind, limit, input.Year, strings.ToLower(input.Genre), strings.ToUpper(input.Country), strings.ToLower(input.Language), strings.ToLower(input.Status)})
+	digest := sha256.Sum256(cacheInput)
+	cacheKey := "heya:metadata:v2:search:" + hex.EncodeToString(digest[:])
+	if cached, err := runtime.Redis.Get(ctx, cacheKey).Bytes(); err == nil {
+		var result []json.RawMessage
+		if json.Unmarshal(cached, &result) == nil {
+			return result, nil
+		}
+	}
 	provider := ""
 	value := query
 	if parts := strings.SplitN(query, ":", 2); len(parts) == 2 {
@@ -439,8 +452,8 @@ func searchAllEntities(ctx context.Context, runtime *platform.Runtime, input *se
 		SELECT entity_id,CASE WHEN normalized_value=lower(unaccent($3)) THEN 1 WHEN normalized_value LIKE lower(unaccent($3))||'%' THEN 2 ELSE 3 END,similarity(normalized_value,lower(unaccent($3))) FROM search_names WHERE normalized_value=lower(unaccent($3)) OR normalized_value LIKE lower(unaccent($3))||'%' OR similarity(normalized_value,lower(unaccent($3)))>=0.25
 	), ranked AS (SELECT entity_id,min(tier) tier,max(score) score FROM matches GROUP BY entity_id)
 	SELECT se.summary FROM ranked JOIN search_entities se ON se.entity_id=ranked.entity_id
-	WHERE ($5=0 OR se.release_year=$5) AND ($6='' OR EXISTS(SELECT 1 FROM unnest(se.genres) genre WHERE lower(genre)=lower($6))) AND ($7='' OR upper($7)=ANY(se.countries)) AND ($8='' OR lower($8)=ANY(se.languages)) AND ($9='' OR se.status=lower($9))
-	ORDER BY ranked.tier,ranked.score DESC,se.popularity DESC NULLS LAST,se.display_title LIMIT $4`, value, provider, query, limit, input.Year, input.Genre, input.Country, input.Language, input.Status)
+	WHERE ($5=0 OR se.release_year=$5) AND ($6='' OR EXISTS(SELECT 1 FROM unnest(se.genres) genre WHERE lower(genre)=lower($6))) AND ($7='' OR upper($7)=ANY(se.countries)) AND ($8='' OR lower($8)=ANY(se.languages)) AND ($9='' OR se.status=lower($9)) AND ($10='' OR se.kind=$10)
+	ORDER BY ranked.tier,ranked.score DESC,se.popularity DESC NULLS LAST,se.display_title LIMIT $4`, value, provider, query, limit, input.Year, input.Genre, input.Country, input.Language, input.Status, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -453,7 +466,17 @@ func searchAllEntities(ctx context.Context, runtime *platform.Runtime, input *se
 		}
 		result = append(result, json.RawMessage(body))
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	ttl := 2 * time.Minute
+	if len(result) == 0 {
+		ttl = 15 * time.Second
+	}
+	if body, err := json.Marshal(result); err == nil {
+		_ = runtime.Redis.Set(ctx, cacheKey, body, ttl).Err()
+	}
+	return result, nil
 }
 
 func storeProviderCredentials(ctx context.Context, runtime *platform.Runtime, tmdbAPIKey, omdbAPIKey, tvdbAPIKey, fanartAPIKey, appleAPIKey, discogsAPIKey, lastFMAPIKey string) (string, error) {

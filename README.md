@@ -110,6 +110,10 @@ make movie-ingest TMDB_ID=603
 
 curl http://127.0.0.1:3030/api/v2/search?q=matrix
 curl http://127.0.0.1:3030/api/v2/changes?after=0
+
+# Provider-backed identity discovery with structured disambiguation hints.
+go run ./cmd/heya-metadata discover artist --query ano --country JP \
+  --type person --release '猫猫吐吐:2023'
 ```
 
 Provider adapters declare accepted identifiers, supplied metadata scopes, and
@@ -117,6 +121,13 @@ raw-response retention. The reusable mixer uses those declarations to plan
 eligible collectors as new external IDs are discovered. Provider-specific
 normalizers feed a deterministic domain combiner; consumers receive one merged
 canonical document rather than separate provider payloads.
+
+`GET /api/v2/search` is the low-latency canonical index and accepts a `kind`
+filter. Warm results are served from Redis; upstream providers never block this
+route. `POST /api/v2/discoveries` is the durable smart-search surface for
+unknown identities. Identical normalized requests share a high-priority River
+job and six-hour result, and candidates include confidence, evidence,
+ambiguity, existing canonical IDs, and a ready-to-submit resolution body.
 
 MusicBrainz artist IDs now run through a canonical artist pipeline that uses
 explicit MusicBrainz URL relationships to unlock Apple, Deezer, Discogs,

@@ -80,6 +80,7 @@ func init() {
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newOpenAPICommand())
 	rootCmd.AddCommand(newProviderCommand())
+	rootCmd.AddCommand(newDiscoverCommand())
 }
 
 func configureLogger(levelName, format string) error {
