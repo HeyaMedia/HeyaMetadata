@@ -184,6 +184,54 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 		}
 		_, _ = w.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET current_job_id=$3 WHERE entity_id=$1 AND provider=$2`, item.entityID, "musicbrainz", inserted.Job.ID)
 	}
+	standaloneRecordingRows, err := w.runtime.DB.Query(ctx, `SELECT claims.normalized_value,refresh.entity_id FROM provider_refresh_states refresh JOIN external_id_claims claims ON claims.entity_id=refresh.entity_id LEFT JOIN entity_access_stats stats ON stats.entity_id=refresh.entity_id WHERE refresh.provider='musicbrainz' AND refresh.next_eligible_at<=now() AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN('available','pending','retryable','running','scheduled')) AND claims.entity_kind='recording' AND claims.provider='musicbrainz' AND claims.namespace='recording' AND claims.state='accepted' ORDER BY COALESCE(stats.decayed_score*exp(-EXTRACT(EPOCH FROM(now()-stats.score_updated_at))/604800.0),0) DESC,refresh.next_eligible_at LIMIT 500`)
+	if err != nil {
+		return fmt.Errorf("select adaptive recording refreshes: %w", err)
+	}
+	var standaloneRecordings []dueReleaseGroup
+	for standaloneRecordingRows.Next() {
+		var item dueReleaseGroup
+		if err := standaloneRecordingRows.Scan(&item.mbid, &item.entityID); err != nil {
+			standaloneRecordingRows.Close()
+			return err
+		}
+		standaloneRecordings = append(standaloneRecordings, item)
+	}
+	if err := standaloneRecordingRows.Err(); err != nil {
+		standaloneRecordingRows.Close()
+		return err
+	}
+	standaloneRecordingRows.Close()
+	for _, item := range standaloneRecordings {
+		inserted, err := InsertRecording(ctx, w.runtime, client, RecordingIngestArgs{MusicBrainzID: item.mbid, Reason: "adaptive_refresh"}, PriorityScheduled)
+		if err != nil {
+			return err
+		}
+		_, _ = w.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET current_job_id=$3 WHERE entity_id=$1 AND provider=$2`, item.entityID, "musicbrainz", inserted.Job.ID)
+	}
+	recordingRows, err := w.runtime.DB.Query(ctx, `SELECT refresh.entity_id FROM provider_refresh_states refresh LEFT JOIN entity_access_stats stats ON stats.entity_id=refresh.entity_id WHERE refresh.provider='lrclib' AND refresh.next_eligible_at<=now() AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN('available','pending','retryable','running','scheduled')) ORDER BY COALESCE(stats.decayed_score*exp(-EXTRACT(EPOCH FROM(now()-stats.score_updated_at))/604800.0),0) DESC,refresh.next_eligible_at LIMIT 200`)
+	if err != nil {
+		return fmt.Errorf("select recording evidence refreshes: %w", err)
+	}
+	var recordingIDs []string
+	for recordingRows.Next() {
+		var id string
+		if err := recordingRows.Scan(&id); err != nil {
+			recordingRows.Close()
+			return err
+		}
+		recordingIDs = append(recordingIDs, id)
+	}
+	if err := recordingRows.Err(); err != nil {
+		recordingRows.Close()
+		return err
+	}
+	recordingRows.Close()
+	for _, id := range recordingIDs {
+		if _, err := InsertRecordingEvidenceRefresh(ctx, w.runtime, client, id); err != nil {
+			return fmt.Errorf("enqueue recording evidence refresh %s: %w", id, err)
+		}
+	}
 	tvRows, err := w.runtime.DB.Query(ctx, `SELECT claims.normalized_value,refresh.entity_id FROM provider_refresh_states refresh JOIN external_id_claims claims ON claims.entity_id=refresh.entity_id LEFT JOIN entity_access_stats stats ON stats.entity_id=refresh.entity_id WHERE refresh.provider='tvmaze' AND refresh.next_eligible_at<=now() AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN ('available','pending','retryable','running','scheduled')) AND claims.entity_kind='tv_show' AND claims.provider='tvmaze' AND claims.namespace='show' AND claims.state='accepted' ORDER BY COALESCE(stats.decayed_score * exp(-EXTRACT(EPOCH FROM (now()-stats.score_updated_at))/604800.0),0) DESC,refresh.next_eligible_at LIMIT 500`)
 	if err != nil {
 		return err

@@ -65,7 +65,7 @@ treated as a durable identity match.
 
 ## 2. Discover upstream candidates
 
-Movie, Artist, Release Group, TV Show, and Anime all have implemented
+Movie, Artist, Release Group, Recording, TV Show, and Anime all have implemented
 provider-backed discovery routes. TV and Anime additionally expose dedicated
 `/api/v2/tv/discoveries` and `/api/v2/anime/discoveries` entry points that
 inject the correct kind for the caller.
@@ -133,6 +133,9 @@ Useful structured hints vary by domain:
 - Release Group: `year`, `date`, `type`, credited `artists`, MusicBrainz
   `artist_ids`, and known `tracks`. Track titles are verified against
   MusicBrainz recording/release relationships rather than compared loosely.
+- Recording: credited `artists`, MusicBrainz `artist_ids`, `duration_ms`, exact
+  `isrcs`, and known `releases`. These distinguish studio, live, remixed, and
+  similarly titled recordings without treating ISRC or names as infallible.
 - TV Show: premiere `year`, `country`, `language`, `network`, `status`, and
   known `episodes`.
 - Anime: start `year`, format in `type`, `episode_count`, and known `episodes`.
@@ -174,10 +177,11 @@ An issued edition listed in a release-group document exposes its provider,
 namespace, and provider ID. Resolve a MusicBrainz edition with
 `kind: "release"`, `provider: "musicbrainz"`, and `namespace: "release"`.
 The resulting release embeds ordered media and release-track placements; each
-placement contains the canonical Heya recording ID. Known recordings can also
-be resolved by their MusicBrainz recording MBID. Unknown standalone recording
-resolution intentionally waits for the recording ingestion slice rather than
-guessing from ISRC or title.
+placement contains the canonical Heya recording ID. Recordings can also be
+discovered and resolved directly by MusicBrainz recording MBID. Standalone
+ingestion retains duration, artist credits, ISRC evidence, disambiguation,
+genres/tags, ratings, release appearances, and provider links. It never creates
+identity from ISRC, duration, or title alone.
 
 ## 4. Read and retain the canonical identity
 

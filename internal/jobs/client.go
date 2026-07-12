@@ -20,6 +20,8 @@ func Workers(runtime *platform.Runtime) *river.Workers {
 	river.AddWorker(workers, NewImageMaterializeWorker(runtime))
 	river.AddWorker(workers, NewReleaseGroupIngestWorker(runtime))
 	river.AddWorker(workers, NewReleaseIngestWorker(runtime))
+	river.AddWorker(workers, NewRecordingIngestWorker(runtime))
+	river.AddWorker(workers, NewRecordingEvidenceRefreshWorker(runtime))
 	river.AddWorker(workers, NewDiscoverySearchWorker(runtime))
 	river.AddWorker(workers, NewTVShowIngestWorker(runtime))
 	river.AddWorker(workers, NewAnimeIngestWorker(runtime))
@@ -49,6 +51,7 @@ func NewClient(runtime *platform.Runtime, maxWorkers int, work bool) (*river.Cli
 	if work {
 		config.Queues = map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: maxWorkers},
+			BackgroundQueue:    {MaxWorkers: 1},
 		}
 	}
 	client, err := river.NewClient(riverpgxv5.New(runtime.DB), config)

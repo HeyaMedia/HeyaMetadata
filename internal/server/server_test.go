@@ -112,6 +112,9 @@ func TestOpenAPIDocumentContainsPublicRoutes(t *testing.T) {
 			t.Errorf("OpenAPI document does not preserve distinct %s kind", kind)
 		}
 	}
+	if strings.Contains(text, "recording_evidence_refresh_v1") || strings.Contains(text, "/api/v2/recordings/{id}/refreshes") {
+		t.Error("internal recording evidence refresh leaked into the public API")
+	}
 }
 
 func TestDocsUseScalar(t *testing.T) {

@@ -441,15 +441,30 @@ evidence and cannot fail the MusicBrainz spine. Plain, synchronized, and
 instrumental results are stored with LRCLIB record ID, checksum, observation,
 and retrieval time and exposed at `GET /api/v2/recordings/{id}/lyrics`. Live
 Abbey Road stored 15 synchronized records. LRCLIB's potentially fan-out
-`/api/get` route remains reserved for a later low-priority refresh job.
+`/api/get` route now runs only as an internal `recording_evidence_refresh_v1`
+job on a single-worker `background` queue. The adaptive scheduler prioritizes
+demanded recordings, while misses wait 30 days and transient failures back off.
+There is no public evidence-refresh trigger.
+
+Standalone recording discovery and ingestion are implemented through the
+existing generic discovery/resolution surfaces; no recording-specific POST API
+was added. Discovery ranks MusicBrainz recording candidates using artist names
+and MBIDs, duration, ISRC, and release hints. Live `普変` without release hints
+remained correctly ambiguous; adding ano, 220000 ms, and `猫猫吐吐:2023`
+selected recording `72feb5de-7912-4ad4-b507-21a1d5e199fd` at 0.96. Standalone
+ingestion produced Heya entity `b7daca1c-c2bf-47d5-9333-3d42071e5aa8` with
+artist credit, duration, ISRC, rating, five release appearances, and Spotify
+link. A subsequent ingestion of its single release preserved all five
+appearances, the rating, and the link. Canonical entity/evidence reads now feed
+the buffered access counter so adaptive MusicBrainz and LRCLIB scheduling is
+actually demand-aware.
 
 ## Suggested next turn
 
 1. Add bounded derived image variants (WebP/AVIF) and class-aware original
    retention before materializing high-volume profile catalogs.
-2. Add standalone recording discovery/ingestion and the low-priority evidence
-   refresh job, then enrich recording facts without treating a release-track
-   SKU as recording identity.
+2. Add conflict-safe AcoustID lookup and authenticated client fingerprint
+   observations without exposing generic enrichment controls.
 3. Expand TV/Anime discovery verification with provider-specific episode and
    season hints, then add credits/content ratings without weakening identity.
 

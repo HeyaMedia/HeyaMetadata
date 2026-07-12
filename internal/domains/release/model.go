@@ -5,10 +5,12 @@ package release
 import "time"
 
 const (
-	NormalizedSchemaVersion = 1
-	NormalizerVersion       = "musicbrainz-release/v1"
-	MergeVersion            = "release-merge/v1"
-	ProjectionSchemaVersion = 1
+	NormalizedSchemaVersion    = 1
+	NormalizerVersion          = "musicbrainz-release/v1"
+	RecordingNormalizerVersion = "musicbrainz-recording/v1"
+	MergeVersion               = "release-merge/v1"
+	RecordingMergeVersion      = "recording-merge/v2"
+	ProjectionSchemaVersion    = 1
 )
 
 type ProviderRecord struct {
@@ -41,13 +43,47 @@ type Label struct {
 	CatalogNumber string `json:"catalog_number,omitempty"`
 }
 type Recording struct {
-	Provider      string         `json:"provider"`
-	Namespace     string         `json:"namespace"`
-	ProviderID    string         `json:"provider_id"`
-	Title         string         `json:"title"`
-	DurationMS    int64          `json:"duration_ms,omitempty"`
-	ISRCs         []string       `json:"isrcs"`
-	ArtistCredits []ArtistCredit `json:"artist_credits"`
+	Provider       string             `json:"provider"`
+	Namespace      string             `json:"namespace"`
+	ProviderID     string             `json:"provider_id"`
+	Title          string             `json:"title"`
+	DurationMS     int64              `json:"duration_ms,omitempty"`
+	ISRCs          []string           `json:"isrcs"`
+	ArtistCredits  []ArtistCredit     `json:"artist_credits"`
+	Disambiguation string             `json:"disambiguation,omitempty"`
+	Video          bool               `json:"video,omitempty"`
+	Genres         []WeightedTerm     `json:"genres,omitempty"`
+	Tags           []WeightedTerm     `json:"tags,omitempty"`
+	Rating         *Rating            `json:"rating,omitempty"`
+	Releases       []RecordingRelease `json:"releases,omitempty"`
+	Links          []Link             `json:"links,omitempty"`
+}
+type WeightedTerm struct {
+	ProviderID string `json:"provider_id,omitempty"`
+	Name       string `json:"name"`
+	Count      int    `json:"count,omitempty"`
+}
+type Rating struct {
+	Value float64 `json:"value"`
+	Votes int     `json:"votes"`
+}
+type RecordingRelease struct {
+	ProviderID        string `json:"provider_id"`
+	Title             string `json:"title"`
+	Status            string `json:"status,omitempty"`
+	Date              string `json:"date,omitempty"`
+	Country           string `json:"country,omitempty"`
+	ReleaseGroupID    string `json:"release_group_id,omitempty"`
+	ReleaseGroupTitle string `json:"release_group_title,omitempty"`
+}
+type Link struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
+}
+type NormalizedRecording struct {
+	ProviderRecord ProviderRecord `json:"provider_record"`
+	ExternalIDs    []ExternalID   `json:"external_ids"`
+	Recording      Recording      `json:"recording"`
 }
 type Track struct {
 	ProviderID    string         `json:"provider_id"`

@@ -78,6 +78,8 @@ func (w *DiscoverySearchWorker) Work(ctx context.Context, job *river.Job[Discove
 		result, err = w.service.DiscoverMovie(ctx, run.Request, job.ID, credentials.APIKey("tmdb"))
 	case discovery.KindReleaseGroup:
 		result, err = w.service.DiscoverReleaseGroup(ctx, run.Request, job.ID)
+	case discovery.KindRecording:
+		result, err = w.service.DiscoverRecording(ctx, run.Request, job.ID)
 	case discovery.KindTVShow:
 		result, err = w.service.DiscoverTV(ctx, run.Request, job.ID)
 	case discovery.KindAnime:

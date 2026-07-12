@@ -176,6 +176,7 @@ func NormalizeRequest(request Request) Request {
 	request.Hints.Artists = cleanSorted(request.Hints.Artists)
 	request.Hints.ArtistIDs = cleanSortedLower(request.Hints.ArtistIDs)
 	request.Hints.Tracks = cleanSorted(request.Hints.Tracks)
+	request.Hints.ISRCs = cleanSortedUpper(request.Hints.ISRCs)
 	request.Hints.Network = strings.TrimSpace(request.Hints.Network)
 	request.Hints.Status = normalizeType(request.Hints.Status)
 	request.Hints.Season = normalizeType(request.Hints.Season)

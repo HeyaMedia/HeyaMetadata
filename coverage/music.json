@@ -107,6 +107,13 @@
       "references": [{"name": "Come Together", "external_ids": {"musicbrainz": "9edb3d47-4f3f-4f5f-8f2e-73f78b0d0d32"}, "expected_providers": ["system"]}]
     },
     {
+      "id": "music.recording.discovery_standalone", "kind": "recording", "category": "capability",
+      "description": "Standalone recordings are ranked with artist, duration, ISRC, and release evidence and resolve through the existing generic discovery contract.",
+      "providers": ["musicbrainz"],
+      "projection": {"document": "detail", "path": "data"},
+      "references": [{"name": "普変", "external_ids": {"musicbrainz": "72feb5de-7912-4ad4-b507-21a1d5e199fd"}, "expected_providers": ["musicbrainz"]}]
+    },
+    {
       "id": "music.recording.fingerprint.preview", "kind": "recording", "category": "fact",
       "description": "Verified provider previews produce versioned raw Chromaprint evidence without retaining preview audio or signed URLs.",
       "providers": ["apple", "deezer"],

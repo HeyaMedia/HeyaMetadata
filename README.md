@@ -98,6 +98,21 @@ go run ./cmd/heya-metadata release ingest \
 This stores complete media and track placement data and creates reusable
 canonical recording entities for referenced MusicBrainz recordings.
 
+Standalone recordings use the same entity kind and can be discovered with
+structured artist, duration, ISRC, and release hints, then ingested directly:
+
+```bash
+go run ./cmd/heya-metadata discover recording --query '普変' \
+  --artist ano --duration-ms 220000 --release '猫猫吐吐:2023'
+
+go run ./cmd/heya-metadata recording ingest \
+  --musicbrainz 72feb5de-7912-4ad4-b507-21a1d5e199fd --wait 90s
+```
+
+LRCLIB's slower external-source fan-out is an internal scheduled job on a
+single-worker background queue. There is deliberately no public endpoint for
+starting evidence refreshes.
+
 The smoke command enqueues a real River job and waits for the separate worker.
 It writes an immutable, gzip-compressed, content-addressed observation to S3,
 round-trips a temporary Redis value, and records the observation and completion

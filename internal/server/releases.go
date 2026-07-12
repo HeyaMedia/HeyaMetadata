@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/accessstats"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
@@ -77,6 +78,7 @@ func registerReleases(api huma.API, runtime *platform.Runtime) {
 			if err := json.Unmarshal(body, &document); err != nil {
 				return nil, err
 			}
+			_ = accessstats.Track(ctx, runtime.Redis, input.ID)
 			return &entityOutput{Body: document}, nil
 		}
 	}
@@ -93,6 +95,7 @@ func registerReleases(api huma.API, runtime *platform.Runtime) {
 		if !exists {
 			return nil, huma.Error404NotFound("recording not found")
 		}
+		_ = accessstats.Track(ctx, runtime.Redis, input.ID)
 		rows, err := runtime.DB.Query(ctx, `SELECT id,algorithm,algorithm_version,generator_version,fingerprint,COALESCE(duration_ms,0),hash_count,source_provider,source_track_id,source_checksum,generated_at FROM recording_fingerprints WHERE recording_entity_id=$1 AND state='ready' ORDER BY generated_at DESC,id`, input.ID)
 		if err != nil {
 			return nil, err
@@ -123,6 +126,7 @@ func registerReleases(api huma.API, runtime *platform.Runtime) {
 		if !exists {
 			return nil, huma.Error404NotFound("recording not found")
 		}
+		_ = accessstats.Track(ctx, runtime.Redis, input.ID)
 		rows, err := runtime.DB.Query(ctx, `SELECT id,provider,provider_record_id,track_name,artist_name,album_name,COALESCE(duration_ms,0),instrumental,COALESCE(plain_lyrics,''),COALESCE(synced_lyrics,''),content_checksum,source_observation_id,observed_at FROM recording_lyrics WHERE recording_entity_id=$1 ORDER BY observed_at DESC,id`, input.ID)
 		if err != nil {
 			return nil, err

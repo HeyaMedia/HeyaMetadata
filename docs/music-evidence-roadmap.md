@@ -104,18 +104,18 @@ versioned artifacts use bounded object storage retention where appropriate.
 
 ## Provider sequence
 
-Release-backed LRCLIB exact-signature fetching and provider-preview
-Chromaprint generation are implemented. The remaining sequence is:
+Standalone recording discovery/ingestion, release-backed LRCLIB fetching,
+provider-preview Chromaprint generation, and the internal low-priority LRCLIB
+fan-out refresh are implemented. The remaining sequence is:
 
-1. Standalone recording discovery and ingestion.
-2. AcoustID lookup plus client Chromaprint upload and conflict-safe mapping.
-3. TIDAL official catalog integration once application credentials are set up.
-4. Qobuz, TheAudioDB, and Genius after verifying access and content terms.
-5. Amazon, Bandcamp, KKBOX, QQ Music, and NetEase only through stable,
+1. AcoustID lookup plus client Chromaprint upload and conflict-safe mapping.
+2. TIDAL official catalog integration once application credentials are set up.
+3. Qobuz, TheAudioDB, and Genius after verifying access and content terms.
+4. Amazon, Bandcamp, KKBOX, QQ Music, and NetEase only through stable,
    permitted interfaces; scraping private endpoints is not a foundation for a
    durable metadata service.
-6. Versioned ML analysis uploads and similarity/playlist projections.
-7. Consent-driven playback/list/playlist sync and public link-out pages.
+5. Versioned ML analysis uploads and similarity/playlist projections.
+6. Consent-driven playback/list/playlist sync and public link-out pages.
 
 This ordering builds recording identity before adding expensive dependent
 features and keeps Heya useful even when a commercial catalog disappears or

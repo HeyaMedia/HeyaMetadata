@@ -11,12 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/accessstats"
 	animeservice "github.com/HeyaMedia/HeyaMetadata/internal/anime"
 	"github.com/HeyaMedia/HeyaMetadata/internal/artists"
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/movies"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
+	"github.com/HeyaMedia/HeyaMetadata/internal/recordings"
 	"github.com/HeyaMedia/HeyaMetadata/internal/releasegroups"
 	"github.com/HeyaMedia/HeyaMetadata/internal/releases"
 	"github.com/HeyaMedia/HeyaMetadata/internal/tvshows"
@@ -123,6 +125,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 	var artistService *artists.Service
 	var releaseGroupService *releasegroups.Service
 	var releaseService *releases.Service
+	var recordingService *recordings.Service
 	var tvService *tvshows.Service
 	var animeService *animeservice.Service
 	var client *river.Client[pgx.Tx]
@@ -131,6 +134,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		artistService = artists.NewService(runtime)
 		releaseGroupService = releasegroups.NewService(runtime)
 		releaseService = releases.NewService(runtime)
+		recordingService = recordings.NewService(runtime)
 		tvService = tvshows.NewService(runtime)
 		animeService = animeservice.NewService(runtime)
 		var err error
@@ -148,6 +152,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if err := runtime.DB.QueryRow(ctx, `SELECT kind FROM entities WHERE id=$1 AND deleted_at IS NULL`, input.ID).Scan(&kind); err != nil {
 			return nil, huma.Error404NotFound("entity not found")
 		}
+		_ = accessstats.Track(ctx, runtime.Redis, input.ID)
 		if kind == "artist" {
 			document, fresh, err := artistService.Detail(ctx, input.ID)
 			if err != nil {
@@ -186,13 +191,15 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			return &entityOutput{Body: document}, nil
 		}
 		if kind == "recording" {
-			var body []byte
-			if err := runtime.DB.QueryRow(ctx, `SELECT document FROM api_documents WHERE entity_id=$1 AND document_kind='detail'`, input.ID).Scan(&body); err != nil {
+			document, fresh, err := recordingService.Detail(ctx, input.ID)
+			if err != nil {
 				return nil, huma.Error404NotFound("recording not found")
 			}
-			var document any
-			if err := json.Unmarshal(body, &document); err != nil {
-				return nil, err
+			if !fresh {
+				if mbid, claimErr := recordingService.MusicBrainzID(ctx, input.ID); claimErr == nil {
+					_, _ = jobs.InsertRecording(ctx, runtime, client, jobs.RecordingIngestArgs{MusicBrainzID: mbid, Reason: "stale_read"}, jobs.PriorityStaleRead)
+				}
+				document.Freshness.State = "stale"
 			}
 			return &entityOutput{Body: document}, nil
 		}
@@ -308,23 +315,25 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.ReleaseIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
 		if input.Body.Kind == "recording" {
-			var entityID string
-			err := runtime.DB.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind='recording' AND provider=$1 AND namespace=$2 AND normalized_value=$3 AND state='accepted'`, strings.ToLower(input.Body.Provider), strings.ToLower(input.Body.Namespace), strings.ToLower(strings.TrimSpace(input.Body.Value))).Scan(&entityID)
-			if err == pgx.ErrNoRows {
-				return nil, huma.Error404NotFound("recording is not known yet; resolve one of its releases first")
+			entityID, err := recordingService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
+			if err == nil {
+				document, _, detailErr := recordingService.Detail(ctx, entityID)
+				if detailErr != nil {
+					return nil, detailErr
+				}
+				return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: document}}, nil
 			}
-			if err != nil {
+			if err != recordings.ErrNotFound {
 				return nil, err
 			}
-			var body []byte
-			if err = runtime.DB.QueryRow(ctx, `SELECT document FROM api_documents WHERE entity_id=$1 AND document_kind='detail'`, entityID).Scan(&body); err != nil {
-				return nil, err
+			if !strings.EqualFold(input.Body.Provider, "musicbrainz") || !strings.EqualFold(input.Body.Namespace, "recording") {
+				return nil, huma.Error404NotFound("external ID is not known and no recording collector accepts it")
 			}
-			var document any
-			if err = json.Unmarshal(body, &document); err != nil {
-				return nil, err
+			inserted, insertErr := jobs.InsertRecording(ctx, runtime, client, jobs.RecordingIngestArgs{MusicBrainzID: strings.ToLower(input.Body.Value), Reason: "interactive_resolution"}, jobs.PriorityInteractive)
+			if insertErr != nil {
+				return nil, insertErr
 			}
-			return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: document}}, nil
+			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.RecordingIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
 		if input.Body.Kind == "tv_show" {
 			entityID, err := tvService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
@@ -490,6 +499,9 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			}
 			return &refreshOutput{Status: http.StatusAccepted, Body: jobResource{ID: inserted.Job.ID, Kind: jobs.ReleaseIngestKind, State: string(inserted.Job.State)}}, nil
 		}
+		if kind == "recording" {
+			return nil, huma.Error404NotFound("recordings are refreshed internally")
+		}
 		if kind == "tv_show" {
 			var value string
 			if err := runtime.DB.QueryRow(ctx, `SELECT normalized_value FROM external_id_claims WHERE entity_id=$1 AND provider='tvmaze' AND namespace='show' AND state='accepted'`, input.ID).Scan(&value); err != nil {
@@ -558,6 +570,9 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		}
 		if entityID == nil && failure == nil {
 			_ = runtime.DB.QueryRow(ctx, `SELECT entity_id,error FROM release_ingestion_runs WHERE river_job_id=$1`, input.ID).Scan(&entityID, &failure)
+		}
+		if entityID == nil && failure == nil {
+			_ = runtime.DB.QueryRow(ctx, `SELECT entity_id,error FROM recording_ingestion_runs WHERE river_job_id=$1`, input.ID).Scan(&entityID, &failure)
 		}
 		if entityID == nil && failure == nil {
 			_ = runtime.DB.QueryRow(ctx, `SELECT entity_id,error FROM episodic_ingestion_runs WHERE river_job_id=$1`, input.ID).Scan(&entityID, &failure)

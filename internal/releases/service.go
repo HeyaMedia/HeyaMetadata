@@ -21,6 +21,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
+	"github.com/HeyaMedia/HeyaMetadata/internal/recordings"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -219,6 +220,14 @@ func (s *Service) persistRecording(ctx context.Context, tx pgx.Tx, r releasedoma
 	if err != nil {
 		return "", 0, err
 	}
+	var existing releasedomain.RecordingDocument
+	var existingBody []byte
+	if loadErr := tx.QueryRow(ctx, `SELECT document FROM canonical_recordings WHERE entity_id=$1`, id).Scan(&existingBody); loadErr == nil {
+		_ = json.Unmarshal(existingBody, &existing)
+	} else if loadErr != pgx.ErrNoRows {
+		return "", 0, loadErr
+	}
+	r = recordings.MergeData(existing.Data, r)
 	_, _ = tx.Exec(ctx, `INSERT INTO external_id_claims(entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at)VALUES($1,'recording',$2,$3,$4,'accepted',1,$5,$6,$6)ON CONFLICT(entity_kind,provider,namespace,normalized_value)DO UPDATE SET state='accepted',last_observed_at=EXCLUDED.last_observed_at WHERE external_id_claims.entity_id=EXCLUDED.entity_id`, id, r.Provider, r.Namespace, strings.ToLower(r.ProviderID), source.PrimaryObservationID, source.ObservedAt)
 	for _, isrc := range r.ISRCs {
 		value := strings.ToUpper(isrc)
@@ -247,7 +256,7 @@ func (s *Service) persistRecording(ctx context.Context, tx pgx.Tx, r releasedoma
 	doc := releasedomain.RecordingDocument{SchemaVersion: 1, ProjectionVersion: version, ID: id, Kind: "recording", Slug: slug, Display: releasedomain.Display{Title: r.Title}, ExternalIDs: external, Data: r, Freshness: recordingFresh, Provenance: map[string][]releasedomain.SourceRef{"data": {{Provider: source.Provider, ObservationID: source.PrimaryObservationID}}}}
 	body, _ := json.Marshal(doc)
 	sum := sha256.Sum256(body)
-	_, err = tx.Exec(ctx, `INSERT INTO canonical_recordings(entity_id,merge_version,source_fingerprint,document)VALUES($1,'recording-merge/v1',$2,$3)ON CONFLICT(entity_id)DO UPDATE SET source_fingerprint=EXCLUDED.source_fingerprint,document=EXCLUDED.document,updated_at=now()`, id, hex.EncodeToString(sum[:]), body)
+	_, err = tx.Exec(ctx, `INSERT INTO canonical_recordings(entity_id,merge_version,source_fingerprint,document)VALUES($1,$2,$3,$4)ON CONFLICT(entity_id)DO UPDATE SET merge_version=EXCLUDED.merge_version,source_fingerprint=EXCLUDED.source_fingerprint,document=EXCLUDED.document,updated_at=now()`, id, releasedomain.RecordingMergeVersion, hex.EncodeToString(sum[:]), body)
 	if err != nil {
 		return "", 0, err
 	}
@@ -258,6 +267,8 @@ func (s *Service) persistRecording(ctx context.Context, tx pgx.Tx, r releasedoma
 		_, _ = tx.Exec(ctx, `DELETE FROM search_names WHERE entity_id=$1`, id)
 		_, _ = tx.Exec(ctx, `INSERT INTO search_names(entity_id,value,normalized_value,name_type,source_quality)VALUES($1,$2,lower(unaccent($2)),'display',90)ON CONFLICT DO NOTHING`, id, r.Title)
 	}
+	_, _ = tx.Exec(ctx, `INSERT INTO provider_refresh_states(entity_id,provider,last_attempt_at,last_success_at,last_observation_id,next_eligible_at)VALUES($1,'musicbrainz',now(),now(),$2,$3)ON CONFLICT(entity_id,provider)DO UPDATE SET last_attempt_at=now(),last_success_at=now(),last_observation_id=EXCLUDED.last_observation_id,next_eligible_at=EXCLUDED.next_eligible_at`, id, source.PrimaryObservationID, fresh.FreshUntil)
+	_, _ = tx.Exec(ctx, `INSERT INTO provider_refresh_states(entity_id,provider,next_eligible_at)VALUES($1,'lrclib',now())ON CONFLICT(entity_id,provider)DO NOTHING`, id)
 	return id, version, err
 }
 
@@ -283,6 +294,7 @@ func persistRecordingEvidence(ctx context.Context, tx pgx.Tx, recordingID, recor
 		if err != nil {
 			return err
 		}
+		_, _ = tx.Exec(ctx, `UPDATE provider_refresh_states SET last_attempt_at=$2,last_success_at=$2,last_observation_id=$3,current_job_id=NULL,next_eligible_at=$2+interval '30 days',failure_class=NULL,failure_message=NULL WHERE entity_id=$1 AND provider='lrclib'`, recordingID, lyrics.ObservedAt, lyrics.PrimaryObservationID)
 	}
 	return nil
 }

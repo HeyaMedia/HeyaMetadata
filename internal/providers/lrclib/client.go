@@ -37,6 +37,10 @@ func NewCached(config config.LRCLIBConfig, resolver providers.PayloadResolver) *
 	return newClient(config, providers.NewCachedHTTPClient(6*time.Second, resolver))
 }
 
+func NewBackgroundCached(config config.LRCLIBConfig, resolver providers.PayloadResolver) *Client {
+	return newClient(config, providers.NewCachedHTTPClient(35*time.Second, resolver))
+}
+
 func newClient(config config.LRCLIBConfig, client *providers.HTTPClient) *Client {
 	return &Client{config: config, http: client, gate: providers.SharedRequestGate("lrclib:"+strings.TrimRight(config.BaseURL, "/"), config.RequestsPerSecond)}
 }

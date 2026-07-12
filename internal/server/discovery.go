@@ -57,8 +57,8 @@ func registerDiscovery(api huma.API, runtime *platform.Runtime) {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
 		request = discovery.NormalizeRequest(request)
-		if request.Kind != discovery.KindArtist && request.Kind != discovery.KindMovie && request.Kind != discovery.KindReleaseGroup && request.Kind != discovery.KindTVShow && request.Kind != discovery.KindAnime {
-			return nil, huma.Error400BadRequest("discovery kind must be movie, artist, release_group, tv_show, or anime")
+		if request.Kind != discovery.KindArtist && request.Kind != discovery.KindMovie && request.Kind != discovery.KindReleaseGroup && request.Kind != discovery.KindRecording && request.Kind != discovery.KindTVShow && request.Kind != discovery.KindAnime {
+			return nil, huma.Error400BadRequest("discovery kind must be movie, artist, release_group, recording, tv_show, or anime")
 		}
 		run, err := discovery.EnsureRun(ctx, runtime, request)
 		if err != nil {

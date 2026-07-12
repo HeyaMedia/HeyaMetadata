@@ -23,4 +23,7 @@ func TestPriorityBandsReserveCapacityForInteractiveWork(t *testing.T) {
 	if got := (RefreshSchedulerArgs{}).InsertOpts().Priority; got != PriorityScheduled {
 		t.Fatalf("scheduler priority: %d", got)
 	}
+	if opts := (RecordingEvidenceRefreshArgs{RecordingID: "id"}).InsertOpts(); opts.Queue != BackgroundQueue || opts.Priority != PriorityScheduled {
+		t.Fatalf("recording evidence queue/priority: %s/%d", opts.Queue, opts.Priority)
+	}
 }

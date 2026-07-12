@@ -131,16 +131,16 @@ provider track, checksum, and generation time. Failed permanent previews are
 kept as a bounded retry/negative-cache state but are not exposed publicly.
 
 The same release job performs LRCLIB's bounded, cached exact-signature lookup
-with track, artist, album, and rounded duration. Exact responses run through the shared
-Redis/S3 provider cache and observation system before plain and synchronized
+with track, artist, album, and rounded duration. Exact responses run through
+the shared Redis/S3 provider cache and observation system before plain and synchronized
 forms are stored on the recording. `GET
 /api/v2/recordings/{heya_id}/lyrics` returns the LRCLIB record ID, content
 checksum, source observation, retrieval time, and lyric forms. A missing lyric
 is negative-cached and does not fail release ingestion.
 
-LRCLIB's uncached lookup may itself fan out to external sources and is therefore
-reserved for a later low-priority refresh job; it cannot stall interactive
-release resolution.
+LRCLIB's uncached lookup may itself fan out to external sources and therefore
+runs only on an internal, single-worker background queue. It cannot stall
+interactive resolution, and no public endpoint can enqueue it.
 
 ## Implemented release and recording slice
 
@@ -156,6 +156,14 @@ its own credited title, artist credit, medium position, printed number,
 sequence, duration, and MusicBrainz track ID; it references the recording's
 Heya ID. Recordings are searchable locally and readable through
 `GET /api/v2/recordings/{heya_id}`.
+
+Standalone recordings use the same canonical identity and can be found through
+the generic discovery flow with artist, artist-MBID, duration, ISRC, and release
+hints. Resolving the selected MusicBrainz MBID runs `recording_ingest_v1` and
+retains the recording's disambiguation, artist credits, duration, ISRC
+evidence, genres/tags, rating, release appearances, and provider links. A later
+release ingestion merges its placement snapshot into that richer document
+instead of overwriting it.
 
 ISRC assertions are stored as proposed identity evidence. They never force an
 automatic merge; reuse by another recording opens an identity conflict. Apple,

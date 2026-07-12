@@ -18,8 +18,35 @@ func newDiscoverCommand() *cobra.Command {
 	command.AddCommand(newDiscoverArtistCommand())
 	command.AddCommand(newDiscoverMovieCommand())
 	command.AddCommand(newDiscoverReleaseGroupCommand())
+	command.AddCommand(newDiscoverRecordingCommand())
 	command.AddCommand(newDiscoverTVCommand())
 	command.AddCommand(newDiscoverAnimeCommand())
+	return command
+}
+
+func newDiscoverRecordingCommand() *cobra.Command {
+	var query string
+	var artists, artistIDs, isrcs, releases []string
+	var durationMS int64
+	var limit int
+	var wait time.Duration
+	command := &cobra.Command{Use: "recording", Short: "Discover MusicBrainz recording candidates with structured hints", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		request := discovery.Request{Kind: discovery.KindRecording, Query: query, Limit: limit, Hints: discovery.Hints{Artists: artists, ArtistIDs: artistIDs, ISRCs: isrcs, DurationMS: durationMS}}
+		for _, value := range releases {
+			hint, err := parseReleaseHint(value)
+			if err != nil {
+				return err
+			}
+			request.Hints.Releases = append(request.Hints.Releases, hint)
+		}
+		return runDiscovery(cmd, request, wait, providercredentials.Credentials{})
+	}}
+	command.Flags().StringSliceVar(&artists, "artist", nil, "Credited artist name; repeat or comma-separate")
+	command.Flags().StringSliceVar(&artistIDs, "artist-mbid", nil, "Credited MusicBrainz artist ID; repeat or comma-separate")
+	command.Flags().StringSliceVar(&isrcs, "isrc", nil, "Known ISRC; repeat or comma-separate")
+	command.Flags().StringSliceVar(&releases, "release", nil, "Known release as title or title:year; repeatable")
+	command.Flags().Int64Var(&durationMS, "duration-ms", 0, "Known recording duration in milliseconds")
+	addDiscoveryCommonFlags(command, &query, &limit, &wait)
 	return command
 }
 

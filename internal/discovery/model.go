@@ -12,6 +12,7 @@ const (
 	KindAnime        = "anime"
 	KindArtist       = "artist"
 	KindReleaseGroup = "release_group"
+	KindRecording    = "recording"
 )
 
 type Request struct {
@@ -42,6 +43,8 @@ type Hints struct {
 	Studios       []string      `json:"studios,omitempty"`
 	Episodes      []EpisodeHint `json:"episodes,omitempty"`
 	Releases      []ReleaseHint `json:"releases,omitempty"`
+	DurationMS    int64         `json:"duration_ms,omitempty"`
+	ISRCs         []string      `json:"isrcs,omitempty"`
 }
 type EpisodeHint struct {
 	Title  string `json:"title,omitempty"`
@@ -90,6 +93,9 @@ type Display struct {
 	EndDate        string          `json:"end_date,omitempty"`
 	Ended          *bool           `json:"ended,omitempty"`
 	Aliases        []string        `json:"aliases,omitempty"`
+	DurationMS     int64           `json:"duration_ms,omitempty"`
+	ISRCs          []string        `json:"isrcs,omitempty"`
+	Releases       []ReleaseHint   `json:"releases,omitempty"`
 }
 type ArtistDisplay struct {
 	ID   string `json:"id,omitempty"`
