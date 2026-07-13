@@ -16,11 +16,14 @@ const facts = computed<Fact[]>(() => {
     { label: 'Page count', value: d.page_count },
     { label: 'Published', value: formatDate(d.published_date) },
     { label: 'Publishers', value: d.publishers },
-    { label: 'Subjects', value: (d.subjects ?? []).slice(0, 12) },
   ]
 })
 
+const subjects = computed(() => (Array.isArray(data.value.subjects) ? data.value.subjects : []))
 const editions = computed(() => (Array.isArray(data.value.editions) ? data.value.editions : []))
+const EDITION_CAP = 20
+const showAllEditions = ref(false)
+const shownEditions = computed(() => (showAllEditions.value ? editions.value : editions.value.slice(0, EDITION_CAP)))
 </script>
 
 <template>
@@ -31,9 +34,11 @@ const editions = computed(() => (Array.isArray(data.value.editions) ? data.value
 
     <ExternalIdsPanel :external-ids="entity.external_ids" />
 
+    <ChipCloud title="Subjects" kicker="Themes" :items="subjects" full />
+
     <OverviewPanel v-if="editions.length" :title="`Editions (${editions.length})`" kicker="Publications" full>
       <ol class="line-list">
-        <li v-for="(edition, index) in editions" :key="edition.id || index">
+        <li v-for="(edition, index) in shownEditions" :key="edition.id || index">
           <span class="line-list__main">
             <span class="line-list__title">{{ formatValue(edition.title) || 'Edition' }}</span>
             <span class="line-list__sub">{{ [formatValue(edition.publishers), formatValue(edition.isbn_13)].filter(Boolean).join(' · ') }}</span>
@@ -41,6 +46,13 @@ const editions = computed(() => (Array.isArray(data.value.editions) ? data.value
           <span class="line-list__meta">{{ formatDate(edition.published_date) }}</span>
         </li>
       </ol>
+      <button v-if="editions.length > EDITION_CAP" type="button" class="btn--link editions__more" @click="showAllEditions = !showAllEditions">
+        {{ showAllEditions ? 'Show fewer' : `Show all ${editions.length} editions` }}
+      </button>
     </OverviewPanel>
   </div>
 </template>
+
+<style scoped>
+.editions__more { margin-top: 0.85rem; color: var(--gold); }
+</style>

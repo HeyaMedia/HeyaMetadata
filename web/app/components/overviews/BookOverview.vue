@@ -12,12 +12,15 @@ const facts = computed<Fact[]>(() => {
     { label: 'Authors', value: (d.authors ?? []).map((author: any) => formatValue(author.name)) },
     { label: 'Editions', value: Array.isArray(d.editions) ? d.editions.length : '' },
     { label: 'Medium', value: titleCase(d.publication?.medium) },
-    { label: 'Subjects', value: (d.subjects ?? []).slice(0, 12) },
+    { label: 'Published', value: formatDate(d.publication?.first_published ?? d.first_publish_date) },
   ]
 })
 
+const subjects = computed(() => (Array.isArray(data.value.subjects) ? data.value.subjects : []))
 const editions = computed(() => (Array.isArray(data.value.editions) ? data.value.editions : []))
-const shownEditions = computed(() => editions.value.slice(0, 16))
+const EDITION_CAP = 20
+const showAllEditions = ref(false)
+const shownEditions = computed(() => (showAllEditions.value ? editions.value : editions.value.slice(0, EDITION_CAP)))
 </script>
 
 <template>
@@ -28,6 +31,8 @@ const shownEditions = computed(() => editions.value.slice(0, 16))
 
     <ExternalIdsPanel :external-ids="entity.external_ids" />
 
+    <ChipCloud title="Subjects" kicker="Themes" :items="subjects" full />
+
     <OverviewPanel v-if="editions.length" :title="`Editions (${editions.length})`" kicker="Publications" full>
       <ol class="line-list">
         <li v-for="(edition, index) in shownEditions" :key="edition.id || index">
@@ -37,11 +42,13 @@ const shownEditions = computed(() => editions.value.slice(0, 16))
           </span>
         </li>
       </ol>
-      <p v-if="editions.length > shownEditions.length" class="muted more-note">+ {{ editions.length - shownEditions.length }} more editions</p>
+      <button v-if="editions.length > EDITION_CAP" type="button" class="btn--link editions__more" @click="showAllEditions = !showAllEditions">
+        {{ showAllEditions ? 'Show fewer' : `Show all ${editions.length} editions` }}
+      </button>
     </OverviewPanel>
   </div>
 </template>
 
 <style scoped>
-.more-note { margin: 0.8rem 0 0; font-size: 0.72rem; }
+.editions__more { margin-top: 0.85rem; color: var(--gold); }
 </style>
