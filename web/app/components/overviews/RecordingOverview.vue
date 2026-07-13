@@ -12,7 +12,6 @@ const facts = computed<Fact[]>(() => {
     ? `${d.rating.value}${d.rating.votes ? ` · ${formatCount(d.rating.votes)} votes` : ''}`
     : ''
   return [
-    { label: 'Artist', value: artistCreditLine(d.artist_credits) },
     { label: 'Duration', value: formatDuration(d.duration_ms) },
     { label: 'ISRCs', value: d.isrcs },
     { label: 'Provider', value: formatKey(d.provider) },

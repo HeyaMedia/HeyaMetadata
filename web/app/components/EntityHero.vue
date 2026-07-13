@@ -56,9 +56,23 @@ const metaChips = computed(() => {
   if (status) chips.push(titleCase(status))
   const runtime = formatRuntime(data.runtime_minutes ?? data.measurements?.runtime_minutes)
   if (runtime) chips.push(runtime)
-  const artistCredit = formatValue(props.entity.display?.artist_credit)
-  if (artistCredit) chips.unshift(artistCredit)
   return chips
+})
+
+// Linked artist credits (album/recording/release) — wires music entities to
+// their artist pages. Falls back to the display credit string when unlinked.
+const artistCredits = computed<{ name: string; to?: string }[]>(() => {
+  const credits = props.entity.data?.artist_credits
+  if (Array.isArray(credits) && credits.length) {
+    return credits
+      .map((credit: any) => ({
+        name: formatValue(credit.artist_name ?? credit.name),
+        to: credit.artist_id ? entityPath({ id: credit.artist_id, kind: 'artist' }) : undefined,
+      }))
+      .filter(credit => credit.name)
+  }
+  const display = formatValue(props.entity.display?.artist_credit)
+  return display ? [{ name: display }] : []
 })
 
 // Kind-aware headline stats — the main lever that makes each hero feel distinct.
@@ -139,6 +153,9 @@ async function copyId() {
       </h1>
       <h1 v-else class="editorial hero__title">{{ title }}</h1>
       <p v-if="originalTitle" class="hero__original">{{ originalTitle }}</p>
+      <p v-if="artistCredits.length" class="hero__artists">
+        by <template v-for="(credit, index) in artistCredits" :key="index"><NuxtLink v-if="credit.to" :to="credit.to" class="hero__artist-link">{{ credit.name }}</NuxtLink><span v-else>{{ credit.name }}</span><template v-if="index < artistCredits.length - 1">, </template></template>
+      </p>
 
       <p v-if="description" class="hero__description" :class="{ 'is-clamped': longDescription && !expanded }">
         {{ description }}
@@ -243,7 +260,10 @@ async function copyId() {
 .hero__kicker span { color: var(--gold); }
 .hero__kicker i { width: 0.25rem; height: 0.25rem; border-radius: 50%; background: #536064; }
 .hero__title { margin: 0.7rem 0 0.4rem; font-size: clamp(2rem, 4.2vw, 3.6rem); }
-.hero__original { margin: 0 0 0.6rem; color: #758087; font-size: 0.92rem; }
+.hero__original { margin: 0 0 0.4rem; color: #758087; font-size: 0.92rem; }
+.hero__artists { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.95rem; }
+.hero__artist-link { color: var(--gold); }
+.hero__artist-link:hover { text-decoration: underline; }
 .hero__description {
   max-width: 52rem;
   margin: 0.75rem 0 0;

@@ -9,7 +9,6 @@ const data = computed<any>(() => props.entity.data ?? {})
 const facts = computed<Fact[]>(() => {
   const d = data.value
   return [
-    { label: 'Artist', value: firstValue(props.entity.display?.artist_credit, artistCreditLine(d.artist_credits)) },
     { label: 'Status', value: titleCase(d.status) },
     { label: 'Released', value: formatDate(d.date) },
     { label: 'Country', value: d.country },
