@@ -193,14 +193,18 @@ export interface PersonDocument {
 }
 
 export interface PersonCredit {
-  entity_id: string
+  entity_id?: string
+  provider?: string
+  provider_target_id?: string
   kind: string
   title?: string
   year?: number
   image_id?: string
   credit_type?: string
   character?: string
+  department?: string
   job?: string
+  order?: number
 }
 
 export interface PersonCreditsResponse {
