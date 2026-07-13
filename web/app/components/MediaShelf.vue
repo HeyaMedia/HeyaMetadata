@@ -15,31 +15,18 @@ const props = withDefaults(defineProps<{
 }>(), { kicker: '', shape: 'poster' })
 
 const expanded = ref(false)
-const rail = ref<HTMLElement | null>(null)
-const atStart = ref(true)
-const atEnd = ref(false)
+const { rail, atStart, atEnd, pan, update } = useRailPan()
 
-function updateEdges() {
-  const el = rail.value
-  if (!el) return
-  atStart.value = el.scrollLeft <= 4
-  atEnd.value = el.scrollLeft + el.clientWidth >= el.scrollWidth - 4
-}
-function pan(direction: number) {
-  const el = rail.value
-  if (!el) return
-  el.scrollBy({ left: direction * Math.max(240, el.clientWidth * 0.8), behavior: 'smooth' })
-}
 function keyOf(item: any, index: number) {
   return props.itemKey ? props.itemKey(item, index) : (item?.id ?? index)
 }
 
-// Recompute edges whenever the rail appears/changes. A template @scroll binding
-// (below) drives updates on scroll — attaching in onMounted would miss the rail
-// for shelves whose items load asynchronously (the section is v-if'd on
-// items.length, so the rail does not exist yet at mount).
-watch([() => props.items, expanded], () => nextTick(updateEdges), { immediate: true })
-onMounted(() => nextTick(updateEdges))
+// Recompute edges whenever the rail appears/changes. The template @scroll binding
+// drives updates on scroll — attaching in onMounted would miss rails whose items
+// load asynchronously (the section is v-if'd on items.length, so the rail does
+// not exist yet at mount).
+watch([() => props.items, expanded], () => nextTick(update), { immediate: true })
+onMounted(() => nextTick(update))
 
 </script>
 
@@ -50,10 +37,10 @@ onMounted(() => nextTick(updateEdges))
         <span v-if="kicker" class="section-label">{{ kicker }}</span>
         <h2>{{ title }} <small>{{ items.length }}</small></h2>
       </div>
-      <div class="shelf__controls">
+      <div class="rail-controls">
         <template v-if="!expanded">
-          <button type="button" class="shelf__nav" :disabled="atStart" aria-label="Scroll left" @click="pan(-1)">‹</button>
-          <button type="button" class="shelf__nav" :disabled="atEnd" aria-label="Scroll right" @click="pan(1)">›</button>
+          <button type="button" class="rail-nav" :disabled="atStart" aria-label="Scroll left" @click="pan(-1)">‹</button>
+          <button type="button" class="rail-nav" :disabled="atEnd" aria-label="Scroll right" @click="pan(1)">›</button>
         </template>
         <button type="button" class="btn--link shelf__toggle" :aria-expanded="expanded" @click="expanded = !expanded">
           {{ expanded ? 'Collapse' : 'Expand all' }}
@@ -61,7 +48,7 @@ onMounted(() => nextTick(updateEdges))
       </div>
     </header>
 
-    <div v-if="!expanded" ref="rail" class="rail-track shelf__rail" :class="`is-${shape}`" @scroll.passive="updateEdges">
+    <div v-if="!expanded" ref="rail" class="rail-track shelf__rail" :class="`is-${shape}`" @scroll.passive="update">
       <div v-for="(item, index) in items" :key="keyOf(item, index)" class="shelf-cell">
         <slot :item="item" :index="index" />
       </div>
@@ -75,22 +62,6 @@ onMounted(() => nextTick(updateEdges))
 </template>
 
 <style scoped>
-.shelf__controls { display: flex; align-items: center; gap: 0.6rem; }
-.shelf__nav {
-  display: grid;
-  place-items: center;
-  width: 1.9rem;
-  height: 1.9rem;
-  padding-bottom: 2px;
-  border: 1px solid var(--line-strong);
-  border-radius: 50%;
-  background: var(--panel);
-  color: var(--text-dim);
-  font-size: 1.05rem;
-  line-height: 1;
-}
-.shelf__nav:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
-.shelf__nav:disabled { opacity: 0.32; cursor: default; }
 .shelf__toggle { color: var(--muted); }
 .shelf__toggle:hover { color: var(--gold); }
 

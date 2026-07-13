@@ -223,6 +223,24 @@ img { max-width: 100%; }
 .rail-track::-webkit-scrollbar-track { background: transparent; }
 
 /* fixed rail card widths per shape */
+/* Pan controls shared by MediaRail and MediaShelf */
+.rail-controls { display: flex; align-items: center; gap: 0.6rem; }
+.rail-nav {
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding-bottom: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--text-dim);
+  font-size: 1.05rem;
+  line-height: 1;
+}
+.rail-nav:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+.rail-nav:disabled { opacity: 0.32; cursor: default; }
+
 .rail-track.is-poster > * { width: var(--card-poster-w); }
 .rail-track.is-portrait > * { width: var(--card-portrait-w); }
 .rail-track.is-square > * { width: var(--card-square-w); }
