@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTokenStaysOutOfRequestIdentity(t *testing.T) {
@@ -56,5 +57,18 @@ func TestBarcodeSearchKeepsCredentialOutOfIdentity(t *testing.T) {
 	}
 	if strings.Contains(payload.RequestKey, secret) {
 		t.Fatal("credential leaked")
+	}
+}
+
+func TestDiscogsRateLimitCooldown(t *testing.T) {
+	t.Parallel()
+	if got := discogsCooldown(providers.Payload{StatusCode: http.StatusTooManyRequests, Headers: http.Header{"Retry-After": {"2"}}}); got != 2*time.Second {
+		t.Fatalf("Retry-After cooldown: %s", got)
+	}
+	if got := discogsCooldown(providers.Payload{StatusCode: http.StatusOK, Headers: http.Header{"X-Discogs-Ratelimit-Remaining": {"0"}}}); got != time.Minute {
+		t.Fatalf("budget cooldown: %s", got)
+	}
+	if got := discogsCooldown(providers.Payload{StatusCode: http.StatusTooManyRequests, FromCache: true}); got != 0 {
+		t.Fatalf("cached cooldown: %s", got)
 	}
 }

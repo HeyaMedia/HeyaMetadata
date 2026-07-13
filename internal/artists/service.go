@@ -159,37 +159,33 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 			normalized, recordErr = discogs.NormalizeArtist(recorded[0].Payload.Body, recorded[0].ID, recorded[0].Payload.ObservedAt)
 		case "lastfm":
 			normalized, recordErr = lastfm.NormalizeArtist(recorded[0].Payload.Body, mbid, expectedLastFMNames, recorded[0].ID, recorded[0].Payload.ObservedAt)
+			lastFMNameLookup := ""
+			if recordErr != nil {
+				fallbackResolver, fallbackErr := providercache.New(s.runtime, artistdomain.LastFMNormalizerVersion, step.Collector.Capability().RawRetention, step.Collector.Capability().ResponseCache, riverJobID)
+				if fallbackErr != nil {
+					recordErr = fallbackErr
+				} else {
+					lastFMClient := lastfm.NewCached(s.runtime.Config.Providers.LastFM, fallbackResolver, credentials.APIKey("lastfm"))
+					normalized, lastFMNameLookup, recordErr = s.collectLastFMArtistByName(ctx, lastFMClient, step.Collector.Capability(), mbid, expectedLastFMNames, riverJobID)
+				}
+			}
 			if recordErr == nil {
 				topCapability := lastfm.New(s.runtime.Config.Providers.LastFM).Capability()
 				topResolver, topErr := providercache.New(s.runtime, artistdomain.LastFMTopTracksVersion, topCapability.RawRetention, topCapability.ResponseCache, riverJobID)
 				if topErr == nil {
-					topPayload, collectTopErr := lastfm.NewCached(s.runtime.Config.Providers.LastFM, topResolver, credentials.APIKey("lastfm")).ArtistTopTracks(ctx, mbid, 100, 1)
-					if collectTopErr != nil {
-						topErr = collectTopErr
-					} else {
-						topRecorded, topRecordErr := s.recordPayloads(ctx, []providers.Payload{topPayload}, artistdomain.LastFMTopTracksVersion, topCapability, riverJobID)
-						if topRecordErr != nil || len(topRecorded) == 0 {
-							topErr = topRecordErr
-							if topErr == nil {
-								topErr = fmt.Errorf("Last.fm top tracks returned no observation")
-							}
-						} else if topRecorded[0].Payload.StatusCode != http.StatusOK {
-							topErr = &providers.StatusError{Provider: "lastfm", StatusCode: topRecorded[0].Payload.StatusCode}
-						} else {
-							snapshot, normalizeTopErr := lastfm.NormalizeArtistTopTracks(topRecorded[0].Payload.Body, mbid, expectedLastFMNames)
-							if normalizeTopErr != nil {
-								topErr = normalizeTopErr
-							} else {
-								normalized.TopTracks = snapshot.Tracks
-								normalized.TopTracksObserved = true
-								normalized.TopTracksTotal = snapshot.Total
-								normalized.TopTracksObservationID = topRecorded[0].ID
-								normalized.TopTracksObservedAt = topRecorded[0].Payload.ObservedAt
-								normalized.ProviderRecord.SupportingObservationIDs = append(normalized.ProviderRecord.SupportingObservationIDs, topRecorded[0].ID)
-								if snapshot.NameScoped {
-									normalized.Warnings = append(normalized.Warnings, "Last.fm top tracks retained as a name-scoped aggregate")
-								}
-							}
+					topClient := lastfm.NewCached(s.runtime.Config.Providers.LastFM, topResolver, credentials.APIKey("lastfm"))
+					var snapshot lastfm.TopTracksSnapshot
+					var topRecorded ingest.RecordedObservation
+					snapshot, topRecorded, topErr = s.collectLastFMTopTracks(ctx, topClient, topCapability, mbid, expectedLastFMNames, lastFMNameLookup, riverJobID)
+					if topErr == nil {
+						normalized.TopTracks = snapshot.Tracks
+						normalized.TopTracksObserved = true
+						normalized.TopTracksTotal = snapshot.Total
+						normalized.TopTracksObservationID = topRecorded.ID
+						normalized.TopTracksObservedAt = topRecorded.Payload.ObservedAt
+						normalized.ProviderRecord.SupportingObservationIDs = append(normalized.ProviderRecord.SupportingObservationIDs, topRecorded.ID)
+						if snapshot.NameScoped || lastFMNameLookup != "" {
+							normalized.Warnings = append(normalized.Warnings, "Last.fm top tracks retained as a name-scoped aggregate")
 						}
 					}
 				}
@@ -242,6 +238,116 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 		return Result{}, err
 	}
 	return result, nil
+}
+
+func (s *Service) collectLastFMArtistByName(ctx context.Context, client *lastfm.Client, capability providers.Capability, mbid string, expectedNames []string, riverJobID int64) (artistdomain.NormalizedRecordV1, string, error) {
+	var lastErr error
+	for _, name := range lastFMNameCandidates(expectedNames) {
+		payload, err := client.ArtistInfoByName(ctx, name)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		recorded, err := s.recordPayloads(ctx, []providers.Payload{payload}, artistdomain.LastFMNormalizerVersion, capability, riverJobID)
+		if err != nil || len(recorded) == 0 {
+			if err == nil {
+				err = fmt.Errorf("Last.fm name lookup returned no observation")
+			}
+			lastErr = err
+			continue
+		}
+		if recorded[0].Payload.StatusCode != http.StatusOK {
+			lastErr = &providers.StatusError{Provider: "lastfm", StatusCode: recorded[0].Payload.StatusCode}
+			continue
+		}
+		normalized, err := lastfm.NormalizeArtist(recorded[0].Payload.Body, mbid, expectedNames, recorded[0].ID, recorded[0].Payload.ObservedAt)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		normalized.Warnings = append(normalized.Warnings, "Last.fm artist retained from an exact canonical-name lookup")
+		return normalized, name, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("Last.fm artist has no usable canonical-name fallback")
+	}
+	return artistdomain.NormalizedRecordV1{}, "", lastErr
+}
+
+func (s *Service) collectLastFMTopTracks(ctx context.Context, client *lastfm.Client, capability providers.Capability, mbid string, expectedNames []string, profileNameLookup string, riverJobID int64) (lastfm.TopTracksSnapshot, ingest.RecordedObservation, error) {
+	lookups := make([]string, 0, len(expectedNames)+1)
+	if profileNameLookup == "" {
+		lookups = append(lookups, "") // Prefer the durable MBID when it works.
+	} else {
+		lookups = append(lookups, profileNameLookup)
+	}
+	lookups = append(lookups, lastFMNameCandidates(expectedNames)...)
+	seen := map[string]bool{}
+	var lastErr error
+	for _, name := range lookups {
+		key := strings.ToLower(strings.Join(strings.Fields(name), " "))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		var payload providers.Payload
+		var err error
+		if name == "" {
+			payload, err = client.ArtistTopTracks(ctx, mbid, 100, 1)
+		} else {
+			payload, err = client.ArtistTopTracksByName(ctx, name, 100, 1)
+		}
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		recorded, err := s.recordPayloads(ctx, []providers.Payload{payload}, artistdomain.LastFMTopTracksVersion, capability, riverJobID)
+		if err != nil || len(recorded) == 0 {
+			if err == nil {
+				err = fmt.Errorf("Last.fm top tracks returned no observation")
+			}
+			lastErr = err
+			continue
+		}
+		if recorded[0].Payload.StatusCode != http.StatusOK {
+			lastErr = &providers.StatusError{Provider: "lastfm", StatusCode: recorded[0].Payload.StatusCode}
+			continue
+		}
+		snapshot, err := lastfm.NormalizeArtistTopTracks(recorded[0].Payload.Body, mbid, expectedNames)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if name != "" {
+			snapshot.NameScoped = true
+			for index := range snapshot.Tracks {
+				snapshot.Tracks[index].RecordingMBID = ""
+			}
+		}
+		return snapshot, recorded[0], nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("Last.fm top tracks have no usable lookup")
+	}
+	return lastfm.TopTracksSnapshot{}, ingest.RecordedObservation{}, lastErr
+}
+
+func lastFMNameCandidates(names []string) []string {
+	result := make([]string, 0, min(len(names), 8))
+	seen := map[string]bool{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		key := strings.ToLower(strings.Join(strings.Fields(name), " "))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, name)
+		if len(result) == 8 {
+			break
+		}
+	}
+	return result
 }
 
 func artistNormalizerVersion(provider string) string {
@@ -376,7 +482,7 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 			return Result{}, err
 		}
 	}
-	rows, err := tx.Query(ctx, `SELECT DISTINCT ON (provider,provider_namespace,provider_record_id) id,document FROM normalized_records WHERE entity_id=$1 AND entity_kind='artist' ORDER BY provider,provider_namespace,provider_record_id,observed_at DESC`, entityID)
+	rows, err := tx.Query(ctx, `SELECT DISTINCT ON (provider,provider_namespace,provider_record_id) id,document FROM normalized_records WHERE entity_id=$1 AND entity_kind='artist' ORDER BY provider,provider_namespace,provider_record_id,observed_at DESC,created_at DESC`, entityID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -396,8 +502,16 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 		records = append(records, artistdomain.RecordInput{ID: id, Record: record})
 	}
 	rows.Close()
+	// Last.fm now serves the same placeholder star for artist images. Retire any
+	// candidates created by older normalizers whenever the artist is refreshed.
+	if _, err := tx.Exec(ctx, `DELETE FROM image_candidates WHERE entity_id=$1 AND provider='lastfm'`, entityID); err != nil {
+		return Result{}, fmt.Errorf("retire Last.fm artist images: %w", err)
+	}
 	imageIDs := map[string]string{}
 	for _, input := range records {
+		if input.Record.ProviderRecord.Provider == "lastfm" {
+			continue
+		}
 		for _, image := range input.Record.Images {
 			if image.SourceURL == "" {
 				continue

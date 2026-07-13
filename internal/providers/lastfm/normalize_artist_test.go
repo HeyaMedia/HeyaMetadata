@@ -11,7 +11,7 @@ func TestNormalizeArtistRequiresMatchingMBIDAndPreservesAudienceEvidence(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(record.Metrics) != 2 || len(record.Images) != 1 || len(record.SimilarArtists) != 1 || record.SimilarArtists[0].ProviderID != "" {
+	if len(record.Metrics) != 2 || len(record.Images) != 0 || len(record.SimilarArtists) != 1 || record.SimilarArtists[0].ProviderID != "" {
 		t.Fatalf("record: %+v", record)
 	}
 	if _, err := NormalizeArtist([]byte(`{"artist":{"name":"Wrong","mbid":"00000000-0000-0000-0000-000000000001"}}`), mbid, []string{"The Beatles"}, "observation", time.Now()); err == nil {

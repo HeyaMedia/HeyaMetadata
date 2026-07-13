@@ -146,7 +146,7 @@ func (c *Client) get(ctx context.Context, path string, values url.Values, payloa
 		return providers.Payload{}, fmt.Errorf("build Discogs request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
-	return c.http.DoPrepared(ctx, request, payload, func(request *http.Request) error {
+	result, err := c.http.DoPrepared(ctx, request, payload, func(request *http.Request) error {
 		if strings.TrimSpace(c.config.UserAgent) == "" {
 			return fmt.Errorf("Discogs requires HEYA_METADATA_DISCOGS_USER_AGENT")
 		}
@@ -166,6 +166,28 @@ func (c *Client) get(ctx context.Context, path string, values url.Values, payloa
 		}
 		return nil
 	}, classify(reuse))
+	if err == nil {
+		c.gate.Defer(discogsCooldown(result))
+	}
+	return result, err
+}
+
+func discogsCooldown(payload providers.Payload) time.Duration {
+	if payload.FromCache {
+		return 0
+	}
+	if value := strings.TrimSpace(payload.Headers.Get("Retry-After")); value != "" {
+		if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+		if deadline, err := http.ParseTime(value); err == nil {
+			return max(time.Until(deadline), 0)
+		}
+	}
+	if payload.StatusCode == http.StatusTooManyRequests || strings.TrimSpace(payload.Headers.Get("X-Discogs-Ratelimit-Remaining")) == "0" {
+		return time.Minute
+	}
+	return 0
 }
 
 func classify(reuse time.Duration) func(*providers.Payload) {

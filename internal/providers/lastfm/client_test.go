@@ -31,6 +31,36 @@ func TestAPIKeyStaysOutOfRequestIdentity(t *testing.T) {
 		t.Fatal("secret entered request identity")
 	}
 }
+
+func TestArtistNameFallbackMethodsStayNameScoped(t *testing.T) {
+	t.Parallel()
+	const secret = "lastfm-secret"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("api_key") != secret || r.URL.Query().Get("artist") != "ano" {
+			t.Errorf("unexpected query: %s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{"artist":{"name":"Ano"}}`))
+	}))
+	defer server.Close()
+	client := NewCached(config.LastFMConfig{BaseURL: server.URL, RequestsPerSecond: 1000}, nil, secret)
+	info, err := client.ArtistInfoByName(context.Background(), "ano")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracks, err := client.ArtistTopTracksByName(context.Background(), "ano", 100, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, payload := range []providers.Payload{info, tracks} {
+		if payload.ProviderRecordID != "ano" || strings.Contains(payload.RequestKey, secret) {
+			t.Fatalf("payload: %+v", payload)
+		}
+	}
+	if info.ProviderNamespace != "artist_name" || tracks.ProviderNamespace != "artist_top_tracks_name" {
+		t.Fatalf("namespaces: %q %q", info.ProviderNamespace, tracks.ProviderNamespace)
+	}
+}
+
 func TestLogicalNotFoundUsesShortNegativeReuse(t *testing.T) {
 	t.Parallel()
 	payload := providers.Payload{StatusCode: http.StatusOK, Body: []byte(`{"error":6,"message":"Artist not found"}`)}

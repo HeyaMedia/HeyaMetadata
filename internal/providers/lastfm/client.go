@@ -58,8 +58,7 @@ func (c *Client) Capability() providers.Capability {
 		},
 		Provides: []providers.Scope{
 			providers.ScopeIdentity, providers.ScopeTitles, providers.ScopeDescriptions,
-			providers.ScopeClassification, providers.ScopeRatings, providers.ScopeArtwork,
-			providers.ScopeRecommendations,
+			providers.ScopeClassification, providers.ScopeRatings, providers.ScopeRecommendations,
 		},
 	}
 }
@@ -77,6 +76,21 @@ func (c *Client) Collect(ctx context.Context, identifier providers.Identifier) (
 		return nil, err
 	}
 	return []providers.Payload{payload}, nil
+}
+
+// ArtistInfoByName is the conservative fallback for artists whose Last.fm MBID
+// mapping is missing or stale. Callers must still verify the returned artist
+// name against canonical provider evidence before using the payload.
+func (c *Client) ArtistInfoByName(ctx context.Context, name string) (providers.Payload, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return providers.Payload{}, fmt.Errorf("Last.fm artist lookup requires a name")
+	}
+	return c.call(ctx, "artist.getInfo", url.Values{
+		"artist": {name}, "autocorrect": {"1"},
+	}, providers.Payload{
+		Provider: "lastfm", ProviderNamespace: "artist_name", ProviderRecordID: name,
+	}, 12*time.Hour)
 }
 
 func (c *Client) Search(ctx context.Context, namespace, query string, limit, page int) (providers.Payload, error) {
@@ -100,6 +114,21 @@ func (c *Client) ArtistTopAlbums(ctx context.Context, mbid string, limit, page i
 
 func (c *Client) ArtistTopTracks(ctx context.Context, mbid string, limit, page int) (providers.Payload, error) {
 	return c.artistPage(ctx, "artist.getTopTracks", "artist_top_tracks", mbid, limit, page, 12*time.Hour)
+}
+
+// ArtistTopTracksByName accompanies ArtistInfoByName. The normalized result is
+// deliberately treated as name-scoped rather than durable artist identity.
+func (c *Client) ArtistTopTracksByName(ctx context.Context, name string, limit, page int) (providers.Payload, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return providers.Payload{}, fmt.Errorf("Last.fm top tracks lookup requires an artist name")
+	}
+	limit, page = pagination(limit, page, 50)
+	return c.call(ctx, "artist.getTopTracks", url.Values{
+		"artist": {name}, "autocorrect": {"1"}, "limit": {strconv.Itoa(limit)}, "page": {strconv.Itoa(page)},
+	}, providers.Payload{
+		Provider: "lastfm", ProviderNamespace: "artist_top_tracks_name", ProviderRecordID: name,
+	}, 12*time.Hour)
 }
 
 func (c *Client) ArtistSimilar(ctx context.Context, mbid string, limit int) (providers.Payload, error) {

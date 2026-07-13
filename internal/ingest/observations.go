@@ -136,7 +136,8 @@ func selectHeaders(headers http.Header) map[string]string {
 	selected := map[string]string{}
 	for _, name := range []string{
 		"Cache-Control", "Content-Type", "ETag", "Last-Modified",
-		"X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
+		"Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
+		"X-Discogs-Ratelimit", "X-Discogs-Ratelimit-Remaining", "X-Discogs-Ratelimit-Used",
 	} {
 		if value := strings.TrimSpace(headers.Get(name)); value != "" {
 			selected[http.CanonicalHeaderKey(name)] = value

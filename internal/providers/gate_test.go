@@ -25,3 +25,16 @@ func TestRequestGateSpacesRequestsAndHonorsCancellation(t *testing.T) {
 		t.Fatal("cancelled wait unexpectedly succeeded")
 	}
 }
+
+func TestRequestGateDefersAllCallers(t *testing.T) {
+	t.Parallel()
+	gate := &RequestGate{}
+	gate.Defer(30 * time.Millisecond)
+	started := time.Now()
+	if err := gate.Wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(started) < 20*time.Millisecond {
+		t.Fatal("gate did not honor provider cooldown")
+	}
+}

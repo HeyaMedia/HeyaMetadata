@@ -60,7 +60,7 @@
     {
       "id": "music.artist.images", "kind": "artist", "category": "fact",
       "description": "Portrait, fanart, logo, background, and provider avatar candidates receive opaque IDs and retain provenance.",
-      "providers": ["wikidata", "discogs", "deezer", "fanart", "lastfm", "apple"],
+      "providers": ["wikidata", "discogs", "deezer", "fanart", "apple"],
       "projection": {"document": "detail", "path": "data.images"},
       "references": [{"name": "Björk", "external_ids": {"musicbrainz": "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"}, "expected_providers": ["deezer", "wikidata"]}]
     },

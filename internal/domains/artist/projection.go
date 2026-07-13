@@ -205,9 +205,13 @@ func Combine(entityID, slug string, projectionVersion int64, records []RecordInp
 		}
 		for _, value := range record.Images {
 			key := ImageKey(provider, value)
+			imageID := imageIDs[key]
+			if imageID == "" {
+				continue
+			}
 			if !seen["image:"+key] {
 				seen["image:"+key] = true
-				projected := ProjectedImage{ID: imageIDs[key], Class: value.Class, Language: value.Language, Width: value.Width, Height: value.Height, ProviderScore: value.ProviderScore, Provider: provider}
+				projected := ProjectedImage{ID: imageID, Class: value.Class, Language: value.Language, Width: value.Width, Height: value.Height, ProviderScore: value.ProviderScore, Provider: provider}
 				detail.Data.Images = append(detail.Data.Images, projected)
 				if detail.Display.ImageID == "" && projected.ID != "" {
 					detail.Display.ImageID = projected.ID

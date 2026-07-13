@@ -60,3 +60,17 @@ func (g *RequestGate) Wait(ctx context.Context) error {
 	g.next = time.Now().Add(g.interval)
 	return nil
 }
+
+// Defer pauses every caller sharing this gate. Providers use it when an
+// upstream response reports an exhausted global budget or Retry-After delay.
+func (g *RequestGate) Defer(delay time.Duration) {
+	if delay <= 0 {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	next := time.Now().Add(delay)
+	if next.After(g.next) {
+		g.next = next
+	}
+}

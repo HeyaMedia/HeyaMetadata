@@ -10,7 +10,7 @@ const (
 	DeezerNormalizerVersion      = "deezer-artist/v1"
 	DiscogsNormalizerVersion     = "discogs-artist/v1"
 	FanartNormalizerVersion      = "fanart-music-artist/v1"
-	LastFMNormalizerVersion      = "lastfm-artist/v2"
+	LastFMNormalizerVersion      = "lastfm-artist/v3"
 	LastFMTopTracksVersion       = "lastfm-artist-top-tracks/v2"
 	WikidataNormalizerVersion    = "wikidata-artist/v1"
 	MergeVersion                 = "artist-merge/v1"

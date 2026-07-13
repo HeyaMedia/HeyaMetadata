@@ -16,10 +16,6 @@ func NormalizeArtist(body []byte, expectedMBID string, expectedNames []string, o
 			Name  string `json:"name"`
 			MBID  string `json:"mbid"`
 			URL   string `json:"url"`
-			Image []struct {
-				URL  string `json:"#text"`
-				Size string `json:"size"`
-			} `json:"image"`
 			Stats struct {
 				Listeners string `json:"listeners"`
 				Playcount string `json:"playcount"`
@@ -87,15 +83,6 @@ func NormalizeArtist(body []byte, expectedMBID string, expectedNames []string, o
 		if value, err := strconv.ParseFloat(metric.raw, 64); err == nil {
 			record.Metrics = append(record.Metrics, artistdomain.Metric{Name: metric.name, Value: value, RawValue: metric.raw})
 		}
-	}
-	seenImages := map[string]bool{}
-	for _, image := range source.Image {
-		url := strings.TrimSpace(image.URL)
-		if url == "" || seenImages[url] {
-			continue
-		}
-		seenImages[url] = true
-		record.Images = append(record.Images, artistdomain.Image{SourceURL: url, Class: strings.ToLower(image.Size)})
 	}
 	for _, similar := range source.Similar.Artists {
 		candidate := artistdomain.SimilarArtist{Name: strings.TrimSpace(similar.Name), URL: similar.URL}

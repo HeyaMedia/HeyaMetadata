@@ -234,18 +234,30 @@ master versions. The configured token or transient caller token is sent in the
 `Authorization` header, never in a URL or request fingerprint, and every real
 request carries a configurable identifying User-Agent. Public detail lookups
 can run without a token; database search intentionally requires one.
+All Discogs endpoints share one provider-wide request gate within each
+process. A 429 or exhausted `X-Discogs-Ratelimit-Remaining` budget pauses that
+whole gate, and the provider-specific budget headers are retained with the
+observation. Another deployment or service can still consume the same
+upstream token budget, so cooldown is applied even when local calls were
+correctly spaced.
 
 Last.fm consumes MusicBrainz artist, release-group, and recording MBIDs where
-possible, preserving Last.fm as supplemental popularity, biography, tag,
-artwork, and recommendation evidence instead of treating names as durable
+possible, preserving Last.fm as supplemental popularity, biography, tag, and
+recommendation evidence instead of treating names as durable
 identity. It supports paged search, artist top albums, and short-lived similar
 artist evidence. API keys are applied only to real upstream calls and excluded
 from request identity. Last.fm error code 6 receives a one-hour negative TTL;
 invalid keys, throttling, and all other logical errors are never shared.
+Last.fm artist images are intentionally ignored because the service currently
+returns a generic placeholder instead of useful artist artwork.
 When Last.fm resolves an MBID request to the correct canonical artist name but
 reports a different MusicBrainz artist ID, the contribution is retained only
 as a name-scoped aggregate. The incorrect ID is never emitted as identity
 evidence, and its recording IDs are withheld from canonical linking.
+If the MBID lookup is missing entirely, artist info and top tracks fall back
+to an exact MusicBrainz display-name or alias lookup. Fuzzy matches are
+rejected, and name-scoped fallback cannot contribute artist or recording MBID
+claims.
 
 ## AniDB and TVMaze source collection
 

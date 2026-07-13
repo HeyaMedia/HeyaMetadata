@@ -248,7 +248,11 @@ func pointerKey(provider, fingerprint string) string {
 
 func safeHeaders(headers http.Header) http.Header {
 	selected := make(http.Header)
-	for _, name := range []string{"Cache-Control", "Content-Type", "ETag", "Last-Modified", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"} {
+	for _, name := range []string{
+		"Cache-Control", "Content-Type", "ETag", "Last-Modified", "Retry-After",
+		"X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
+		"X-Discogs-Ratelimit", "X-Discogs-Ratelimit-Remaining", "X-Discogs-Ratelimit-Used",
+	} {
 		if value := headers.Get(name); value != "" {
 			selected.Set(name, value)
 		}
