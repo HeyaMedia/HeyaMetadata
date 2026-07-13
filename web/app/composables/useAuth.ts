@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import type { AuthUser } from '../utils/types'
+import type { ApiKey, AuthUser } from '../utils/types'
 
 // Session auth against the same-origin backend. The session lives in an
 // httpOnly, SameSite=Strict cookie set by the server — the browser sends it
@@ -72,6 +72,26 @@ export function useAuth() {
     }
   }
 
+  // ---- Heya-issued API keys (Bearer access to the user's own account) -------
+
+  function listApiKeys(): Promise<ApiKey[]> {
+    return fetch(`${BASE}/api-keys`, { credentials: 'same-origin' })
+      .then(async r => {
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+        return (await r.json()).api_keys ?? []
+      })
+  }
+
+  async function createApiKey(name: string): Promise<ApiKey> {
+    const data = await post('/api-keys', { name })
+    return data?.api_key
+  }
+
+  async function revokeApiKey(id: string): Promise<void> {
+    await fetch(`${BASE}/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin' })
+      .then(r => { if (!r.ok && r.status !== 204) throw new Error(`${r.status} ${r.statusText}`) })
+  }
+
   return {
     user,
     ready,
@@ -81,5 +101,8 @@ export function useAuth() {
     login,
     register,
     logout,
+    listApiKeys,
+    createApiKey,
+    revokeApiKey,
   }
 }

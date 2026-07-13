@@ -48,6 +48,8 @@ async function signOut() {
           </p>
         </OverviewPanel>
       </div>
+
+      <ApiKeysPanel />
     </template>
   </div>
 </template>
