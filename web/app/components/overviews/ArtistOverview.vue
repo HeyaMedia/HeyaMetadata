@@ -37,7 +37,8 @@ const similar = computed(() =>
 </script>
 
 <template>
-  <div class="overview-grid">
+  <div>
+    <div class="overview-grid">
     <OverviewPanel title="Overview" kicker="Combined record">
       <FactList :facts="facts" />
     </OverviewPanel>
@@ -64,5 +65,8 @@ const similar = computed(() =>
     </OverviewPanel>
 
     <LinksList :links="data.links" />
+    </div>
+
+    <DiscographyGrid :entity-id="entity.id" />
   </div>
 </template>

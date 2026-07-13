@@ -20,7 +20,6 @@ const facts = computed<Fact[]>(() => {
 })
 
 const tracks = computed(() => (Array.isArray(data.value.tracks) ? data.value.tracks : []))
-const editions = computed(() => (Array.isArray(data.value.editions) ? data.value.editions : []))
 </script>
 
 <template>
@@ -33,29 +32,8 @@ const editions = computed(() => (Array.isArray(data.value.editions) ? data.value
     <LinksList :links="data.links" />
     <RatingsPanel :ratings="data.ratings" />
 
-    <OverviewPanel v-if="tracks.length" title="Tracklist" kicker="Recordings" full>
-      <ol class="line-list">
-        <li v-for="(track, index) in tracks" :key="index">
-          <span class="line-list__index">{{ track.position || track.number || index + 1 }}</span>
-          <span class="line-list__main">
-            <span class="line-list__title">{{ formatValue(track.title) || 'Untitled' }}</span>
-            <span v-if="track.artist_credits" class="line-list__sub">{{ artistCreditLine(track.artist_credits) }}</span>
-          </span>
-          <span v-if="track.provider" class="line-list__meta">{{ track.provider }}</span>
-        </li>
-      </ol>
-    </OverviewPanel>
+    <TracklistPanel :tracks="tracks" />
 
-    <OverviewPanel v-if="editions.length" title="Releases" kicker="Editions" full>
-      <ol class="line-list">
-        <li v-for="(edition, index) in editions" :key="index">
-          <span class="line-list__main">
-            <span class="line-list__title">{{ formatValue(edition.title) || 'Release' }}</span>
-            <span class="line-list__sub">{{ [formatValue(edition.country), titleCase(edition.status)].filter(Boolean).join(' · ') }}</span>
-          </span>
-          <span class="line-list__meta">{{ formatDate(edition.date) }}</span>
-        </li>
-      </ol>
-    </OverviewPanel>
+    <RelationsList :entity-id="entity.id" type="editions" title="Releases" kicker="Editions" />
   </div>
 </template>

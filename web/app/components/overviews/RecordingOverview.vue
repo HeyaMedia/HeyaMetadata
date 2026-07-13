@@ -22,7 +22,6 @@ const facts = computed<Fact[]>(() => {
 })
 
 const releases = computed(() => (Array.isArray(data.value.releases) ? data.value.releases : []))
-const lyrics = computed(() => formatValue(data.value.lyrics?.text ?? data.value.lyrics))
 </script>
 
 <template>
@@ -46,12 +45,6 @@ const lyrics = computed(() => formatValue(data.value.lyrics?.text ?? data.value.
       </ol>
     </OverviewPanel>
 
-    <OverviewPanel v-if="lyrics" title="Lyrics" kicker="Text" full>
-      <pre class="lyrics">{{ lyrics }}</pre>
-    </OverviewPanel>
+    <LyricsPanel :recording-id="entity.id" />
   </div>
 </template>
-
-<style scoped>
-.lyrics { margin: 0; color: var(--text-dim); font: 0.78rem / 1.7 var(--font-sans); white-space: pre-wrap; }
-</style>

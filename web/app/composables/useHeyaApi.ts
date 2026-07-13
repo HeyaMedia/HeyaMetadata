@@ -3,10 +3,13 @@ import { useProviderCredentials } from './useProviderCredentials'
 import type {
   BrowseResult,
   CollectionCard,
+  Credit,
   EntityDocument,
   EntitySummary,
   ImagesResponse,
   LibraryStats,
+  LyricDocument,
+  RelationsResponse,
 } from '../utils/types'
 
 // Same-origin `/api/v2` client. All reads flow through here so provider
@@ -97,6 +100,26 @@ export function useHeyaApi() {
     return request(`${BASE}/entities/${id}/images?${params}`)
   }
 
+  function entityCredits(id: string): Promise<{ results: Credit[] }> {
+    return request(`${BASE}/entities/${id}/credits`)
+  }
+
+  function entityRelations(id: string, options: { type?: string; limit?: number; offset?: number } = {}): Promise<RelationsResponse> {
+    const params = new URLSearchParams()
+    if (options.type) params.set('relation_type', options.type)
+    params.set('limit', String(options.limit ?? 100))
+    params.set('offset', String(options.offset ?? 0))
+    return request(`${BASE}/entities/${id}/relations?${params}`)
+  }
+
+  function recordingFingerprints(id: string): Promise<{ recording_id: string; items: any[] }> {
+    return request(`${BASE}/recordings/${id}/fingerprints`)
+  }
+
+  function recordingLyrics(id: string): Promise<{ recording_id: string; items: LyricDocument[] }> {
+    return request(`${BASE}/recordings/${id}/lyrics`)
+  }
+
   function health(): Promise<{ status?: string }> {
     return request(`${BASE}/health/ready`)
   }
@@ -164,6 +187,10 @@ export function useHeyaApi() {
     collection,
     entity,
     entityImages,
+    entityCredits,
+    entityRelations,
+    recordingFingerprints,
+    recordingLyrics,
     health,
     createDiscovery,
     getDiscovery,

@@ -125,6 +125,49 @@ export interface BrowseResult {
   limit: number
 }
 
+export interface Credit {
+  provider?: string
+  character?: string
+  job?: string
+  credit_type?: string
+  display_name?: string
+  profile_image_id?: string
+  provider_person_id?: string
+  order?: number
+}
+
+export interface Relation {
+  id?: string
+  relation_type?: string
+  source_kind?: string
+  target_kind?: string
+  target_entity_id?: string
+  provider?: string
+  namespace?: string
+  provider_value?: string
+  metadata?: Record<string, any>
+  last_observed_at?: string
+}
+
+export interface RelationsResponse {
+  relations: Relation[]
+  total?: number
+  offset?: number
+  limit?: number
+}
+
+export interface LyricDocument {
+  id?: string
+  provider?: string
+  track_name?: string
+  artist_name?: string
+  album_name?: string
+  duration_ms?: number
+  instrumental?: boolean
+  plain_lyrics?: string
+  synced_lyrics?: string
+}
+
 export interface DiscoveryCandidate {
   rank: number
   confidence: number

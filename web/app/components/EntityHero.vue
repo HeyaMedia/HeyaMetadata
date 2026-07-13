@@ -56,6 +56,51 @@ const metaChips = computed(() => {
   return chips
 })
 
+// Kind-aware headline stats — the main lever that makes each hero feel distinct.
+const statStrip = computed<{ value: string; label: string }[]>(() => {
+  const data: any = props.entity.data ?? {}
+  const out: { value: string; label: string }[] = []
+  const push = (value: unknown, label: string) => {
+    const text = typeof value === 'number' ? formatCount(value) : formatValue(value)
+    if (text) out.push({ value: text, label })
+  }
+  switch (props.entity.kind) {
+    case 'movie': {
+      const top = [...(data.ratings ?? [])].sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0))[0]
+      if (top) out.push({ value: ratingValue(top), label: formatKey(top.system || 'rating') })
+      break
+    }
+    case 'tv_show':
+    case 'anime':
+      push(Array.isArray(data.seasons) ? data.seasons.length : '', 'Seasons')
+      push(data.episode_count, 'Episodes')
+      break
+    case 'release_group':
+      push(Array.isArray(data.tracks) ? data.tracks.length : '', 'Tracks')
+      push(Array.isArray(data.editions) ? data.editions.length : '', 'Releases')
+      break
+    case 'recording':
+      push(formatDuration(data.duration_ms), 'Duration')
+      break
+    case 'artist':
+      for (const metric of (data.metrics ?? []).slice(0, 2)) push(metric.value, formatKey(metric.name))
+      break
+    case 'book_work':
+      push(Array.isArray(data.editions) ? data.editions.length : '', 'Editions')
+      break
+    case 'manga':
+      push(data.volume_count, 'Volumes')
+      push(data.chapter_count, 'Chapters')
+      break
+    case 'manga_volume':
+    case 'comic_volume':
+      push(Array.isArray(data.editions) ? data.editions.length : '', 'Editions')
+      push(data.page_count, 'Pages')
+      break
+  }
+  return out
+})
+
 const copied = ref(false)
 async function copyId() {
   try {
@@ -93,6 +138,13 @@ async function copyId() {
       <div v-if="metaChips.length" class="chip-row hero__meta">
         <span v-for="chip in metaChips" :key="chip" class="chip">{{ chip }}</span>
       </div>
+
+      <dl v-if="statStrip.length" class="hero__stats">
+        <div v-for="stat in statStrip" :key="stat.label">
+          <dt>{{ stat.value }}</dt>
+          <dd>{{ stat.label }}</dd>
+        </div>
+      </dl>
 
       <div class="hero__actions">
         <button type="button" class="btn btn--gold" :disabled="refreshing" @click="emit('refresh')">
@@ -170,6 +222,10 @@ async function copyId() {
 }
 .hero__expand { margin-top: 0.5rem; color: var(--gold); }
 .hero__meta { margin-top: 1rem; }
+.hero__stats { display: flex; flex-wrap: wrap; gap: 2rem; margin: 1.25rem 0 0; }
+.hero__stats div { display: flex; flex-direction: column; }
+.hero__stats dt { font-family: var(--font-mono); font-size: 1.35rem; line-height: 1.1; }
+.hero__stats dd { margin: 0.2rem 0 0; color: var(--muted-2); font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; }
 .hero__actions { display: flex; flex-wrap: wrap; gap: 0.65rem; margin-top: 1.35rem; }
 .hero__id {
   display: flex;

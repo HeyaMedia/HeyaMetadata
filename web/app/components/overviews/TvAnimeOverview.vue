@@ -26,8 +26,6 @@ const facts = computed<Fact[]>(() => {
     { label: 'Language', value: c.language },
   ]
 })
-
-const seasons = computed(() => (Array.isArray(data.value.seasons) ? data.value.seasons : []))
 </script>
 
 <template>
@@ -40,20 +38,9 @@ const seasons = computed(() => (Array.isArray(data.value.seasons) ? data.value.s
       <ExternalIdsPanel :external-ids="entity.external_ids" />
       <RatingsPanel :ratings="data.ratings" />
 
-      <OverviewPanel v-if="seasons.length" title="Seasons" kicker="Structure" full>
-        <ol class="line-list">
-          <li v-for="season in seasons" :key="season.number">
-            <span class="line-list__index">{{ String(season.number).padStart(2, '0') }}</span>
-            <span class="line-list__main">
-              <span class="line-list__title">{{ formatValue(season.name) || `Season ${season.number}` }}</span>
-              <span v-if="season.episode_order" class="line-list__sub">{{ season.episode_order }} episodes</span>
-            </span>
-            <span v-if="formatDate(season.premiere_date)" class="line-list__meta">{{ formatDate(season.premiere_date) }}</span>
-          </li>
-        </ol>
-      </OverviewPanel>
     </div>
 
-    <CreditsRail :credits="data.credits" title="Cast" kicker="People" />
+    <SeasonBrowser :seasons="data.seasons" :episodes="data.episodes" />
+    <CastSection :entity-id="entity.id" />
   </div>
 </template>

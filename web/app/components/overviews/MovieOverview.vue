@@ -60,7 +60,8 @@ const collection = computed(() => {
       <RatingsPanel :ratings="data.ratings" />
     </div>
 
-    <CreditsRail :credits="data.credits" title="Cast & crew" kicker="People" />
+    <VideoGallery :videos="data.videos" />
+    <CastSection :entity-id="entity.id" />
   </div>
 </template>
 
