@@ -169,6 +169,13 @@ export interface LyricDocument {
   synced_lyrics?: string
 }
 
+export interface AuthUser {
+  id: string
+  username: string
+  role?: string
+  created_at?: string
+}
+
 export interface PersonRef {
   display_name?: string
   profile_image_id?: string

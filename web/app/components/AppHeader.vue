@@ -5,11 +5,17 @@ import { KINDS } from '~/utils/kinds'
 // search + settings + health. Mobile collapses nav, search, settings, health,
 // and domain shortcuts into a menu without hiding the primary routes.
 const route = useRoute()
-const api = useHeyaApi()
 const { activeCount } = useProviderCredentials()
+const auth = useAuth()
+const { user, ready: authReady, isAuthenticated } = auth
 
-const panel = ref<'' | 'keys' | 'menu'>('')
-const health = ref<boolean | null>(null)
+const panel = ref<'' | 'keys' | 'menu' | 'account'>('')
+
+async function signOut() {
+  panel.value = ''
+  await auth.logout()
+  await navigateTo('/')
+}
 
 const primaryNav = [
   { label: 'Latest', to: '/', exact: true },
@@ -27,25 +33,15 @@ function isActive(to: string, exact: boolean) {
   return exact ? route.path === to : route.path === to || route.path.startsWith(`${to}/`)
 }
 
-function toggle(target: 'keys' | 'menu') {
+function toggle(target: 'keys' | 'menu' | 'account') {
   panel.value = panel.value === target ? '' : target
 }
 
 // Close overlays on navigation.
 watch(() => route.fullPath, () => { panel.value = '' })
 
-onMounted(async () => {
-  try {
-    const result = await api.health()
-    health.value = result.status === 'ok'
-  } catch {
-    health.value = false
-  }
-})
-
-const healthLabel = computed(() =>
-  health.value === null ? 'Checking API' : health.value ? 'Systems ready' : 'API unavailable',
-)
+const onAuthPage = computed(() => route.path === '/login' || route.path === '/register')
+const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? {} : { redirect: route.fullPath } }))
 </script>
 
 <template>
@@ -82,10 +78,27 @@ const healthLabel = computed(() =>
           <span v-if="activeCount" class="tool-button__badge">{{ activeCount }}</span>
         </button>
 
-        <span class="health" :class="{ 'is-healthy': health, 'is-down': health === false }" :title="healthLabel">
-          <i aria-hidden="true" />
-          <span class="health__text">{{ healthLabel }}</span>
-        </span>
+        <div v-if="authReady" class="account">
+          <template v-if="isAuthenticated && user">
+            <button
+              type="button"
+              class="account__toggle"
+              :class="{ 'is-open': panel === 'account' }"
+              :aria-expanded="panel === 'account'"
+              @click="toggle('account')"
+            >
+              <span class="account__avatar">{{ user.username.charAt(0).toUpperCase() }}</span>
+              <span class="account__name">{{ user.username }}</span>
+            </button>
+            <Transition name="pop">
+              <div v-if="panel === 'account'" class="account__menu">
+                <NuxtLink to="/account" class="account__item">Account</NuxtLink>
+                <button type="button" class="account__item" @click="signOut">Sign out</button>
+              </div>
+            </Transition>
+          </template>
+          <NuxtLink v-else class="tool-button account__signin" :to="loginTarget">Sign in</NuxtLink>
+        </div>
 
         <button
           type="button"
@@ -115,13 +128,19 @@ const healthLabel = computed(() =>
             <span class="section-label">Domains</span>
             <NuxtLink v-for="item in domainNav" :key="item.to" :to="item.to">{{ item.label }}</NuxtLink>
           </div>
+          <div v-if="authReady" class="mobile-menu__group">
+            <span class="section-label">Account</span>
+            <template v-if="isAuthenticated && user">
+              <NuxtLink to="/account">{{ user.username }}</NuxtLink>
+              <button type="button" class="btn btn--ghost" @click="signOut">Sign out</button>
+            </template>
+            <NuxtLink v-else :to="loginTarget">Sign in</NuxtLink>
+            <NuxtLink v-if="!isAuthenticated" to="/register">Create account</NuxtLink>
+          </div>
           <div class="mobile-menu__group">
             <button type="button" class="btn btn--ghost" @click="panel = 'keys'">
               Provider keys<span v-if="activeCount"> · {{ activeCount }} set</span>
             </button>
-            <span class="health health--inline" :class="{ 'is-healthy': health, 'is-down': health === false }">
-              <i aria-hidden="true" />{{ healthLabel }}
-            </span>
           </div>
         </div>
       </nav>
@@ -192,12 +211,47 @@ const healthLabel = computed(() =>
   font-weight: 800;
 }
 
-.health { display: flex; align-items: center; gap: 0.45rem; color: #6f797d; font-size: 0.72rem; }
-.health i { width: 0.42rem; height: 0.42rem; border-radius: 50%; background: #737b7e; }
-.health.is-healthy { color: #9cb7a9; }
-.health.is-healthy i { background: var(--green); box-shadow: 0 0 0 4px rgba(121, 214, 170, 0.08); }
-.health.is-down { color: #d6978f; }
-.health.is-down i { background: var(--danger); }
+.account { position: relative; display: flex; }
+.account__toggle { display: inline-flex; align-items: center; gap: 0.5rem; border: 0; background: none; color: #9ba5a9; font-size: 0.74rem; }
+.account__toggle:hover, .account__toggle.is-open { color: #fff; }
+.account__avatar {
+  display: grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border: 1px solid #817247;
+  border-radius: 50%;
+  color: var(--gold);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.account__name { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account__menu {
+  position: absolute;
+  top: calc(100% + 0.65rem);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 10rem;
+  padding: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #12181c;
+  box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.5);
+}
+.account__item {
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: #cbd1ce;
+  font-size: 0.76rem;
+  text-align: left;
+}
+.account__item:hover { background: rgba(255, 255, 255, 0.04); color: #fff; }
+.pop-enter-active, .pop-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: translateY(-0.3rem); }
 
 .app-header__burger { display: none; flex-direction: column; gap: 4px; border: 0; background: none; padding: 0.4rem; }
 .app-header__burger span { width: 1.3rem; height: 1.5px; background: #b6bfc0; border-radius: 2px; }
@@ -211,12 +265,11 @@ const healthLabel = computed(() =>
 .mobile-menu__group .section-label { flex-basis: 100%; }
 .mobile-menu__group a { color: #c3ccca; font-size: 0.85rem; }
 .mobile-menu__group a:hover { color: #fff; }
-.health--inline { font-size: 0.75rem; }
 
 @media (max-width: 900px) {
   .app-header__nav { display: none; }
   .app-header__search { display: none; }
   .app-header__burger { display: flex; }
-  .health__text { display: none; }
+  .account { display: none; }
 }
 </style>
