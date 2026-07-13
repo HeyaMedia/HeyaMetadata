@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/golden"
+	"github.com/HeyaMedia/HeyaMetadata/internal/integrity"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/ui"
 	"github.com/spf13/cobra"
@@ -64,7 +65,75 @@ func newCoverageCommand() *cobra.Command {
 		}
 		return errors.Join(reportErrors...)
 	}})
+	command.AddCommand(newCoverageAuditCommand())
 	return command
+}
+
+func newCoverageAuditCommand() *cobra.Command {
+	var strict bool
+	var sampleLimit int
+	command := &cobra.Command{Use: "audit", Short: "Audit the canonical graph for structural and reconciliation anomalies", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		runtime, err := platform.Open(cmd.Context(), cfg)
+		if err != nil {
+			return err
+		}
+		defer runtime.Close()
+		if err := runtime.Ensure(cmd.Context(), cfg); err != nil {
+			return err
+		}
+		if err := requireCurrentSchema(cmd.Context(), runtime); err != nil {
+			return err
+		}
+		report, err := integrity.Audit(cmd.Context(), runtime, integrity.Options{SampleLimit: sampleLimit})
+		if err != nil {
+			return err
+		}
+		if ui.JSONMode {
+			if err := ui.OutputJSON(report); err != nil {
+				return err
+			}
+		} else {
+			outputIntegrityReport(report)
+		}
+		return report.Error(strict)
+	}}
+	command.Flags().BoolVar(&strict, "strict", false, "Fail when warning checks have findings as well as structural errors")
+	command.Flags().IntVar(&sampleLimit, "sample-limit", 5, "Maximum representative samples per finding (0-100)")
+	return command
+}
+
+func outputIntegrityReport(report integrity.Report) {
+	for _, check := range report.Checks {
+		if check.Count == 0 {
+			ui.Success("%s · clean", check.Code)
+			continue
+		}
+		switch check.Severity {
+		case integrity.SeverityError:
+			ui.Error("%s · %d · %s", check.Code, check.Count, check.Summary)
+		case integrity.SeverityWarning:
+			ui.Warn("%s · %d · %s", check.Code, check.Count, check.Summary)
+		default:
+			ui.Info(check.Code, fmt.Sprintf("%d · %s", check.Count, check.Summary))
+		}
+		for _, sample := range check.Samples {
+			label := sample.Label
+			if sample.Kind != "" {
+				label = sample.Kind + " · " + label
+			}
+			if sample.Reference != "" {
+				label += " · " + sample.Reference
+			}
+			if sample.Detail != "" {
+				label += " · " + sample.Detail
+			}
+			ui.Info("  sample", label)
+		}
+		if check.Remediation != "" {
+			ui.Info("  next", check.Remediation)
+		}
+	}
+	ui.Info("Integrity", fmt.Sprintf("%d entities · %d clean · %d errors · %d warnings · %d informational", report.Entities, report.Passed, report.Errors, report.Warnings, report.Info))
 }
 
 func newCoverageVerifyCommand(use, short string, verify goldenVerifier) *cobra.Command {

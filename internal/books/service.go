@@ -263,7 +263,7 @@ func (s *Service) persist(ctx context.Context, key, kind string, work olWork, wp
 		}
 	}
 	var version int64
-	if err = tx.QueryRow(ctx, `UPDATE entities SET canonical_version=canonical_version+1,updated_at=now()WHERE id=$1 RETURNING canonical_version`, workID).Scan(&version); err != nil {
+	if version, err = nextProjectionVersion(ctx, tx, workID); err != nil {
 		return Document{}, err
 	}
 	doc := Document{SchemaVersion: 2, ProjectionVersion: version, ID: workID, Kind: kind, Slug: slug, ExternalIDs: []ExternalID{{Provider: "openlibrary", Namespace: "work", Value: key}}, Freshness: fresh, Provenance: map[string][]SourceRef{"work": {{Provider: "openlibrary", ObservationID: wp.ObservationID}}}}
@@ -299,21 +299,12 @@ func (s *Service) persist(ctx context.Context, key, kind string, work olWork, wp
 				return Document{}, e
 			}
 		}
-		ab, _ := json.Marshal(map[string]any{"schema_version": 1, "id": aid, "kind": "author", "slug": aslug, "display": map[string]any{"name": a.Name}, "external_ids": a.ExternalIDs, "freshness": fresh})
-		_, e = tx.Exec(ctx, `INSERT INTO canonical_authors(entity_id,merge_version,document)VALUES($1,$2,$3)ON CONFLICT(entity_id)DO UPDATE SET document=EXCLUDED.document,updated_at=now()`, aid, MergeVersion, ab)
-		if e != nil {
+		authorVersion, versionErr := nextProjectionVersion(ctx, tx, aid)
+		if versionErr != nil {
+			return Document{}, versionErr
+		}
+		if e = upsertAuthorProjection(ctx, tx, aid, aslug, a, fresh, authorVersion); e != nil {
 			return Document{}, e
-		}
-		if _, e = tx.Exec(ctx, `INSERT INTO api_documents(entity_id,document_kind,schema_version,projection_version,document,fresh_until)VALUES($1,'detail',1,1,$2,$3)ON CONFLICT(entity_id,document_kind)DO UPDATE SET document=EXCLUDED.document,fresh_until=EXCLUDED.fresh_until`, aid, ab, fresh.FreshUntil); e != nil {
-			return Document{}, fmt.Errorf("persist author projection: %w", e)
-		}
-		authorSummary, _ := json.Marshal(map[string]any{"schema_version": 1, "projection_version": 1, "id": aid, "kind": "author", "slug": aslug, "display": map[string]any{"name": a.Name}, "freshness": fresh})
-		empty := []string{}
-		if _, e = tx.Exec(ctx, `INSERT INTO search_entities(entity_id,kind,slug,display_title,genres,countries,languages,summary,projection_version)VALUES($1,'author',$2,$3,$4,$4,$4,$5,1)ON CONFLICT(entity_id)DO UPDATE SET display_title=EXCLUDED.display_title,summary=EXCLUDED.summary,updated_at=now()`, aid, aslug, a.Name, empty, authorSummary); e != nil {
-			return Document{}, fmt.Errorf("persist author search entity: %w", e)
-		}
-		if _, e = tx.Exec(ctx, `INSERT INTO search_names(entity_id,value,normalized_value,name_type,source_quality)VALUES($1,$2,lower(unaccent($2)),'name',100)ON CONFLICT DO NOTHING`, aid, a.Name); e != nil {
-			return Document{}, fmt.Errorf("persist author search name: %w", e)
 		}
 		if _, e = tx.Exec(ctx, `INSERT INTO book_work_authors(work_entity_id,author_entity_id,position)VALUES($1,$2,$3)ON CONFLICT(work_entity_id,author_entity_id) DO UPDATE SET position=EXCLUDED.position`, workID, aid, i); e != nil {
 			return Document{}, fmt.Errorf("relate work author: %w", e)
@@ -340,9 +331,13 @@ func (s *Service) persist(ctx context.Context, key, kind string, work olWork, wp
 				return Document{}, e
 			}
 		}
+		editionVersion, versionErr := nextProjectionVersion(ctx, tx, eid)
+		if versionErr != nil {
+			return Document{}, versionErr
+		}
 		summary := EditionSummary{ID: eid, Title: first(ed.Title, work.Title), PublishedDate: ed.PublishDate, Publishers: ed.Publishers, Languages: languageKeys(ed.Languages), ISBN10: ed.ISBN10, ISBN13: ed.ISBN13, Format: ed.PhysicalFormat, PageCount: ed.NumberOfPages}
 		doc.Data.Editions = append(doc.Data.Editions, summary)
-		edoc := Document{SchemaVersion: 2, ProjectionVersion: 1, ID: eid, Kind: editionKind, Slug: eslug, ExternalIDs: []ExternalID{{Provider: "openlibrary", Namespace: "edition", Value: ek}}, Freshness: fresh, Provenance: map[string][]SourceRef{"edition": {{Provider: "openlibrary", ObservationID: editionPayload.ObservationID}}}}
+		edoc := Document{SchemaVersion: 2, ProjectionVersion: editionVersion, ID: eid, Kind: editionKind, Slug: eslug, ExternalIDs: []ExternalID{{Provider: "openlibrary", Namespace: "edition", Value: ek}}, Freshness: fresh, Provenance: map[string][]SourceRef{"edition": {{Provider: "openlibrary", ObservationID: editionPayload.ObservationID}}}}
 		edoc.Data.Publication = PublicationClassification{Medium: Medium(kind), Scope: "work"}
 		edoc.Display.Title = summary.Title
 		edoc.Display.Year = year(ed.PublishDate)
@@ -530,6 +525,33 @@ func upsertProjection(ctx context.Context, tx pgx.Tx, d Document, authors []Auth
 	}
 	for i, n := range clean(names) {
 		_, _ = tx.Exec(ctx, `INSERT INTO search_names(entity_id,value,normalized_value,name_type,source_quality)VALUES($1,$2,lower(unaccent($2)),$3,$4)ON CONFLICT DO NOTHING`, d.ID, n, map[bool]string{true: "title", false: "author"}[i == 0], map[bool]int{true: 100, false: 70}[i == 0])
+	}
+	return nil
+}
+
+func nextProjectionVersion(ctx context.Context, tx pgx.Tx, entityID string) (int64, error) {
+	var version int64
+	if err := tx.QueryRow(ctx, `UPDATE entities SET canonical_version=canonical_version+1,updated_at=now() WHERE id=$1 RETURNING canonical_version`, entityID).Scan(&version); err != nil {
+		return 0, fmt.Errorf("increment %s projection version: %w", entityID, err)
+	}
+	return version, nil
+}
+
+func upsertAuthorProjection(ctx context.Context, tx pgx.Tx, entityID, slug string, author Author, fresh Freshness, version int64) error {
+	detail, _ := json.Marshal(map[string]any{"schema_version": 1, "projection_version": version, "id": entityID, "kind": "author", "slug": slug, "display": map[string]any{"name": author.Name}, "external_ids": author.ExternalIDs, "freshness": fresh})
+	if _, err := tx.Exec(ctx, `INSERT INTO canonical_authors(entity_id,merge_version,document)VALUES($1,$2,$3)ON CONFLICT(entity_id)DO UPDATE SET merge_version=EXCLUDED.merge_version,document=EXCLUDED.document,updated_at=now()`, entityID, MergeVersion, detail); err != nil {
+		return fmt.Errorf("persist canonical author: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO api_documents(entity_id,document_kind,schema_version,projection_version,document,fresh_until)VALUES($1,'detail',1,$2,$3,$4)ON CONFLICT(entity_id,document_kind)DO UPDATE SET schema_version=EXCLUDED.schema_version,projection_version=EXCLUDED.projection_version,document=EXCLUDED.document,fresh_until=EXCLUDED.fresh_until,updated_at=now()`, entityID, version, detail, fresh.FreshUntil); err != nil {
+		return fmt.Errorf("persist author projection: %w", err)
+	}
+	summary, _ := json.Marshal(map[string]any{"schema_version": 1, "projection_version": version, "id": entityID, "kind": "author", "slug": slug, "display": map[string]any{"name": author.Name}, "freshness": fresh})
+	empty := []string{}
+	if _, err := tx.Exec(ctx, `INSERT INTO search_entities(entity_id,kind,slug,display_title,genres,countries,languages,summary,projection_version)VALUES($1,'author',$2,$3,$4,$4,$4,$5,$6)ON CONFLICT(entity_id)DO UPDATE SET slug=EXCLUDED.slug,display_title=EXCLUDED.display_title,summary=EXCLUDED.summary,projection_version=EXCLUDED.projection_version,updated_at=now()`, entityID, slug, author.Name, empty, summary, version); err != nil {
+		return fmt.Errorf("persist author search entity: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO search_names(entity_id,value,normalized_value,name_type,source_quality)VALUES($1,$2,lower(unaccent($2)),'name',100)ON CONFLICT DO NOTHING`, entityID, author.Name); err != nil {
+		return fmt.Errorf("persist author search name: %w", err)
 	}
 	return nil
 }

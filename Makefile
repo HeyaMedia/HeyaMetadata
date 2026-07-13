@@ -4,7 +4,7 @@ GO_MODCACHE_DIR ?= $(CURDIR)/.cache/go-mod
 GO_CACHE_MAX_MB ?= 512
 GO := GOCACHE=$(GO_CACHE_DIR) GOMODCACHE=$(GO_MODCACHE_DIR) go
 
-.PHONY: build fmt test generate-api check-generated acceptance golden-all golden-movie golden-tv golden-books golden-music golden-people infra-start infra-up infra-down infra-status migrate migrate-status worker smoke movie-ingest artist-ingest release-group-ingest release-ingest musical-work-ingest retention-sweep image-retention-sweep dev dev-front dev-go dev-worker dev-web air-build web-install dev-cache-status dev-clean
+.PHONY: build fmt test generate-api check-generated acceptance audit golden-all golden-movie golden-tv golden-books golden-music golden-people infra-start infra-up infra-down infra-status migrate migrate-status worker smoke movie-ingest artist-ingest release-group-ingest release-ingest musical-work-ingest retention-sweep image-retention-sweep dev dev-front dev-go dev-worker dev-web air-build web-install dev-cache-status dev-clean
 
 build:
 	$(GO) build ./...
@@ -28,6 +28,9 @@ check-generated:
 
 acceptance:
 	$(GO) test ./acceptance -count=1
+
+audit:
+	$(GO) run ./cmd/heya-metadata coverage audit
 
 golden-people:
 	$(GO) run ./cmd/heya-metadata coverage verify-people

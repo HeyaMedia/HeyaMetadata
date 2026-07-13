@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"image/png"
 	"net/url"
+	"os"
 	"testing"
 )
 
@@ -86,5 +87,27 @@ func TestBuildVariantsProducesBothServingFormats(t *testing.T) {
 		if variant.Width != 96 || variant.Height != 144 || len(variant.Body) == 0 || variant.Checksum == "" {
 			t.Fatalf("invalid %s variant: %+v", variant.Format, variant)
 		}
+	}
+}
+
+func TestUsableProcessOutputReplacesClosedDescriptor(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "closed-output")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	output := usableProcessOutput(file)
+	if output == nil {
+		t.Fatal("expected a usable output descriptor")
+	}
+	if output == file {
+		t.Fatal("closed descriptor was not replaced")
+	}
+	t.Cleanup(func() { _ = output.Close() })
+	if _, err := output.Stat(); err != nil {
+		t.Fatalf("replacement descriptor is not usable: %v", err)
 	}
 }

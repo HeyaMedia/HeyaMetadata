@@ -29,3 +29,8 @@ music 22/23. Music deliberately remains red for a live AcoustID-backed
 fingerprint-resolution proof; that entry is an executable roadmap requirement
 and must not be weakened merely to make the total green. Canonical musical
 works are live through the Open Opus Symphony No. 5 canary.
+
+`make audit` complements the hand-selected semantic catalog with a whole-library
+canonical integrity scan. It checks structural invariants, reconciliation debt,
+freshness, artwork, and intentionally deferred relations without expanding the
+public API. See `docs/canonical-integrity.md`.

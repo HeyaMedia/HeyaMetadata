@@ -9,7 +9,9 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"os"
 	"sort"
+	"sync"
 
 	"github.com/gen2brain/avif"
 	"github.com/gen2brain/webp"
@@ -20,6 +22,8 @@ const (
 	TransformVersion = "v1"
 	MaxSourcePixels  = 60_000_000
 )
+
+var ensureAVIFRuntimeIOOnce sync.Once
 
 type Variant struct {
 	Format, MediaType, Checksum, ObjectKey string
@@ -55,6 +59,7 @@ func variantWidths(class string, sourceWidth int) []int {
 }
 
 func buildVariants(body []byte, class string) (int, int, []Variant, error) {
+	ensureAVIFRuntimeIO()
 	config, _, err := image.DecodeConfig(bytes.NewReader(body))
 	if err != nil {
 		return 0, 0, nil, fmt.Errorf("inspect image for variants: %w", err)
@@ -96,4 +101,33 @@ func buildVariants(body []byte, class string) (int, int, []Variant, error) {
 		}
 	}
 	return bounds.Dx(), bounds.Dy(), variants, nil
+}
+
+// The AVIF codec's WASI fallback captures os.Stdout and os.Stderr the first
+// time it encodes an image. Air can briefly leave either global pointing at a
+// closed descriptor after a process reload, which otherwise makes every AVIF
+// encode fail. Repair those globals before the codec initializes; the codec's
+// own sync.Once then captures a usable descriptor for the process lifetime.
+func ensureAVIFRuntimeIO() {
+	ensureAVIFRuntimeIOOnce.Do(func() {
+		if output := usableProcessOutput(os.Stdout); output != nil && output != os.Stdout {
+			os.Stdout = output
+		}
+		if output := usableProcessOutput(os.Stderr); output != nil && output != os.Stderr {
+			os.Stderr = output
+		}
+	})
+}
+
+func usableProcessOutput(output *os.File) *os.File {
+	if output != nil {
+		if _, err := output.Stat(); err == nil {
+			return output
+		}
+	}
+	fallback, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		return output
+	}
+	return fallback
 }
