@@ -6,10 +6,12 @@ import { KINDS } from '~/utils/kinds'
 // and domain shortcuts into a menu without hiding the primary routes.
 const route = useRoute()
 const { activeCount } = useProviderCredentials()
+const { locale } = useLocale()
 const auth = useAuth()
 const { user, ready: authReady, isAuthenticated } = auth
 
-const panel = ref<'' | 'keys' | 'menu' | 'account'>('')
+const panel = ref<'' | 'keys' | 'menu' | 'account' | 'locale'>('')
+const localeLabel = computed(() => (locale.language.trim() ? locale.language.trim().toUpperCase() : 'Locale'))
 
 async function signOut() {
   panel.value = ''
@@ -33,7 +35,7 @@ function isActive(to: string, exact: boolean) {
   return exact ? route.path === to : route.path === to || route.path.startsWith(`${to}/`)
 }
 
-function toggle(target: 'keys' | 'menu' | 'account') {
+function toggle(target: 'keys' | 'menu' | 'account' | 'locale') {
   panel.value = panel.value === target ? '' : target
 }
 
@@ -67,6 +69,17 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
       <GlobalSearch class="app-header__search" size="bar" :initial-query="(route.query.q as string) || ''" />
 
       <div class="app-header__tools">
+        <button
+          type="button"
+          class="tool-button locale-toggle"
+          :class="{ 'is-open': panel === 'locale' }"
+          :aria-expanded="panel === 'locale'"
+          aria-label="Presentation language"
+          @click="toggle('locale')"
+        >
+          {{ localeLabel }}
+        </button>
+
         <div v-if="authReady" class="account">
           <template v-if="isAuthenticated && user">
             <button
@@ -105,6 +118,10 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
     </div>
 
     <Transition name="drawer">
+      <LocalePanel v-if="panel === 'locale'" />
+    </Transition>
+
+    <Transition name="drawer">
       <ProviderKeysPanel v-if="panel === 'keys' && isAuthenticated" />
     </Transition>
 
@@ -119,6 +136,10 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
           <div class="mobile-menu__group">
             <span class="section-label">Domains</span>
             <NuxtLink v-for="item in domainNav" :key="item.to" :to="item.to">{{ item.label }}</NuxtLink>
+          </div>
+          <div class="mobile-menu__group">
+            <span class="section-label">Presentation</span>
+            <button type="button" class="btn btn--ghost" @click="panel = 'locale'">Language ({{ localeLabel }})</button>
           </div>
           <div v-if="authReady" class="mobile-menu__group">
             <span class="section-label">Account</span>
@@ -275,6 +296,6 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
   .app-header__nav { display: none; }
   .app-header__search { display: none; }
   .app-header__burger { display: flex; }
-  .account { display: none; }
+  .account, .locale-toggle { display: none; }
 }
 </style>

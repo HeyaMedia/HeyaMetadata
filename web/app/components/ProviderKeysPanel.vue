@@ -1,40 +1,22 @@
 <script setup lang="ts">
-// Settings drawer: presentation locale + request-scoped provider keys. Keys are
-// held only in page memory (see useProviderCredentials) and never persisted.
+// Request-scoped provider keys (account-gated). Held only in page memory (see
+// useProviderCredentials), sent as Heya request headers, never persisted.
 const { fields, credentials } = useProviderCredentials()
-const { locale } = useLocale()
 </script>
 
 <template>
-  <section class="keys-panel" aria-label="Presentation and provider settings">
+  <section class="keys-panel" aria-label="Provider keys">
     <div class="keys-panel__intro">
       <span class="section-label">Request-scoped access</span>
-      <h2>Presentation &amp; provider keys</h2>
+      <h2>Provider keys</h2>
       <p>
-        Locale drives title, description, and artwork selection. Keys are held only in this
-        page's memory, sent directly as Heya request headers, and forgotten on reload.
+        Bring your own provider keys for discovery and refresh. Held only in this page's
+        memory, sent directly as Heya request headers, and forgotten on reload.
       </p>
     </div>
 
     <div class="keys-panel__body">
-      <fieldset class="keys-panel__locale">
-        <legend class="section-label">Presentation locale</legend>
-        <label>
-          <span>Language</span>
-          <input v-model="locale.language" maxlength="16" autocomplete="off" placeholder="en">
-        </label>
-        <label>
-          <span>Fallback languages</span>
-          <input v-model="locale.fallbackLanguages" autocomplete="off" placeholder="ja, en">
-        </label>
-        <label>
-          <span>Country</span>
-          <input v-model="locale.country" maxlength="2" autocomplete="off" placeholder="DK">
-        </label>
-      </fieldset>
-
       <fieldset class="keys-panel__grid">
-        <legend class="section-label">Provider keys</legend>
         <label v-for="field in fields" :key="field.key">
           <span>{{ field.label }}</span>
           <input
