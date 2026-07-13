@@ -1,5 +1,84 @@
 components:
   schemas:
+    APIKey:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        last_used_at:
+          format: date-time
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+        scopes:
+          items:
+            type: string
+          nullable: true
+          type: array
+      required:
+        - id
+        - name
+        - prefix
+        - scopes
+        - created_at
+      type: object
+    ApiKeyCreateInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: http://localhost:3030/schemas/ApiKeyCreateInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        name:
+          description: Human-readable name for the client or device
+          maxLength: 64
+          minLength: 1
+          type: string
+      required:
+        - name
+      type: object
+    ApiKeyCreateOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: http://localhost:3030/schemas/ApiKeyCreateOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        api_key:
+          $ref: "#/components/schemas/CreatedAPIKey"
+      required:
+        - api_key
+      type: object
+    ApiKeyListOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: http://localhost:3030/schemas/ApiKeyListOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        api_keys:
+          items:
+            $ref: "#/components/schemas/APIKey"
+          nullable: true
+          type: array
+      required:
+        - api_keys
+      type: object
     ArtistDisplay:
       additionalProperties: false
       properties:
@@ -35,6 +114,10 @@ components:
           format: uri
           readOnly: true
           type: string
+        altcha:
+          description: Proof-of-work captcha solution; required when the captcha is enabled
+          maxLength: 2048
+          type: string
         password:
           format: password
           maxLength: 128
@@ -57,6 +140,10 @@ components:
           example: http://localhost:3030/schemas/AuthRegisterInputBody.json
           format: uri
           readOnly: true
+          type: string
+        altcha:
+          description: Proof-of-work captcha solution; required when the captcha is enabled
+          maxLength: 2048
           type: string
         password:
           format: password
@@ -151,6 +238,33 @@ components:
         - display
         - evidence
         - resolution
+      type: object
+    Challenge:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: http://localhost:3030/schemas/Challenge.json
+          format: uri
+          readOnly: true
+          type: string
+        algorithm:
+          type: string
+        challenge:
+          type: string
+        maxnumber:
+          format: int64
+          type: integer
+        salt:
+          type: string
+        signature:
+          type: string
+      required:
+        - algorithm
+        - challenge
+        - maxnumber
+        - salt
+        - signature
       type: object
     ChangeEntry:
       additionalProperties: false
@@ -275,6 +389,42 @@ components:
           type: array
       required:
         - collections
+      type: object
+    CreatedAPIKey:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        key:
+          description: Plaintext API key; shown only in this creation response
+          readOnly: true
+          type: string
+        last_used_at:
+          format: date-time
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+        scopes:
+          items:
+            type: string
+          nullable: true
+          type: array
+      required:
+        - id
+        - name
+        - prefix
+        - key
+        - scopes
+        - created_at
       type: object
     DedicatedDiscoveryRequest:
       additionalProperties: false
@@ -1863,6 +2013,201 @@ paths:
       summary: Get a canonical Anime entity
       tags:
         - Anime
+  /api/v2/auth/api-keys:
+    get:
+      description: Lists active key metadata. Plaintext API keys are never returned after creation.
+      operationId: list-api-keys
+      parameters:
+        - description: Opaque browser session; set and read only by the browser
+          in: cookie
+          name: __Host-heya_session
+          schema:
+            description: Opaque browser session; set and read only by the browser
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyListOutputBody"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      summary: List the current user's API keys
+      tags:
+        - Authentication
+    post:
+      description: Returns the plaintext API key once. Only a non-reversible digest is retained afterward.
+      operationId: create-api-key
+      parameters:
+        - description: Opaque browser session; set and read only by the browser
+          in: cookie
+          name: __Host-heya_session
+          schema:
+            description: Opaque browser session; set and read only by the browser
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiKeyCreateInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyCreateOutputBody"
+          description: Created
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      summary: Create a user API key
+      tags:
+        - Authentication
+  /api/v2/auth/api-keys/{id}:
+    delete:
+      operationId: revoke-api-key
+      parameters:
+        - description: Opaque browser session; set and read only by the browser
+          in: cookie
+          name: __Host-heya_session
+          schema:
+            description: Opaque browser session; set and read only by the browser
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      summary: Revoke a user API key
+      tags:
+        - Authentication
+  /api/v2/auth/challenge:
+    get:
+      description: Returns an Altcha-style proof-of-work challenge the client solves before register/login. Returns 404 when the captcha is disabled.
+      operationId: auth-challenge
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Challenge"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      summary: Issue a proof-of-work captcha challenge
+      tags:
+        - Authentication
   /api/v2/auth/login:
     post:
       operationId: auth-login
@@ -1886,6 +2231,12 @@ paths:
             Set-Cookie:
               schema:
                 type: string
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Bad Request
         "401":
           content:
             application/problem+json:
@@ -1964,6 +2315,12 @@ paths:
           schema:
             description: Opaque browser session; set and read only by the browser
             type: string
+        - description: Optional Heya API key using the Bearer scheme
+          in: header
+          name: Authorization
+          schema:
+            description: Optional Heya API key using the Bearer scheme
+            type: string
       responses:
         "200":
           content:
@@ -2026,6 +2383,12 @@ paths:
             Set-Cookie:
               schema:
                 type: string
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Bad Request
         "409":
           content:
             application/problem+json:

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/auth"
@@ -16,6 +17,7 @@ type authRegisterInput struct {
 	Body struct {
 		Username string `json:"username" minLength:"3" maxLength:"64" pattern:"^[A-Za-z0-9][A-Za-z0-9_.-]{1,62}[A-Za-z0-9]$"`
 		Password string `json:"password" minLength:"10" maxLength:"128" format:"password" writeOnly:"true"`
+		Altcha   string `json:"altcha,omitempty" maxLength:"2048" doc:"Proof-of-work captcha solution; required when the captcha is enabled"`
 	}
 }
 
@@ -23,11 +25,17 @@ type authLoginInput struct {
 	Body struct {
 		Username string `json:"username" minLength:"3" maxLength:"64"`
 		Password string `json:"password" minLength:"1" maxLength:"128" format:"password" writeOnly:"true"`
+		Altcha   string `json:"altcha,omitempty" maxLength:"2048" doc:"Proof-of-work captcha solution; required when the captcha is enabled"`
 	}
 }
 
 type authSessionInput struct {
 	Session string `cookie:"__Host-heya_session" doc:"Opaque browser session; set and read only by the browser"`
+}
+
+type authMeInput struct {
+	Session       string `cookie:"__Host-heya_session" doc:"Opaque browser session; set and read only by the browser"`
+	Authorization string `header:"Authorization" doc:"Optional Heya API key using the Bearer scheme"`
 }
 
 type authBody struct {
@@ -52,9 +60,13 @@ type authLogoutOutput struct {
 
 func registerAuth(api huma.API, runtime *platform.Runtime) {
 	var service *auth.Service
+	var captcha *auth.Captcha
 	if runtime != nil {
 		service = auth.New(runtime.DB, runtime.Redis)
+		captcha = auth.NewCaptcha(runtime.Config.Captcha.Secret, runtime.Redis)
 	}
+	registerAPIKeys(api, service)
+	registerCaptcha(api, captcha)
 
 	huma.Register(api, huma.Operation{
 		OperationID:   "auth-register",
@@ -65,10 +77,13 @@ func registerAuth(api huma.API, runtime *platform.Runtime) {
 		Tags:          []string{"Authentication"},
 		DefaultStatus: http.StatusCreated,
 		MaxBodyBytes:  4096,
-		Errors:        []int{http.StatusConflict, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
+		Errors:        []int{http.StatusBadRequest, http.StatusConflict, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, input *authRegisterInput) (*authSessionOutput, error) {
 		if service == nil {
 			return nil, huma.Error503ServiceUnavailable("authentication service is unavailable")
+		}
+		if err := verifyCaptcha(ctx, captcha, input.Body.Altcha); err != nil {
+			return nil, authHTTPError(ctx, "verify captcha", err)
 		}
 		user, token, err := service.Register(ctx, input.Body.Username, input.Body.Password)
 		if err != nil {
@@ -88,10 +103,13 @@ func registerAuth(api huma.API, runtime *platform.Runtime) {
 		Summary:      "Sign in with a local account",
 		Tags:         []string{"Authentication"},
 		MaxBodyBytes: 4096,
-		Errors:       []int{http.StatusUnauthorized, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
+		Errors:       []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, input *authLoginInput) (*authSessionOutput, error) {
 		if service == nil {
 			return nil, huma.Error503ServiceUnavailable("authentication service is unavailable")
+		}
+		if err := verifyCaptcha(ctx, captcha, input.Body.Altcha); err != nil {
+			return nil, authHTTPError(ctx, "verify captcha", err)
 		}
 		user, token, err := service.Login(ctx, input.Body.Username, input.Body.Password)
 		if err != nil {
@@ -111,11 +129,11 @@ func registerAuth(api huma.API, runtime *platform.Runtime) {
 		Summary:     "Get the signed-in user",
 		Tags:        []string{"Authentication"},
 		Errors:      []int{http.StatusUnauthorized, http.StatusServiceUnavailable},
-	}, func(ctx context.Context, input *authSessionInput) (*authMeOutput, error) {
+	}, func(ctx context.Context, input *authMeInput) (*authMeOutput, error) {
 		if service == nil {
 			return nil, huma.Error503ServiceUnavailable("authentication service is unavailable")
 		}
-		user, err := service.CurrentUser(ctx, input.Session)
+		user, err := currentAuthUser(ctx, service, input.Session, input.Authorization)
 		if err != nil {
 			return nil, authHTTPError(ctx, "load current user", err)
 		}
@@ -154,10 +172,36 @@ func authHTTPError(ctx context.Context, operation string, err error) error {
 		return huma.Error401Unauthorized("invalid username or password")
 	case errors.Is(err, auth.ErrUnauthenticated):
 		return huma.Error401Unauthorized("authentication required")
+	case errors.Is(err, auth.ErrCaptchaRequired), errors.Is(err, auth.ErrCaptchaInvalid):
+		return huma.Error400BadRequest("captcha verification failed")
+	case errors.Is(err, auth.ErrInvalidAPIKey):
+		return huma.Error401Unauthorized("invalid API key")
+	case errors.Is(err, auth.ErrInvalidAPIKeyName):
+		return huma.Error422UnprocessableEntity(err.Error())
+	case errors.Is(err, auth.ErrAPIKeyNotFound):
+		return huma.Error404NotFound("API key not found")
 	default:
 		slog.ErrorContext(ctx, "authentication operation failed", "operation", operation, "error", err)
 		return huma.Error503ServiceUnavailable("authentication service is unavailable")
 	}
+}
+
+func currentAuthUser(ctx context.Context, service *auth.Service, session, authorization string) (auth.User, error) {
+	if session != "" {
+		user, err := service.CurrentUser(ctx, session)
+		if err == nil || !errors.Is(err, auth.ErrUnauthenticated) {
+			return user, err
+		}
+	}
+	fields := strings.Fields(authorization)
+	if len(fields) != 2 || !strings.EqualFold(fields[0], "Bearer") {
+		return auth.User{}, auth.ErrUnauthenticated
+	}
+	principal, err := service.AuthenticateAPIKey(ctx, fields[1])
+	if err != nil {
+		return auth.User{}, err
+	}
+	return principal.User, nil
 }
 
 func newSessionCookie(token string, now time.Time) http.Cookie {

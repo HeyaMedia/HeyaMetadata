@@ -327,6 +327,40 @@ func (e SearchEntitiesParamsKind) Valid() bool {
 	}
 }
 
+// APIKey defines model for APIKey.
+type APIKey struct {
+	CreatedAt  time.Time          `json:"created_at"`
+	ExpiresAt  *time.Time         `json:"expires_at,omitempty"`
+	Id         openapi_types.UUID `json:"id"`
+	LastUsedAt *time.Time         `json:"last_used_at,omitempty"`
+	Name       string             `json:"name"`
+	Prefix     string             `json:"prefix"`
+	Scopes     *[]string          `json:"scopes"`
+}
+
+// ApiKeyCreateInputBody defines model for ApiKeyCreateInputBody.
+type ApiKeyCreateInputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema *string `json:"$schema,omitempty"`
+
+	// Name Human-readable name for the client or device
+	Name string `json:"name"`
+}
+
+// ApiKeyCreateOutputBody defines model for ApiKeyCreateOutputBody.
+type ApiKeyCreateOutputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema *string       `json:"$schema,omitempty"`
+	ApiKey CreatedAPIKey `json:"api_key"`
+}
+
+// ApiKeyListOutputBody defines model for ApiKeyListOutputBody.
+type ApiKeyListOutputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema  *string   `json:"$schema,omitempty"`
+	ApiKeys *[]APIKey `json:"api_keys"`
+}
+
 // ArtistDisplay defines model for ArtistDisplay.
 type ArtistDisplay struct {
 	Id   *string `json:"id,omitempty"`
@@ -344,7 +378,10 @@ type AuthBody struct {
 // AuthLoginInputBody defines model for AuthLoginInputBody.
 type AuthLoginInputBody struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema   *string `json:"$schema,omitempty"`
+	Schema *string `json:"$schema,omitempty"`
+
+	// Altcha Proof-of-work captcha solution; required when the captcha is enabled
+	Altcha   *string `json:"altcha,omitempty"`
 	Password *string `json:"password,omitempty"`
 	Username string  `json:"username"`
 }
@@ -352,7 +389,10 @@ type AuthLoginInputBody struct {
 // AuthRegisterInputBody defines model for AuthRegisterInputBody.
 type AuthRegisterInputBody struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema   *string `json:"$schema,omitempty"`
+	Schema *string `json:"$schema,omitempty"`
+
+	// Altcha Proof-of-work captcha solution; required when the captcha is enabled
+	Altcha   *string `json:"altcha,omitempty"`
 	Password *string `json:"password,omitempty"`
 	Username string  `json:"username"`
 }
@@ -381,6 +421,17 @@ type Candidate struct {
 	ProviderScore    *int64         `json:"provider_score,omitempty"`
 	Rank             int64          `json:"rank"`
 	Resolution       Resolution     `json:"resolution"`
+}
+
+// Challenge defines model for Challenge.
+type Challenge struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema    *string `json:"$schema,omitempty"`
+	Algorithm string  `json:"algorithm"`
+	Challenge string  `json:"challenge"`
+	Maxnumber int64   `json:"maxnumber"`
+	Salt      string  `json:"salt"`
+	Signature string  `json:"signature"`
 }
 
 // ChangeEntry defines model for ChangeEntry.
@@ -430,6 +481,20 @@ type CollectionsOutputBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema      *string           `json:"$schema,omitempty"`
 	Collections *[]CollectionCard `json:"collections"`
+}
+
+// CreatedAPIKey defines model for CreatedAPIKey.
+type CreatedAPIKey struct {
+	CreatedAt time.Time          `json:"created_at"`
+	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// Key Plaintext API key; shown only in this creation response
+	Key        *string    `json:"key,omitempty"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	Name       string     `json:"name"`
+	Prefix     string     `json:"prefix"`
+	Scopes     *[]string  `json:"scopes"`
 }
 
 // DedicatedDiscoveryRequest defines model for DedicatedDiscoveryRequest.
@@ -1069,6 +1134,24 @@ type AnimeDetailParams struct {
 	AcceptLanguage *string `json:"Accept-Language,omitempty"`
 }
 
+// ListApiKeysParams defines parameters for ListApiKeys.
+type ListApiKeysParams struct {
+	// UnderscoreUnderscoreHostHeyaSession Opaque browser session; set and read only by the browser
+	UnderscoreUnderscoreHostHeyaSession *string `form:"__Host-heya_session,omitempty" json:"__Host-heya_session,omitempty"`
+}
+
+// CreateApiKeyParams defines parameters for CreateApiKey.
+type CreateApiKeyParams struct {
+	// UnderscoreUnderscoreHostHeyaSession Opaque browser session; set and read only by the browser
+	UnderscoreUnderscoreHostHeyaSession *string `form:"__Host-heya_session,omitempty" json:"__Host-heya_session,omitempty"`
+}
+
+// RevokeApiKeyParams defines parameters for RevokeApiKey.
+type RevokeApiKeyParams struct {
+	// UnderscoreUnderscoreHostHeyaSession Opaque browser session; set and read only by the browser
+	UnderscoreUnderscoreHostHeyaSession *string `form:"__Host-heya_session,omitempty" json:"__Host-heya_session,omitempty"`
+}
+
 // AuthLogoutParams defines parameters for AuthLogout.
 type AuthLogoutParams struct {
 	// UnderscoreUnderscoreHostHeyaSession Opaque browser session; set and read only by the browser
@@ -1077,6 +1160,9 @@ type AuthLogoutParams struct {
 
 // AuthMeParams defines parameters for AuthMe.
 type AuthMeParams struct {
+	// Authorization Optional Heya API key using the Bearer scheme
+	Authorization *string `json:"Authorization,omitempty"`
+
 	// UnderscoreUnderscoreHostHeyaSession Opaque browser session; set and read only by the browser
 	UnderscoreUnderscoreHostHeyaSession *string `form:"__Host-heya_session,omitempty" json:"__Host-heya_session,omitempty"`
 }
@@ -1432,6 +1518,9 @@ type TvShowDetailParams struct {
 // DiscoverAnimeJSONRequestBody defines body for DiscoverAnime for application/json ContentType.
 type DiscoverAnimeJSONRequestBody = DedicatedDiscoveryRequest
 
+// CreateApiKeyJSONRequestBody defines body for CreateApiKey for application/json ContentType.
+type CreateApiKeyJSONRequestBody = ApiKeyCreateInputBody
+
 // AuthLoginJSONRequestBody defines body for AuthLogin for application/json ContentType.
 type AuthLoginJSONRequestBody = AuthLoginInputBody
 
@@ -1539,6 +1628,20 @@ type ClientInterface interface {
 
 	// AnimeDetail request
 	AnimeDetail(ctx context.Context, id openapi_types.UUID, params *AnimeDetailParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListApiKeys request
+	ListApiKeys(ctx context.Context, params *ListApiKeysParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateApiKeyWithBody request with any body
+	CreateApiKeyWithBody(ctx context.Context, params *CreateApiKeyParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateApiKey(ctx context.Context, params *CreateApiKeyParams, body CreateApiKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RevokeApiKey request
+	RevokeApiKey(ctx context.Context, id openapi_types.UUID, params *RevokeApiKeyParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthChallenge request
+	AuthChallenge(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AuthLoginWithBody request with any body
 	AuthLoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1714,6 +1817,66 @@ func (c *Client) DiscoverAnime(ctx context.Context, params *DiscoverAnimeParams,
 
 func (c *Client) AnimeDetail(ctx context.Context, id openapi_types.UUID, params *AnimeDetailParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAnimeDetailRequest(c.Server, id, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListApiKeys(ctx context.Context, params *ListApiKeysParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListApiKeysRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateApiKeyWithBody(ctx context.Context, params *CreateApiKeyParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateApiKeyRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateApiKey(ctx context.Context, params *CreateApiKeyParams, body CreateApiKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateApiKeyRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RevokeApiKey(ctx context.Context, id openapi_types.UUID, params *RevokeApiKeyParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeApiKeyRequest(c.Server, id, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AuthChallenge(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthChallengeRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -2503,6 +2666,185 @@ func NewAnimeDetailRequest(server string, id openapi_types.UUID, params *AnimeDe
 	return req, nil
 }
 
+// NewListApiKeysRequest generates requests for ListApiKeys
+func NewListApiKeysRequest(server string, params *ListApiKeysParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/auth/api-keys")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.UnderscoreUnderscoreHostHeyaSession != nil {
+			var cookieParam0 string
+
+			cookieParam0, err = runtime.StyleParamWithOptions("simple", true, "__Host-heya_session", *params.UnderscoreUnderscoreHostHeyaSession, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationCookie, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			cookie0 := &http.Cookie{
+				Name:  "__Host-heya_session",
+				Value: cookieParam0,
+			}
+			req.AddCookie(cookie0)
+		}
+	}
+	return req, nil
+}
+
+// NewCreateApiKeyRequest calls the generic CreateApiKey builder with application/json body
+func NewCreateApiKeyRequest(server string, params *CreateApiKeyParams, body CreateApiKeyJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateApiKeyRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewCreateApiKeyRequestWithBody generates requests for CreateApiKey with any type of body
+func NewCreateApiKeyRequestWithBody(server string, params *CreateApiKeyParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/auth/api-keys")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.UnderscoreUnderscoreHostHeyaSession != nil {
+			var cookieParam0 string
+
+			cookieParam0, err = runtime.StyleParamWithOptions("simple", true, "__Host-heya_session", *params.UnderscoreUnderscoreHostHeyaSession, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationCookie, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			cookie0 := &http.Cookie{
+				Name:  "__Host-heya_session",
+				Value: cookieParam0,
+			}
+			req.AddCookie(cookie0)
+		}
+	}
+	return req, nil
+}
+
+// NewRevokeApiKeyRequest generates requests for RevokeApiKey
+func NewRevokeApiKeyRequest(server string, id openapi_types.UUID, params *RevokeApiKeyParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/auth/api-keys/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.UnderscoreUnderscoreHostHeyaSession != nil {
+			var cookieParam0 string
+
+			cookieParam0, err = runtime.StyleParamWithOptions("simple", true, "__Host-heya_session", *params.UnderscoreUnderscoreHostHeyaSession, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationCookie, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			cookie0 := &http.Cookie{
+				Name:  "__Host-heya_session",
+				Value: cookieParam0,
+			}
+			req.AddCookie(cookie0)
+		}
+	}
+	return req, nil
+}
+
+// NewAuthChallengeRequest generates requests for AuthChallenge
+func NewAuthChallengeRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/auth/challenge")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewAuthLoginRequest calls the generic AuthLogin builder with application/json body
 func NewAuthLoginRequest(server string, body AuthLoginJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2609,6 +2951,21 @@ func NewAuthMeRequest(server string, params *AuthMeParams) (*http.Request, error
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Authorization", headerParam0)
+		}
+
 	}
 
 	if params != nil {
@@ -5527,6 +5884,20 @@ type ClientWithResponsesInterface interface {
 	// AnimeDetailWithResponse request
 	AnimeDetailWithResponse(ctx context.Context, id openapi_types.UUID, params *AnimeDetailParams, reqEditors ...RequestEditorFn) (*AnimeDetailResponse, error)
 
+	// ListApiKeysWithResponse request
+	ListApiKeysWithResponse(ctx context.Context, params *ListApiKeysParams, reqEditors ...RequestEditorFn) (*ListApiKeysResponse, error)
+
+	// CreateApiKeyWithBodyWithResponse request with any body
+	CreateApiKeyWithBodyWithResponse(ctx context.Context, params *CreateApiKeyParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateApiKeyResponse, error)
+
+	CreateApiKeyWithResponse(ctx context.Context, params *CreateApiKeyParams, body CreateApiKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateApiKeyResponse, error)
+
+	// RevokeApiKeyWithResponse request
+	RevokeApiKeyWithResponse(ctx context.Context, id openapi_types.UUID, params *RevokeApiKeyParams, reqEditors ...RequestEditorFn) (*RevokeApiKeyResponse, error)
+
+	// AuthChallengeWithResponse request
+	AuthChallengeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthChallengeResponse, error)
+
 	// AuthLoginWithBodyWithResponse request with any body
 	AuthLoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthLoginResponse, error)
 
@@ -5737,10 +6108,146 @@ func (r AnimeDetailResponse) ContentType() string {
 	return ""
 }
 
+type ListApiKeysResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	JSON200                   *ApiKeyListOutputBody
+	ApplicationproblemJSON401 *ErrorModel
+	ApplicationproblemJSON422 *ErrorModel
+	ApplicationproblemJSON500 *ErrorModel
+	ApplicationproblemJSON503 *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r ListApiKeysResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListApiKeysResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListApiKeysResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateApiKeyResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	JSON201                   *ApiKeyCreateOutputBody
+	ApplicationproblemJSON401 *ErrorModel
+	ApplicationproblemJSON422 *ErrorModel
+	ApplicationproblemJSON500 *ErrorModel
+	ApplicationproblemJSON503 *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateApiKeyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateApiKeyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateApiKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RevokeApiKeyResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	ApplicationproblemJSON401 *ErrorModel
+	ApplicationproblemJSON404 *ErrorModel
+	ApplicationproblemJSON422 *ErrorModel
+	ApplicationproblemJSON500 *ErrorModel
+	ApplicationproblemJSON503 *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r RevokeApiKeyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RevokeApiKeyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RevokeApiKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AuthChallengeResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	JSON200                   *Challenge
+	ApplicationproblemJSON404 *ErrorModel
+	ApplicationproblemJSON500 *ErrorModel
+	ApplicationproblemJSON503 *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthChallengeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthChallengeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuthChallengeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type AuthLoginResponse struct {
 	Body                      []byte
 	HTTPResponse              *http.Response
 	JSON200                   *AuthBody
+	ApplicationproblemJSON400 *ErrorModel
 	ApplicationproblemJSON401 *ErrorModel
 	ApplicationproblemJSON422 *ErrorModel
 	ApplicationproblemJSON500 *ErrorModel
@@ -5841,6 +6348,7 @@ type AuthRegisterResponse struct {
 	Body                      []byte
 	HTTPResponse              *http.Response
 	JSON201                   *AuthBody
+	ApplicationproblemJSON400 *ErrorModel
 	ApplicationproblemJSON409 *ErrorModel
 	ApplicationproblemJSON422 *ErrorModel
 	ApplicationproblemJSON500 *ErrorModel
@@ -7106,6 +7614,50 @@ func (c *ClientWithResponses) AnimeDetailWithResponse(ctx context.Context, id op
 	return ParseAnimeDetailResponse(rsp)
 }
 
+// ListApiKeysWithResponse request returning *ListApiKeysResponse
+func (c *ClientWithResponses) ListApiKeysWithResponse(ctx context.Context, params *ListApiKeysParams, reqEditors ...RequestEditorFn) (*ListApiKeysResponse, error) {
+	rsp, err := c.ListApiKeys(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListApiKeysResponse(rsp)
+}
+
+// CreateApiKeyWithBodyWithResponse request with arbitrary body returning *CreateApiKeyResponse
+func (c *ClientWithResponses) CreateApiKeyWithBodyWithResponse(ctx context.Context, params *CreateApiKeyParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateApiKeyResponse, error) {
+	rsp, err := c.CreateApiKeyWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateApiKeyResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateApiKeyWithResponse(ctx context.Context, params *CreateApiKeyParams, body CreateApiKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateApiKeyResponse, error) {
+	rsp, err := c.CreateApiKey(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateApiKeyResponse(rsp)
+}
+
+// RevokeApiKeyWithResponse request returning *RevokeApiKeyResponse
+func (c *ClientWithResponses) RevokeApiKeyWithResponse(ctx context.Context, id openapi_types.UUID, params *RevokeApiKeyParams, reqEditors ...RequestEditorFn) (*RevokeApiKeyResponse, error) {
+	rsp, err := c.RevokeApiKey(ctx, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRevokeApiKeyResponse(rsp)
+}
+
+// AuthChallengeWithResponse request returning *AuthChallengeResponse
+func (c *ClientWithResponses) AuthChallengeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthChallengeResponse, error) {
+	rsp, err := c.AuthChallenge(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthChallengeResponse(rsp)
+}
+
 // AuthLoginWithBodyWithResponse request with arbitrary body returning *AuthLoginResponse
 func (c *ClientWithResponses) AuthLoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthLoginResponse, error) {
 	rsp, err := c.AuthLoginWithBody(ctx, contentType, body, reqEditors...)
@@ -7631,6 +8183,215 @@ func ParseAnimeDetailResponse(rsp *http.Response) (*AnimeDetailResponse, error) 
 	return response, nil
 }
 
+// ParseListApiKeysResponse parses an HTTP response from a ListApiKeysWithResponse call
+func ParseListApiKeysResponse(rsp *http.Response) (*ListApiKeysResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListApiKeysResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ApiKeyListOutputBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateApiKeyResponse parses an HTTP response from a CreateApiKeyWithResponse call
+func ParseCreateApiKeyResponse(rsp *http.Response) (*CreateApiKeyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateApiKeyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ApiKeyCreateOutputBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRevokeApiKeyResponse parses an HTTP response from a RevokeApiKeyWithResponse call
+func ParseRevokeApiKeyResponse(rsp *http.Response) (*RevokeApiKeyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RevokeApiKeyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAuthChallengeResponse parses an HTTP response from a AuthChallengeWithResponse call
+func ParseAuthChallengeResponse(rsp *http.Response) (*AuthChallengeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthChallengeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Challenge
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseAuthLoginResponse parses an HTTP response from a AuthLoginWithResponse call
 func ParseAuthLoginResponse(rsp *http.Response) (*AuthLoginResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7651,6 +8412,13 @@ func ParseAuthLoginResponse(rsp *http.Response) (*AuthLoginResponse, error) {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest ErrorModel
@@ -7799,6 +8567,13 @@ func ParseAuthRegisterResponse(rsp *http.Response) (*AuthRegisterResponse, error
 			return nil, err
 		}
 		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
 		var dest ErrorModel

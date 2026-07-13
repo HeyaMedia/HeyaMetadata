@@ -80,6 +80,50 @@ func TestAuthHTTPRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected current user: %+v", current.User)
 	}
 
+	createKey := serveJSON(t, handler, http.MethodPost, "/api/v2/auth/api-keys", map[string]string{"name": "Living Room"}, cookie)
+	if createKey.Code != http.StatusCreated {
+		t.Fatalf("create API key status: got %d body=%s", createKey.Code, createKey.Body.String())
+	}
+	var createdKey struct {
+		APIKey auth.CreatedAPIKey `json:"api_key"`
+	}
+	if err := json.NewDecoder(createKey.Body).Decode(&createdKey); err != nil {
+		t.Fatal(err)
+	}
+	if createdKey.APIKey.Key == "" || createdKey.APIKey.Prefix == "" || createdKey.APIKey.Name != "Living Room" {
+		t.Fatalf("unexpected API key creation body: %+v", createdKey.APIKey)
+	}
+
+	listKeys := serveJSON(t, handler, http.MethodGet, "/api/v2/auth/api-keys", nil, cookie)
+	if listKeys.Code != http.StatusOK {
+		t.Fatalf("list API keys status: got %d body=%s", listKeys.Code, listKeys.Body.String())
+	}
+	listBody := listKeys.Body.Bytes()
+	if bytes.Contains(listBody, []byte(createdKey.APIKey.Key)) || bytes.Contains(listBody, []byte(`"key"`)) {
+		t.Fatalf("API key listing exposed plaintext: %s", listBody)
+	}
+	var listedKeys struct {
+		APIKeys []auth.APIKey `json:"api_keys"`
+	}
+	if err := json.Unmarshal(listBody, &listedKeys); err != nil {
+		t.Fatal(err)
+	}
+	if len(listedKeys.APIKeys) != 1 || listedKeys.APIKeys[0].ID != createdKey.APIKey.ID {
+		t.Fatalf("unexpected API key listing: %+v", listedKeys.APIKeys)
+	}
+
+	keyMe := serveBearer(t, handler, "/api/v2/auth/me", createdKey.APIKey.Key)
+	if keyMe.Code != http.StatusOK {
+		t.Fatalf("API key authentication: got %d body=%s", keyMe.Code, keyMe.Body.String())
+	}
+	revokeKey := serveJSON(t, handler, http.MethodDelete, "/api/v2/auth/api-keys/"+createdKey.APIKey.ID, nil, cookie)
+	if revokeKey.Code != http.StatusNoContent {
+		t.Fatalf("revoke API key status: got %d body=%s", revokeKey.Code, revokeKey.Body.String())
+	}
+	if revokedMe := serveBearer(t, handler, "/api/v2/auth/me", createdKey.APIKey.Key); revokedMe.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked API key authentication: got %d body=%s", revokedMe.Code, revokedMe.Body.String())
+	}
+
 	logout := serveJSON(t, handler, http.MethodPost, "/api/v2/auth/logout", nil, cookie)
 	if logout.Code != http.StatusNoContent {
 		t.Fatalf("logout status: got %d body=%s", logout.Code, logout.Body.String())
@@ -100,6 +144,15 @@ func TestAuthHTTPRoundTrip(t *testing.T) {
 	if finalLogout.Code != http.StatusNoContent {
 		t.Fatalf("final logout status: got %d body=%s", finalLogout.Code, finalLogout.Body.String())
 	}
+}
+
+func serveBearer(t *testing.T, handler http.Handler, path, apiKey string) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.Header.Set("Authorization", "Bearer "+apiKey)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
 }
 
 func serveJSON(t *testing.T, handler http.Handler, method, path string, body any, cookie *http.Cookie) *httptest.ResponseRecorder {

@@ -20,6 +20,13 @@ type Config struct {
 	Worker      WorkerConfig
 	Chromaprint ChromaprintConfig
 	Providers   ProvidersConfig
+	Captcha     CaptchaConfig
+}
+
+// CaptchaConfig enables the self-hosted proof-of-work captcha on register/login
+// when Secret is set. Left empty (the default) the captcha is disabled.
+type CaptchaConfig struct {
+	Secret string
 }
 
 type S3Config struct {
@@ -292,7 +299,8 @@ func Load() (Config, error) {
 			PathStyle:        pathStyle,
 			AutoCreateBucket: autoCreateBucket,
 		},
-		Worker: WorkerConfig{MaxWorkers: maxWorkers},
+		Worker:  WorkerConfig{MaxWorkers: maxWorkers},
+		Captcha: CaptchaConfig{Secret: env("HEYA_METADATA_CAPTCHA_SECRET", "")},
 		Chromaprint: ChromaprintConfig{
 			FPCalcPath: env("HEYA_METADATA_FPCALC_PATH", ""), MaxPerRelease: chromaprintMax,
 		},

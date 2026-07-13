@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"os"
 	"strings"
 	"testing"
@@ -80,6 +82,52 @@ func TestLocalUserAndSessionRoundTrip(t *testing.T) {
 	}
 	if _, _, err := service.Register(ctx, strings.ToUpper(username), password); err != ErrUsernameTaken {
 		t.Fatalf("case-insensitive duplicate: got %v, want %v", err, ErrUsernameTaken)
+	}
+
+	createdKey, err := service.CreateAPIKey(ctx, user.ID, "  Integration Server  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createdKey.Name != "Integration Server" || !validAPIKey(createdKey.Key) || !strings.HasPrefix(createdKey.Key, createdKey.Prefix) {
+		t.Fatalf("unexpected created API key: %+v", createdKey)
+	}
+	var storedDigest []byte
+	if err := database.QueryRow(ctx, `SELECT key_hash FROM api_keys WHERE id=$1`, createdKey.ID).Scan(&storedDigest); err != nil {
+		t.Fatal(err)
+	}
+	wantDigest := sha256.Sum256([]byte(createdKey.Key))
+	if !bytes.Equal(storedDigest, wantDigest[:]) {
+		t.Fatal("stored API key digest does not match the generated key")
+	}
+	principal, err := service.AuthenticateAPIKey(ctx, createdKey.Key)
+	if err != nil || principal.User.ID != user.ID || principal.KeyID != createdKey.ID {
+		t.Fatalf("authenticate API key: principal=%+v err=%v", principal, err)
+	}
+	keys, err := service.ListAPIKeys(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 || keys[0].ID != createdKey.ID || keys[0].LastUsedAt == nil {
+		t.Fatalf("unexpected API key listing: %+v", keys)
+	}
+	if err := service.RevokeAPIKey(ctx, "00000000-0000-0000-0000-000000000000", createdKey.ID); err != ErrAPIKeyNotFound {
+		t.Fatalf("cross-user API key revocation: got %v, want %v", err, ErrAPIKeyNotFound)
+	}
+	if _, err := service.AuthenticateAPIKey(ctx, createdKey.Key); err != nil {
+		t.Fatalf("cross-user revocation affected the key: %v", err)
+	}
+	if err := service.RevokeAPIKey(ctx, user.ID, createdKey.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RevokeAPIKey(ctx, user.ID, createdKey.ID); err != nil {
+		t.Fatalf("repeated API key revocation was not idempotent: %v", err)
+	}
+	if _, err := service.AuthenticateAPIKey(ctx, createdKey.Key); err != ErrInvalidAPIKey {
+		t.Fatalf("revoked API key: got %v, want %v", err, ErrInvalidAPIKey)
+	}
+	keys, err = service.ListAPIKeys(ctx, user.ID)
+	if err != nil || len(keys) != 0 {
+		t.Fatalf("revoked key remained listable: keys=%+v err=%v", keys, err)
 	}
 	if err := service.Logout(ctx, token); err != nil {
 		t.Fatal(err)
