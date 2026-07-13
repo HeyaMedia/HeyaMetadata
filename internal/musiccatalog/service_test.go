@@ -89,6 +89,27 @@ func TestClustersResolvingToSameCanonicalTargetEmitOnce(t *testing.T) {
 	}
 }
 
+func TestStrongBridgePrefersOneIndependentCanonicalTarget(t *testing.T) {
+	t.Parallel()
+	target, alternates, ok := preferredIndependentTarget(map[string]bool{"musicbrainz": true, "apple-promotion": false, "deezer-promotion": false})
+	if !ok || target != "musicbrainz" || fmt.Sprint(alternates) != "[apple-promotion deezer-promotion]" {
+		t.Fatalf("preferred=%q alternates=%v ok=%v", target, alternates, ok)
+	}
+	if _, _, ok := preferredIndependentTarget(map[string]bool{"left": true, "right": true}); ok {
+		t.Fatal("ambiguous independent targets were collapsed")
+	}
+}
+
+func TestWeakTitleBridgeCannotRetireCatalogTargets(t *testing.T) {
+	t.Parallel()
+	if evidenceBackedBridge(cluster{BridgeReason: "normalized_title_type_year", BridgeConfidence: .96}) {
+		t.Fatal("title-only match was treated as canonical evidence")
+	}
+	if !evidenceBackedBridge(cluster{BridgeReason: "shared_isrc_trackset", BridgeConfidence: .995}) {
+		t.Fatal("ISRC evidence was rejected")
+	}
+}
+
 func TestIssuedTrackOverlapCoalescesRegionalReleaseGroups(t *testing.T) {
 	t.Parallel()
 	left := cluster{TargetID: "german", Sources: []candidate{{Provider: "musicbrainz", ID: "de", Title: "Monstersound", Date: "2000-12-12", Kind: "single"}}}

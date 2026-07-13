@@ -22,9 +22,10 @@ type trackEvidence struct {
 	PreviewURL string
 }
 type detailEvidence struct {
-	Barcode string
-	ISRCs   map[string]bool
-	Tracks  []trackEvidence
+	Barcode    string
+	ISRCs      map[string]bool
+	Tracks     []trackEvidence
+	Tracklists [][]trackEvidence
 }
 
 func enrichClustersWithDetailEvidence(ctx context.Context, runtime *platform.Runtime, clusters []cluster, jobID int64) []cluster {
@@ -73,7 +74,7 @@ func enrichClustersWithDetailEvidence(ctx context.Context, runtime *platform.Run
 		confidence := 0.0
 		ambiguous := false
 		for anchorIndex := range result {
-			if !canonicalSpineCluster(result[anchorIndex]) {
+			if !canonicalSpineCluster(result[anchorIndex]) || !detailEvidenceCandidates(group, result[anchorIndex]) {
 				continue
 			}
 			anchorReason, anchorConfidence, ok := clustersStronglyMatch(group, result[anchorIndex], load)
@@ -104,6 +105,28 @@ func enrichClustersWithDetailEvidence(ctx context.Context, runtime *platform.Run
 		result[matched].BridgeConfidence = confidence
 	}
 	return result
+}
+
+// Detail fetches are deliberately limited. Only compare release concepts that
+// already agree by normalized title and year; track evidence may bridge a
+// provider's EP/single classification disagreement, but it may not turn an
+// unrelated catalog record into an identity candidate.
+func detailEvidenceCandidates(left, right cluster) bool {
+	for _, a := range left.Sources {
+		for _, b := range right.Sources {
+			if a.Provider == b.Provider {
+				continue
+			}
+			ay, by := year(a.Date), year(b.Date)
+			if ay > 0 && by > 0 && ay != by {
+				continue
+			}
+			if textmatch.EquivalentRelease(a.Title, ay, b.Title, by) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func clustersStronglyMatch(left, right cluster, load func(candidate) (detailEvidence, bool)) (string, float64, bool) {
@@ -152,28 +175,43 @@ func strongEvidenceMatch(a, b detailEvidence) (string, float64, bool) {
 	if shared >= required && minimum > 0 && shared*100/minimum >= 60 {
 		return "shared_isrc_trackset", .995, true
 	}
-	if len(a.Tracks) >= 2 && len(a.Tracks) == len(b.Tracks) {
-		matched := 0
-		durations := 0
-		for i := range a.Tracks {
-			if textmatch.EquivalentRelease(a.Tracks[i].Title, 0, b.Tracks[i].Title, 0) {
-				matched++
-				if durationClose(a.Tracks[i].DurationMS, b.Tracks[i].DurationMS) {
-					durations++
+	for _, left := range evidenceTracklists(a) {
+		for _, right := range evidenceTracklists(b) {
+			if len(left) < 2 || len(left) != len(right) {
+				continue
+			}
+			matched := 0
+			durations := 0
+			for i := range left {
+				if textmatch.EquivalentRelease(left[i].Title, 0, right[i].Title, 0) {
+					matched++
+					if durationClose(left[i].DurationMS, right[i].DurationMS) {
+						durations++
+					}
 				}
 			}
-		}
-		if matched*100/len(a.Tracks) >= 80 && durations*100/len(a.Tracks) >= 60 {
-			return "ordered_tracklist_duration", .94, true
+			if matched*100/len(left) >= 80 && durations*100/len(left) >= 60 {
+				return "ordered_tracklist_duration", .94, true
+			}
 		}
 	}
 	return "", 0, false
 }
 func durationClose(a, b int64) bool { return a == 0 || b == 0 || (a-b < 3000 && b-a < 3000) }
 
+func evidenceTracklists(value detailEvidence) [][]trackEvidence {
+	result := value.Tracklists
+	if len(value.Tracks) > 0 {
+		result = append(result, value.Tracks)
+	}
+	return result
+}
+
 func collectDetailEvidence(ctx context.Context, runtime *platform.Runtime, source candidate, jobID int64) (detailEvidence, error) {
 	var record rgdomain.NormalizedRecordV1
 	switch source.Provider {
+	case "musicbrainz":
+		return collectMusicBrainzDetailEvidence(ctx, runtime, source.ID)
 	case "apple":
 		base := apple.New(runtime.Config.Providers.Apple)
 		r, err := resolver(runtime, base.Capability(), jobID)
@@ -235,6 +273,57 @@ func collectDetailEvidence(ctx context.Context, runtime *platform.Runtime, sourc
 		return detailEvidence{}, fmt.Errorf("unsupported catalog detail provider %q", source.Provider)
 	}
 	return evidenceFromRecord(record), nil
+}
+
+func collectMusicBrainzDetailEvidence(ctx context.Context, runtime *platform.Runtime, releaseGroupID string) (detailEvidence, error) {
+	value := detailEvidence{ISRCs: map[string]bool{}}
+	rows, err := runtime.DB.Query(ctx, `
+		SELECT edition.target_entity_id::text,track.sequence,track.title,COALESCE(track.duration_ms,0),
+		       COALESCE(array_agg(DISTINCT claim.normalized_value) FILTER(WHERE claim.normalized_value IS NOT NULL),'{}')
+		FROM external_id_claims release_group
+		JOIN entity_relations edition ON edition.source_entity_id=release_group.entity_id
+		 AND edition.relation_type='editions' AND edition.state='accepted' AND edition.target_entity_id IS NOT NULL
+		JOIN release_tracks track ON track.release_entity_id=edition.target_entity_id
+		LEFT JOIN external_id_claims claim ON claim.entity_id=track.recording_entity_id
+		 AND claim.entity_kind='recording' AND claim.provider='isrc' AND claim.namespace='recording'
+		WHERE release_group.entity_kind='release_group' AND release_group.provider='musicbrainz'
+		  AND release_group.namespace='release_group' AND release_group.normalized_value=$1
+		  AND release_group.state='accepted'
+		GROUP BY edition.target_entity_id,track.id,track.sequence,track.title,track.duration_ms
+		ORDER BY edition.target_entity_id,track.sequence`, strings.ToLower(strings.TrimSpace(releaseGroupID)))
+	if err != nil {
+		return detailEvidence{}, fmt.Errorf("load MusicBrainz issued track evidence: %w", err)
+	}
+	defer rows.Close()
+	releaseIndexes := map[string]int{}
+	for rows.Next() {
+		var releaseID, title string
+		var sequence int
+		var duration int64
+		var isrcs []string
+		if err := rows.Scan(&releaseID, &sequence, &title, &duration, &isrcs); err != nil {
+			return detailEvidence{}, err
+		}
+		index, ok := releaseIndexes[releaseID]
+		if !ok {
+			index = len(value.Tracklists)
+			releaseIndexes[releaseID] = index
+			value.Tracklists = append(value.Tracklists, []trackEvidence{})
+		}
+		value.Tracklists[index] = append(value.Tracklists[index], trackEvidence{Provider: "musicbrainz", Title: title, DurationMS: duration})
+		for _, isrc := range isrcs {
+			if isrc = strings.ToUpper(strings.TrimSpace(isrc)); isrc != "" {
+				value.ISRCs[isrc] = true
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return detailEvidence{}, err
+	}
+	if len(value.Tracklists) == 0 {
+		return detailEvidence{}, fmt.Errorf("MusicBrainz release group %s has no materialized issued track evidence", releaseGroupID)
+	}
+	return value, nil
 }
 
 func evidenceFromRecord(record rgdomain.NormalizedRecordV1) detailEvidence {

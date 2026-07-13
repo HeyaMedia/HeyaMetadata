@@ -26,7 +26,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/textmatch"
 )
 
-const SyncVersion = "mixed-artist-catalog/v17"
+const SyncVersion = "mixed-artist-catalog/v18"
 
 type ReleaseGroup struct {
 	ID             string   `json:"id"`
@@ -838,6 +838,7 @@ func clusterTargets(ctx context.Context, runtime *platform.Runtime, group cluste
 		JOIN external_id_claims claim
 		  ON claim.entity_kind='release_group' AND claim.state='accepted'
 		 AND claim.provider=source.provider AND claim.namespace=source.namespace AND claim.normalized_value=source.value
+		JOIN entities entity ON entity.id=claim.entity_id AND entity.deleted_at IS NULL
 		GROUP BY claim.entity_id`, string(raw))
 	if err != nil {
 		return nil, err
@@ -917,9 +918,42 @@ func coalesceClustersByTarget(ctx context.Context, runtime *platform.Runtime, cl
 			for id := range targets {
 				group.TargetID = id
 			}
+		} else if evidenceBackedBridge(*group) {
+			if target, alternates, ok := preferredIndependentTarget(targets); ok {
+				group.TargetID = target
+				for _, alternate := range alternates {
+					group.AlternateTargets = appendUnique(group.AlternateTargets, alternate)
+				}
+			}
 		}
 	}
 	return coalesceTargetedClusters(clusters), nil
+}
+
+func evidenceBackedBridge(group cluster) bool {
+	switch group.BridgeReason {
+	case "shared_barcode", "shared_isrc_trackset", "ordered_tracklist_duration", "chromaprint_recording_coverage", "issued_release_track_overlap":
+		return true
+	default:
+		return false
+	}
+}
+
+func preferredIndependentTarget(targets map[string]bool) (string, []string, bool) {
+	preferred := ""
+	alternates := []string{}
+	for target, independent := range targets {
+		if independent {
+			if preferred != "" {
+				return "", nil, false
+			}
+			preferred = target
+			continue
+		}
+		alternates = append(alternates, target)
+	}
+	sort.Strings(alternates)
+	return preferred, alternates, preferred != ""
 }
 
 func coalesceTargetedClusters(clusters []cluster) []cluster {
@@ -1094,11 +1128,17 @@ func appendUnique(values []string, value string) []string {
 func reconcilePromotions(ctx context.Context, runtime *platform.Runtime, artistID string) error {
 	_, err := runtime.DB.Exec(ctx, `
 		UPDATE artist_catalog_promotions promotion SET state='active',updated_at=now()
-		WHERE promotion.artist_entity_id=$1 AND EXISTS(
-			SELECT 1 FROM entity_relations relation
-			WHERE relation.source_entity_id=promotion.artist_entity_id
-			  AND relation.target_entity_id=promotion.release_group_entity_id
-			  AND relation.relation_type='discography' AND relation.state='accepted')`, artistID)
+		WHERE promotion.artist_entity_id=$1 AND (
+			EXISTS(
+				SELECT 1 FROM entity_relations relation
+				WHERE relation.source_entity_id=promotion.artist_entity_id
+				  AND relation.target_entity_id=promotion.release_group_entity_id
+				  AND relation.relation_type='discography' AND relation.state='accepted')
+			OR EXISTS(
+				SELECT 1 FROM entity_relations relation
+				WHERE relation.source_entity_id=promotion.artist_entity_id
+				  AND relation.relation_type='discography' AND relation.state='accepted'
+				  AND COALESCE(relation.metadata->'alternate_target_entity_ids','[]'::jsonb) ? promotion.release_group_entity_id::text))`, artistID)
 	if err != nil {
 		return err
 	}

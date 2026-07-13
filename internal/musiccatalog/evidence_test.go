@@ -39,3 +39,28 @@ func TestStrongEvidenceMatchesOrderedTracklistAndDuration(t *testing.T) {
 		t.Fatalf("tracklist evidence: %q/%v/%v", reason, confidence, ok)
 	}
 }
+
+func TestStrongEvidenceChecksEveryIssuedMusicBrainzTracklist(t *testing.T) {
+	t.Parallel()
+	storefront := detailEvidence{ISRCs: map[string]bool{}, Tracks: []trackEvidence{{Title: "First", DurationMS: 180000}, {Title: "Second", DurationMS: 210000}}}
+	musicbrainz := detailEvidence{ISRCs: map[string]bool{}, Tracklists: [][]trackEvidence{
+		{{Title: "Unrelated", DurationMS: 120000}, {Title: "Edition", DurationMS: 130000}},
+		{{Title: "First", DurationMS: 180500}, {Title: "Second", DurationMS: 210500}},
+	}}
+	if reason, _, ok := strongEvidenceMatch(storefront, musicbrainz); !ok || reason != "ordered_tracklist_duration" {
+		t.Fatalf("issued release evidence was not matched: %q/%v", reason, ok)
+	}
+}
+
+func TestDetailEvidenceCanBridgeStorefrontTypeDisagreement(t *testing.T) {
+	t.Parallel()
+	storefront := cluster{Sources: []candidate{{Provider: "apple", Title: "Possibly Maybe", Date: "1996-01-01", Kind: "ep"}}}
+	spine := cluster{Sources: []candidate{{Provider: "musicbrainz", Title: "Possibly Maybe", Date: "1996-10-28", Kind: "single"}}}
+	if !detailEvidenceCandidates(storefront, spine) {
+		t.Fatal("provider type disagreement prevented a detail-evidence comparison")
+	}
+	spine.Sources[0].Date = "1997-10-28"
+	if detailEvidenceCandidates(storefront, spine) {
+		t.Fatal("different release years became detail-evidence candidates")
+	}
+}

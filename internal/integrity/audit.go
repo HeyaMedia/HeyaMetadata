@@ -239,9 +239,27 @@ func definitions() []checkDefinition {
 			sampleSQL: `SELECT r.source_entity_id::text,r.source_kind,COALESCE(r.metadata->>'title',r.provider_value),r.provider||':'||r.namespace||':'||r.provider_value||' state='||COALESCE(r.metadata->>'resolution_state','') FROM entity_relations r WHERE r.state='accepted' AND r.relation_type='discography' AND r.target_entity_id IS NULL ORDER BY NULLIF(r.metadata->>'first_release_date','') DESC NULLS LAST LIMIT $1`,
 		},
 		{
-			Check:     Check{Code: "music.possible_duplicate_release_groups", Domain: "music", Severity: SeverityWarning, Summary: "release groups sharing normalized title, year, and artist credit", Remediation: "compare provider identities and track evidence; merge only when the release-group identity is truly equivalent"},
-			countSQL:  `SELECT count(*) FROM (SELECT lower(unaccent(display_title)),release_year,lower(COALESCE(summary->'display'->>'artist_credit','')) FROM search_entities WHERE kind='release_group' GROUP BY 1,2,3 HAVING count(*)>1) duplicate`,
-			sampleSQL: `SELECT (array_agg(entity_id ORDER BY entity_id))[1]::text,'release_group',min(display_title),COALESCE(summary->'display'->>'artist_credit','')||' · '||COALESCE(release_year::text,'unknown year')||' · '||string_agg(entity_id::text,', ' ORDER BY entity_id::text) FROM search_entities WHERE kind='release_group' GROUP BY lower(unaccent(display_title)),release_year,lower(COALESCE(summary->'display'->>'artist_credit','')),summary->'display'->>'artist_credit' HAVING count(*)>1 ORDER BY count(*) DESC,min(display_title) LIMIT $1`,
+			Check: Check{Code: "music.possible_duplicate_release_groups", Domain: "music", Severity: SeverityWarning, Summary: "same-signature release groups simultaneously exposed in one artist discography", Remediation: "compare provider identities and track evidence; coalesce presentation only when the release-group identity is truly equivalent"},
+			countSQL: `WITH signatures AS (
+				SELECT lower(unaccent(display_title)) title_key,release_year,lower(COALESCE(summary->'display'->>'artist_credit','')) artist_key,CASE WHEN lower(COALESCE(summary->>'primary_type','')) IN('single','ep') THEN 'single' ELSE lower(COALESCE(summary->>'primary_type','')) END type_key,min(display_title) title,array_agg(entity_id) ids
+				FROM search_entities WHERE kind='release_group' GROUP BY 1,2,3,4 HAVING count(*)>1
+			), exposed AS (
+				SELECT relation.source_entity_id,signature.title_key,signature.release_year,signature.artist_key,signature.type_key
+				FROM signatures signature JOIN entity_relations relation ON relation.target_entity_id=ANY(signature.ids)
+				WHERE relation.relation_type='discography' AND relation.state='accepted'
+				GROUP BY relation.source_entity_id,signature.title_key,signature.release_year,signature.artist_key,signature.type_key
+				HAVING count(DISTINCT relation.target_entity_id)>1
+			) SELECT count(*) FROM exposed`,
+			sampleSQL: `WITH signatures AS (
+				SELECT lower(unaccent(display_title)) title_key,release_year,lower(COALESCE(summary->'display'->>'artist_credit','')) artist_key,CASE WHEN lower(COALESCE(summary->>'primary_type','')) IN('single','ep') THEN 'single' ELSE lower(COALESCE(summary->>'primary_type','')) END type_key,min(display_title) title,array_agg(entity_id) ids
+				FROM search_entities WHERE kind='release_group' GROUP BY 1,2,3,4 HAVING count(*)>1
+			), exposed AS (
+				SELECT relation.source_entity_id,signature.title_key,signature.release_year,signature.artist_key,signature.type_key,signature.title,count(DISTINCT relation.target_entity_id) targets,string_agg(DISTINCT relation.target_entity_id::text,', ' ORDER BY relation.target_entity_id::text) target_ids
+				FROM signatures signature JOIN entity_relations relation ON relation.target_entity_id=ANY(signature.ids)
+				WHERE relation.relation_type='discography' AND relation.state='accepted'
+				GROUP BY relation.source_entity_id,signature.title_key,signature.release_year,signature.artist_key,signature.type_key,signature.title
+				HAVING count(DISTINCT relation.target_entity_id)>1
+			) SELECT exposed.source_entity_id::text,'artist',artist.display_title||' · '||exposed.title,COALESCE(exposed.release_year::text,'unknown year')||' · '||COALESCE(NULLIF(exposed.type_key,''),'unknown type')||' · '||exposed.targets||' targets · '||exposed.target_ids FROM exposed JOIN search_entities artist ON artist.entity_id=exposed.source_entity_id ORDER BY exposed.targets DESC,artist.display_title,exposed.title LIMIT $1`,
 		},
 		{
 			Check:     Check{Code: "music.deferred_releases", Domain: "music", Severity: SeverityInfo, Summary: "provider-backed issued releases intentionally not materialized as canonical release entities", Remediation: "monitor the backlog; materialize releases on demand or when track evidence is needed"},

@@ -129,6 +129,15 @@ set of normalized track titles with near-identical durations. Both release-group
 MBIDs and canonical targets remain in relation provenance; this is presentation
 deduplication, not a destructive canonical-entity merge.
 
+Storefront-to-spine reconciliation uses the same boundary. Detail requests are
+made only for title/year-compatible candidates, then compared against every
+materialized MusicBrainz issued tracklist using barcode, shared ISRC coverage,
+ordered titles and durations, or Chromaprint recording coverage. Strong track
+evidence may bridge an EP/single classification disagreement. When exactly one
+independently normalized canonical target exists, it becomes the public target;
+catalog-promoted targets remain active, resolvable alternate identities in the
+relation provenance rather than being silently deleted or title-merged.
+
 The executable storefront-freshness canary is ATARASHII GAKKO!'s `Oi AG!`:
 Deezer listed the July 2026 single before the other configured spines, and the
 public relation must retain a canonical target plus Deezer provenance. Ado's
