@@ -72,6 +72,7 @@ const collection = computed(() => {
 
     <VideoGallery :videos="data.videos" />
     <CastSection :entity-id="entity.id" />
+    <RecommendationsRail :recommendations="data.recommendations" />
   </div>
 </template>
 

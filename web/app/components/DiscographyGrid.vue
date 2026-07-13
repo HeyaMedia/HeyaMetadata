@@ -46,6 +46,7 @@ const groups = computed(() => {
     .sort((a, b) => (order.indexOf(a[0]) + 1 || 99) - (order.indexOf(b[0]) + 1 || 99))
     .map(([kind, items]) => ({ kind, items }))
 })
+const linkTag = resolveComponent('NuxtLink')
 </script>
 
 <template>
@@ -63,7 +64,7 @@ const groups = computed(() => {
         <ul class="line-list">
           <li v-for="(entry, index) in group.items" :key="index">
             <span class="line-list__main">
-              <component :is="entry.to ? 'NuxtLink' : 'span'" :to="entry.to" class="disco__link" :class="{ 'is-ghost': !entry.to }">
+              <component :is="entry.to ? linkTag : 'span'" :to="entry.to" class="disco__link" :class="{ 'is-ghost': !entry.to }">
                 {{ entry.title }}<template v-if="entry.to"> ↗</template>
               </component>
               <span v-if="!entry.to" class="disco__ghost-note">not ingested</span>

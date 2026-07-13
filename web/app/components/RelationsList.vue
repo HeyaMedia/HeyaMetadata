@@ -39,6 +39,7 @@ const entries = computed<Entry[]>(() => {
   }
   return out
 })
+const linkTag = resolveComponent('NuxtLink')
 </script>
 
 <template>
@@ -46,7 +47,7 @@ const entries = computed<Entry[]>(() => {
     <ol class="line-list">
       <li v-for="(entry, index) in entries" :key="index">
         <span class="line-list__main">
-          <component :is="entry.to ? 'NuxtLink' : 'span'" :to="entry.to" class="rel__title" :class="{ 'is-link': entry.to }">
+          <component :is="entry.to ? linkTag : 'span'" :to="entry.to" class="rel__title" :class="{ 'is-link': entry.to }">
             {{ entry.title }}<template v-if="entry.to"> ↗</template>
           </component>
           <span v-if="entry.sub" class="line-list__sub">{{ entry.sub }}</span>

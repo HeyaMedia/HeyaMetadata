@@ -15,6 +15,7 @@ const { data: collection, pending, error } = await useAsyncData(
 const members = computed(() =>
   [...(collection.value?.members ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
 )
+const linkTag = resolveComponent('NuxtLink')
 </script>
 
 <template>
@@ -39,7 +40,7 @@ const members = computed(() =>
         <h2 class="collection-members__title">Members <small>release order</small></h2>
         <div class="media-grid is-poster">
           <component
-            :is="member.entity_id ? 'NuxtLink' : 'div'"
+            :is="member.entity_id ? linkTag : 'div'"
             v-for="member in members"
             :key="member.provider_id"
             :to="member.entity_id ? `/movies/${member.entity_id}` : undefined"

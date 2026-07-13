@@ -133,6 +133,7 @@ export interface Credit {
   display_name?: string
   profile_image_id?: string
   provider_person_id?: string
+  person_entity_id?: string
   order?: number
 }
 
@@ -166,6 +167,66 @@ export interface LyricDocument {
   instrumental?: boolean
   plain_lyrics?: string
   synced_lyrics?: string
+}
+
+export interface PersonRef {
+  display_name?: string
+  profile_image_id?: string
+  provider?: string
+  provider_person_id?: string
+  entity_id?: string
+}
+
+/** Canonical person document from GET /api/v2/persons/{id}. */
+export interface PersonDocument {
+  id: string
+  kind?: string
+  slug?: string
+  display?: { title?: string; image_id?: string }
+  external_ids?: ExternalId[]
+  data?: {
+    names?: string[]
+    credits?: PersonCredit[]
+    credit_total?: number
+    [key: string]: any
+  }
+}
+
+export interface PersonCredit {
+  entity_id: string
+  kind: string
+  title?: string
+  year?: number
+  image_id?: string
+  credit_type?: string
+  character?: string
+  job?: string
+}
+
+export interface PersonCreditsResponse {
+  person: PersonRef
+  credits: PersonCredit[]
+  total?: number
+}
+
+export interface ShowRef {
+  entity_id: string
+  kind?: string
+  title?: string
+  image_id?: string
+}
+
+export interface SeasonResource {
+  id: string
+  show?: ShowRef
+  data?: Record<string, any>
+  episodes?: Array<Record<string, any>> | null
+}
+
+export interface EpisodeResource {
+  id: string
+  show?: ShowRef
+  data?: Record<string, any>
 }
 
 export interface DiscoveryCandidate {

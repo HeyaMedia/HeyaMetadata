@@ -1,26 +1,30 @@
 <script setup lang="ts">
-// Cast/crew credit. These are provider persons without canonical detail pages,
-// so the card is presentational (no link). Portrait crop.
+// Cast/crew credit. Links to the person's filmography page when a provider
+// person id is available; otherwise presentational. Portrait crop.
 const props = defineProps<{
   name?: string
   role?: string
   imageId?: string
+  to?: string
 }>()
 
 const displayName = computed(() => formatValue(props.name) || 'Unknown')
 const roleText = computed(() => formatValue(props.role))
+// A string `:is="'NuxtLink'"` does not resolve the auto-imported component at
+// runtime; the resolved reference does.
+const linkTag = resolveComponent('NuxtLink')
 </script>
 
 <template>
-  <figure class="person">
+  <component :is="to ? linkTag : 'figure'" :to="to" class="person" :class="{ 'is-link': to }">
     <span class="person__art">
       <MetadataImage :image-id="imageId" :alt="displayName" variant="thumb" />
     </span>
-    <figcaption class="person__body">
+    <span class="person__body">
       <strong class="person__name">{{ displayName }}</strong>
       <span v-if="roleText" class="person__role">{{ roleText }}</span>
-    </figcaption>
-  </figure>
+    </span>
+  </component>
 </template>
 
 <style scoped>
@@ -34,6 +38,8 @@ const roleText = computed(() => formatValue(props.role))
   border-radius: var(--radius);
   background: var(--panel);
 }
+.person.is-link { transition: transform 0.18s ease, border-color 0.18s ease; }
+.person.is-link:hover { transform: translateY(-3px); border-color: #5a5236; }
 .person__art { aspect-ratio: 3 / 4; width: 100%; overflow: hidden; background: #12171c; }
 .person__body { display: flex; flex-direction: column; padding: 0.6rem 0.7rem 0.75rem; }
 .person__name {

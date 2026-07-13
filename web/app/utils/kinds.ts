@@ -34,6 +34,7 @@ export const KINDS: KindMeta[] = [
   { kind: 'manga_volume', label: 'Manga volume', plural: 'Manga volumes', shape: 'poster', route: 'manga/volumes', discoverable: true },
   { kind: 'comic', label: 'Comic', plural: 'Comics', shape: 'poster', route: '', discoverable: false },
   { kind: 'comic_volume', label: 'Comic volume', plural: 'Comic volumes', shape: 'poster', route: 'comics/volumes', discoverable: true },
+  { kind: 'person', label: 'Person', plural: 'People', shape: 'portrait', route: 'people', discoverable: false },
 ]
 
 const BY_KIND = new Map(KINDS.map(item => [item.kind, item]))
@@ -50,7 +51,8 @@ export function cardShape(kind?: string | null): CardShape {
   return kindMeta(kind)?.shape ?? 'poster'
 }
 
-/** Kinds offered as domain filters in search/browse dropdowns. */
+/** Kinds offered as domain filters in search/browse dropdowns. People are
+ * searchable/browsable but only surface when explicitly requested. */
 export const FILTER_KINDS = KINDS.filter(k => k.route || k.discoverable)
 
 /** Kinds that can be resolved from an upstream provider. */

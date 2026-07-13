@@ -17,7 +17,16 @@ const { data, pending } = useAsyncData(
   { watch: [() => props.entityId], default: () => [] as Credit[] },
 )
 
-interface Person { name: string; role: string; imageId?: string; order: number }
+interface Person { name: string; role: string; imageId?: string; order: number; to?: string }
+
+// Prefer the canonical person page; fall back to the provider-scoped resolver.
+function personLink(credit: Credit): string | undefined {
+  if (credit.person_entity_id) return entityPath({ id: credit.person_entity_id, kind: 'person' })
+  if (credit.provider && credit.provider_person_id) {
+    return `/people/${encodeURIComponent(credit.provider)}/${encodeURIComponent(credit.provider_person_id)}`
+  }
+  return undefined
+}
 
 function dedupe(credits: Credit[], type: 'cast' | 'crew'): Person[] {
   const byKey = new Map<string, Person>()
@@ -35,10 +44,14 @@ function dedupe(credits: Credit[], type: 'cast' | 'crew'): Person[] {
     const key = isCast ? name.toLowerCase() : `${name.toLowerCase()}::${role.toLowerCase()}`
     const existing = byKey.get(key)
     const order = credit.order ?? 999
+    const to = personLink(credit)
+    const isTmdb = credit.provider === 'tmdb'
     if (!existing) {
-      byKey.set(key, { name, role, imageId: credit.profile_image_id, order })
+      byKey.set(key, { name, role, imageId: credit.profile_image_id, order, to })
     } else {
       if (!existing.imageId && credit.profile_image_id) existing.imageId = credit.profile_image_id
+      // Prefer a tmdb link if we didn't already have one.
+      if (to && (!existing.to || isTmdb)) existing.to = to
       if (order < existing.order) { existing.order = order; if (isCast && role) existing.role = role }
     }
   }
@@ -68,7 +81,7 @@ const shownCast = computed(() => (showAllCast.value ? cast.value : cast.value.sl
 
     <template v-else>
       <div v-if="cast.length" class="media-grid is-portrait">
-        <PersonCard v-for="(person, index) in shownCast" :key="`cast-${index}`" :name="person.name" :role="person.role" :image-id="person.imageId" />
+        <PersonCard v-for="(person, index) in shownCast" :key="`cast-${index}`" :name="person.name" :role="person.role" :image-id="person.imageId" :to="person.to" />
       </div>
 
       <div v-if="crew.length" class="cast__crew">

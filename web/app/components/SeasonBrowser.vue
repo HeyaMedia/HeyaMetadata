@@ -7,7 +7,7 @@ const props = defineProps<{ seasons?: any[]; episodes?: any[] }>()
 
 const route = useRoute()
 
-interface Episode { season: number | null; number: number | null; title: string; air: string; runtime: string; summary: string; schemes: any[] }
+interface Episode { id?: string; season: number | null; number: number | null; title: string; air: string; runtime: string; summary: string; schemes: any[] }
 
 function pickNumber(ep: any) {
   const numbers: any[] = Array.isArray(ep.numbers) ? ep.numbers : []
@@ -18,6 +18,7 @@ const allEpisodes = computed<Episode[]>(() =>
   (props.episodes ?? []).map(ep => {
     const primary = pickNumber(ep)
     return {
+      id: ep.id,
       season: primary.season ?? null,
       number: primary.number ?? null,
       title: preferredText(ep.titles) || (primary.number != null ? `Episode ${primary.number}` : 'Episode'),
@@ -103,6 +104,7 @@ function toggle(key: string) { openKey.value = openKey.value === key ? null : ke
               {{ formatKey(scheme.scheme || 'num') }} S{{ scheme.season ?? '?' }}·E{{ scheme.number ?? '?' }}
             </span>
           </div>
+          <NuxtLink v-if="ep.id" :to="`/episodes/${ep.id}`" class="btn--link episode__open">Open episode page ↗</NuxtLink>
         </div>
       </li>
     </ul>
@@ -162,6 +164,7 @@ function toggle(key: string) { openKey.value = openKey.value === key ? null : ke
 .episode__summary { max-width: 52rem; margin: 0 0 0.75rem; color: #a0aaa7; font-size: 0.8rem; line-height: 1.7; }
 .episode__schemes { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .episode__schemes .chip { font-family: var(--font-mono); font-size: 0.6rem; }
+.episode__open { display: inline-block; margin-top: 0.85rem; color: var(--gold); }
 
 @media (max-width: 640px) {
   .episode__row { grid-template-columns: 2rem 1fr 1.5rem; }

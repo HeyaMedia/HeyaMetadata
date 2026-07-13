@@ -6,10 +6,14 @@ import type {
   Credit,
   EntityDocument,
   EntitySummary,
+  EpisodeResource,
   ImagesResponse,
   LibraryStats,
   LyricDocument,
+  PersonCreditsResponse,
+  PersonDocument,
   RelationsResponse,
+  SeasonResource,
 } from '../utils/types'
 
 // Same-origin `/api/v2` client. All reads flow through here so provider
@@ -120,6 +124,22 @@ export function useHeyaApi() {
     return request(`${BASE}/recordings/${id}/lyrics`)
   }
 
+  function person(id: string): Promise<PersonDocument> {
+    return request(`${BASE}/persons/${id}`)
+  }
+
+  function personCredits(provider: string, providerPersonId: string): Promise<PersonCreditsResponse> {
+    return request(`${BASE}/persons/${encodeURIComponent(provider)}/${encodeURIComponent(providerPersonId)}/credits`)
+  }
+
+  function season(id: string): Promise<SeasonResource> {
+    return request(`${BASE}/seasons/${id}`)
+  }
+
+  function episode(id: string): Promise<EpisodeResource> {
+    return request(`${BASE}/episodes/${id}`)
+  }
+
   function health(): Promise<{ status?: string }> {
     return request(`${BASE}/health/ready`)
   }
@@ -191,6 +211,10 @@ export function useHeyaApi() {
     entityRelations,
     recordingFingerprints,
     recordingLyrics,
+    person,
+    personCredits,
+    season,
+    episode,
     health,
     createDiscovery,
     getDiscovery,

@@ -31,6 +31,7 @@ const items = computed(() =>
     .filter(member => member.entity_id !== props.excludeId)
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
 )
+const linkTag = resolveComponent('NuxtLink')
 </script>
 
 <template>
@@ -40,7 +41,7 @@ const items = computed(() =>
     </header>
     <div class="rail-track is-poster">
       <component
-        :is="member.entity_id ? 'NuxtLink' : 'div'"
+        :is="member.entity_id ? linkTag : 'div'"
         v-for="member in items"
         :key="member.provider_id"
         :to="member.entity_id ? entityPath({ id: member.entity_id, kind }) : undefined"

@@ -21,6 +21,7 @@ const rows = computed<Track[]>(() =>
     }
   }),
 )
+const linkTag = resolveComponent('NuxtLink')
 </script>
 
 <template>
@@ -29,7 +30,7 @@ const rows = computed<Track[]>(() =>
       <li v-for="(track, index) in rows" :key="index">
         <span class="line-list__index">{{ track.pos }}</span>
         <span class="line-list__main">
-          <component :is="track.to ? 'NuxtLink' : 'span'" :to="track.to" class="tracklist__title" :class="{ 'is-link': track.to }">
+          <component :is="track.to ? linkTag : 'span'" :to="track.to" class="tracklist__title" :class="{ 'is-link': track.to }">
             {{ track.title }}<template v-if="track.to"> ↗</template>
           </component>
           <span v-if="track.artist" class="line-list__sub">{{ track.artist }}</span>
