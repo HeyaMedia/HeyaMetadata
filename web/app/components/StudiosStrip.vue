@@ -1,7 +1,12 @@
 <script setup lang="ts">
-// Production studios with their logo artwork (movie `studios[]` carry
-// logo_image_id). Falls back to a text chip when a studio has no logo.
-const props = defineProps<{ studios?: any[] }>()
+// Named organisations with their logo artwork — movie `studios[]`, TV
+// `networks[]`/`organizations[]`, all of which may carry logo_image_id. Falls
+// back to a text chip when an entry has no logo. Title/kicker are overridable so
+// the same strip renders "Studios", "Networks", or "Companies".
+const props = withDefaults(defineProps<{ studios?: any[]; title?: string; kicker?: string }>(), {
+  title: 'Studios',
+  kicker: 'Production',
+})
 
 interface Studio { name: string; logoId?: string; role: string }
 
@@ -21,7 +26,7 @@ const hasLogos = computed(() => studios.value.some(s => s.logoId))
 </script>
 
 <template>
-  <OverviewPanel v-if="studios.length" title="Studios" kicker="Production" full>
+  <OverviewPanel v-if="studios.length" :title="title" :kicker="kicker" full>
     <div class="studios" :class="{ 'has-logos': hasLogos }">
       <div v-for="studio in studios" :key="studio.name" class="studio" :title="studio.role || undefined">
         <span v-if="studio.logoId" class="studio__logo">

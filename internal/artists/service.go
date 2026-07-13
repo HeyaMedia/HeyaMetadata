@@ -152,6 +152,43 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 			normalized, recordErr = discogs.NormalizeArtist(recorded[0].Payload.Body, recorded[0].ID, recorded[0].Payload.ObservedAt)
 		case "lastfm":
 			normalized, recordErr = lastfm.NormalizeArtist(recorded[0].Payload.Body, mbid, recorded[0].ID, recorded[0].Payload.ObservedAt)
+			if recordErr == nil {
+				topCapability := lastfm.New(s.runtime.Config.Providers.LastFM).Capability()
+				topResolver, topErr := providercache.New(s.runtime, artistdomain.LastFMTopTracksVersion, topCapability.RawRetention, topCapability.ResponseCache, riverJobID)
+				if topErr == nil {
+					topPayload, collectTopErr := lastfm.NewCached(s.runtime.Config.Providers.LastFM, topResolver, credentials.APIKey("lastfm")).ArtistTopTracks(ctx, mbid, 100, 1)
+					if collectTopErr != nil {
+						topErr = collectTopErr
+					} else {
+						topRecorded, topRecordErr := s.recordPayloads(ctx, []providers.Payload{topPayload}, artistdomain.LastFMTopTracksVersion, topCapability, riverJobID)
+						if topRecordErr != nil || len(topRecorded) == 0 {
+							topErr = topRecordErr
+							if topErr == nil {
+								topErr = fmt.Errorf("Last.fm top tracks returned no observation")
+							}
+						} else if topRecorded[0].Payload.StatusCode != http.StatusOK {
+							topErr = &providers.StatusError{Provider: "lastfm", StatusCode: topRecorded[0].Payload.StatusCode}
+						} else {
+							snapshot, normalizeTopErr := lastfm.NormalizeArtistTopTracks(topRecorded[0].Payload.Body, mbid)
+							if normalizeTopErr != nil {
+								topErr = normalizeTopErr
+							} else {
+								normalized.TopTracks = snapshot.Tracks
+								normalized.TopTracksObserved = true
+								normalized.TopTracksTotal = snapshot.Total
+								normalized.TopTracksObservationID = topRecorded[0].ID
+								normalized.TopTracksObservedAt = topRecorded[0].Payload.ObservedAt
+								normalized.ProviderRecord.SupportingObservationIDs = append(normalized.ProviderRecord.SupportingObservationIDs, topRecorded[0].ID)
+							}
+						}
+					}
+				}
+				if topErr != nil {
+					normalized.PartialFailure = true
+					normalized.Warnings = append(normalized.Warnings, "lastfm.top_tracks: "+topErr.Error())
+					slog.Warn("artist top tracks provider failed", "provider", "lastfm", "mbid", mbid, "error", topErr)
+				}
+			}
 		case "wikidata":
 			normalized, recordErr = wikidata.NormalizeArtist(recorded[0].Payload.Body, step.Identifier.Value, recorded[0].ID, recorded[0].Payload.ObservedAt)
 		}
@@ -373,6 +410,10 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	}
 	now := time.Now().UTC()
 	projection := artistdomain.Combine(entityID, slug, version, records, imageIDs, now)
+	topTracksChanged, err := replaceTopTracks(ctx, tx, entityID, successful, version)
+	if err != nil {
+		return Result{}, err
+	}
 	detailJSON, _ := json.Marshal(projection.Detail)
 	summaryJSON, _ := json.Marshal(projection.Summary)
 	provenanceJSON, _ := json.Marshal(projection.Detail.Provenance)
@@ -415,7 +456,11 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	if created {
 		changeType = "created"
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO change_outbox (entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id) VALUES ($1,'artist',$2,$3,$4,$5,$6,$7)`, entityID, slug, changeType, []string{"identity", "detail", "search", "provenance"}, version, successful[0].ProviderRecord.PrimaryObservationID, nullableJob(jobID)); err != nil {
+	changedScopes := []string{"identity", "detail", "search", "provenance"}
+	if topTracksChanged {
+		changedScopes = append(changedScopes, "top_tracks")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO change_outbox (entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id) VALUES ($1,'artist',$2,$3,$4,$5,$6,$7)`, entityID, slug, changeType, changedScopes, version, successful[0].ProviderRecord.PrimaryObservationID, nullableJob(jobID)); err != nil {
 		return Result{}, err
 	}
 	if jobID > 0 {
@@ -427,6 +472,37 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 		return Result{}, err
 	}
 	return Result{EntityID: entityID, NormalizedID: normalizedIDs[0], ProjectionVersion: version, Detail: projection.Detail}, nil
+}
+
+func replaceTopTracks(ctx context.Context, tx pgx.Tx, entityID string, records []artistdomain.NormalizedRecordV1, projectionVersion int64) (bool, error) {
+	changed := false
+	for _, record := range records {
+		if !record.TopTracksObserved {
+			continue
+		}
+		changed = true
+		provider := record.ProviderRecord.Provider
+		observationID := record.TopTracksObservationID
+		if observationID == "" {
+			observationID = record.ProviderRecord.PrimaryObservationID
+		}
+		observedAt := record.TopTracksObservedAt
+		if observedAt.IsZero() {
+			observedAt = record.ProviderRecord.ObservedAt
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM artist_top_tracks WHERE artist_entity_id=$1 AND provider=$2`, entityID, provider); err != nil {
+			return false, fmt.Errorf("replace %s artist top tracks: %w", provider, err)
+		}
+		for _, track := range record.TopTracks {
+			if _, err := tx.Exec(ctx, `INSERT INTO artist_top_tracks(artist_entity_id,provider,rank,title,provider_track_id,recording_mbid,playcount,listeners,url,source_observation_id,observed_at,projection_version)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,'')::uuid,$11,$12)`, entityID, provider, track.Rank, track.Title, track.ProviderTrackID, track.RecordingMBID, track.Playcount, track.Listeners, track.URL, observationID, observedAt, projectionVersion); err != nil {
+				return false, fmt.Errorf("persist %s artist top track rank %d: %w", provider, track.Rank, err)
+			}
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO artist_top_track_snapshots(artist_entity_id,provider,item_count,reported_total,source_observation_id,observed_at,projection_version)VALUES($1,$2,$3,$4,NULLIF($5,'')::uuid,$6,$7)ON CONFLICT(artist_entity_id,provider)DO UPDATE SET item_count=EXCLUDED.item_count,reported_total=EXCLUDED.reported_total,source_observation_id=EXCLUDED.source_observation_id,observed_at=EXCLUDED.observed_at,projection_version=EXCLUDED.projection_version`, entityID, provider, len(record.TopTracks), record.TopTracksTotal, observationID, observedAt, projectionVersion); err != nil {
+			return false, fmt.Errorf("persist %s artist top-track snapshot: %w", provider, err)
+		}
+	}
+	return changed, nil
 }
 
 func (s *Service) cache(ctx context.Context, result Result) error {

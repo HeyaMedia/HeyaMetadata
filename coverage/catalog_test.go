@@ -78,14 +78,14 @@ func TestBooksAndTVCatalogsAreValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(books.Entries) < 8 {
+	if len(books.Entries) < 9 {
 		t.Fatalf("book coverage entries: %d", len(books.Entries))
 	}
 	tv, err := TV()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tv.Entries) < 4 {
+	if len(tv.Entries) < 28 {
 		t.Fatalf("TV coverage entries: %d", len(tv.Entries))
 	}
 }

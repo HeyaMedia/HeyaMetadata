@@ -13,8 +13,11 @@ func TestNormalizePreservesNamedAniDBNumberingSchemes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.EpisodeCount != 1 || len(record.Episodes) != 2 || record.Episodes[0].Numbers[0].Scheme != "aired" || record.Episodes[1].Numbers[0].Scheme != "special" || record.Episodes[1].Numbers[0].Number != 1 {
+	if record.EpisodeCount != 1 || len(record.Episodes) != 2 || record.Episodes[0].Numbers[0].Scheme != "aired" || record.Episodes[0].Numbers[0].Season != 1 || !record.Episodes[1].IsSpecial || record.Episodes[1].EpisodeType != "special" || record.Episodes[1].Numbers[2].Scheme != "special" || record.Episodes[1].Numbers[2].Number != 1 {
 		t.Fatalf("episodes: %+v", record.Episodes)
+	}
+	if len(record.Seasons) != 2 || record.Seasons[0].Number != 1 || record.Seasons[1].Number != 0 {
+		t.Fatalf("seasons: %+v", record.Seasons)
 	}
 	if len(record.Genres) != 1 || record.Genres[0] != "space" {
 		t.Fatalf("genres: %+v", record.Genres)
@@ -49,7 +52,10 @@ func TestTVDBAnimeMappingPreservesTVDBAndRelativeAniDBNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(record.Episodes) != 1 || len(record.Episodes[0].Numbers) != 2 || record.Episodes[0].Numbers[0].Number != 13 || record.Episodes[0].Numbers[1].Number != 1 {
+	if len(record.Episodes) != 1 || len(record.Episodes[0].Numbers) != 2 || record.Episodes[0].Numbers[0].Scheme != "aired" || record.Episodes[0].Numbers[0].Number != 1 || record.Episodes[0].Numbers[1].Scheme != "tvdb" || record.Episodes[0].Numbers[1].Number != 13 {
 		t.Fatalf("numbers: %+v", record.Episodes)
+	}
+	if len(record.Seasons) != 1 || record.Seasons[0].Number != 1 {
+		t.Fatalf("seasons: %+v", record.Seasons)
 	}
 }

@@ -39,8 +39,9 @@ type discoveryResource struct {
 	ExpiresAt time.Time         `json:"expires_at"`
 }
 type discoveryOutput struct {
-	Status int
-	Body   discoveryResource
+	Status     int
+	RetryAfter string `header:"Retry-After"`
+	Body       discoveryResource
 }
 
 func registerDiscovery(api huma.API, runtime *platform.Runtime) {
@@ -114,24 +115,27 @@ func registerDiscovery(api huma.API, runtime *platform.Runtime) {
 			}
 		}
 	accepted:
-		return &discoveryOutput{Status: http.StatusAccepted, Body: discoveryRunResource(run)}, nil
+		return &discoveryOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: discoveryRunResource(run)}, nil
 	}
-	huma.Register(api, huma.Operation{OperationID: "create-discovery", Method: http.MethodPost, Path: "/api/v2/discoveries", Summary: "Discover and rank upstream identity candidates", Description: "Searches providers only when an entity is not yet known. Structured hints produce explainable, resolution-ready candidates for every current canonical domain.", Tags: []string{"Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *discoveryCreateInput) (*discoveryOutput, error) {
+	discoveryResponses := func() map[string]*huma.Response {
+		return map[string]*huma.Response{"202": acceptedJSONResponse("#/components/schemas/DiscoveryResource")}
+	}
+	huma.Register(api, huma.Operation{OperationID: "create-discovery", Method: http.MethodPost, Path: "/api/v2/discoveries", Summary: "Discover and rank upstream identity candidates", Description: "Searches providers only when an entity is not yet known. Structured hints produce explainable, resolution-ready candidates for every current canonical domain.", Tags: []string{"Discovery"}, DefaultStatus: http.StatusOK, Responses: discoveryResponses()}, func(ctx context.Context, input *discoveryCreateInput) (*discoveryOutput, error) {
 		return create(ctx, input.Body, input.Prefer, input.TMDBAPIKey)
 	})
-	huma.Register(api, huma.Operation{OperationID: "discover-tv-show", Method: http.MethodPost, Path: "/api/v2/tv/discoveries", Summary: "Discover conventional television shows", Tags: []string{"TV", "Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "discover-tv-show", Method: http.MethodPost, Path: "/api/v2/tv/discoveries", Summary: "Discover conventional television shows", Tags: []string{"TV", "Discovery"}, DefaultStatus: http.StatusOK, Responses: discoveryResponses()}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
 		return create(ctx, discovery.Request{Kind: discovery.KindTVShow, Query: input.Body.Query, Limit: input.Body.Limit, Hints: input.Body.Hints}, input.Prefer, "")
 	})
-	huma.Register(api, huma.Operation{OperationID: "discover-anime", Method: http.MethodPost, Path: "/api/v2/anime/discoveries", Summary: "Discover AniDB anime identities", Tags: []string{"Anime", "Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "discover-anime", Method: http.MethodPost, Path: "/api/v2/anime/discoveries", Summary: "Discover AniDB anime identities", Tags: []string{"Anime", "Discovery"}, DefaultStatus: http.StatusOK, Responses: discoveryResponses()}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
 		return create(ctx, discovery.Request{Kind: discovery.KindAnime, Query: input.Body.Query, Limit: input.Body.Limit, Hints: input.Body.Hints}, input.Prefer, "")
 	})
-	huma.Register(api, huma.Operation{OperationID: "discover-manga", Method: http.MethodPost, Path: "/api/v2/manga/discoveries", Summary: "Discover manga publications", Tags: []string{"Manga", "Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "discover-manga", Method: http.MethodPost, Path: "/api/v2/manga/discoveries", Summary: "Discover manga publications", Tags: []string{"Manga", "Discovery"}, DefaultStatus: http.StatusOK, Responses: discoveryResponses()}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
 		return create(ctx, discovery.Request{Kind: discovery.KindManga, Query: input.Body.Query, Limit: input.Body.Limit, Hints: input.Body.Hints}, input.Prefer, "")
 	})
-	huma.Register(api, huma.Operation{OperationID: "discover-comic", Method: http.MethodPost, Path: "/api/v2/comics/discoveries", Summary: "Discover comic publications", Tags: []string{"Comics", "Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "discover-comic", Method: http.MethodPost, Path: "/api/v2/comics/discoveries", Summary: "Discover comic publications", Tags: []string{"Comics", "Discovery"}, DefaultStatus: http.StatusOK, Responses: discoveryResponses()}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
 		return create(ctx, discovery.Request{Kind: discovery.KindComicVolume, Query: input.Body.Query, Limit: input.Body.Limit, Hints: input.Body.Hints}, input.Prefer, "")
 	})
-	huma.Register(api, huma.Operation{OperationID: "discover-manga-volume", Method: http.MethodPost, Path: "/api/v2/manga/volumes/discoveries", Summary: "Discover physical manga volumes", Tags: []string{"Manga", "Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "discover-manga-volume", Method: http.MethodPost, Path: "/api/v2/manga/volumes/discoveries", Summary: "Discover physical manga volumes", Tags: []string{"Manga", "Discovery"}, DefaultStatus: http.StatusOK, Responses: discoveryResponses()}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
 		return create(ctx, discovery.Request{Kind: discovery.KindMangaVolume, Query: input.Body.Query, Limit: input.Body.Limit, Hints: input.Body.Hints}, input.Prefer, "")
 	})
 	huma.Register(api, huma.Operation{OperationID: "get-discovery", Method: http.MethodGet, Path: "/api/v2/discoveries/{id}", Summary: "Get smart-discovery status and candidates", Tags: []string{"Discovery"}}, func(ctx context.Context, input *discoveryGetInput) (*discoveryOutput, error) {

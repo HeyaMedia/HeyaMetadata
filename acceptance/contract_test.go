@@ -58,6 +58,7 @@ var publicOperations = map[string]struct {
 	"recording-detail":            {http.MethodGet, "/api/v2/recordings/{id}"},
 	"recording-fingerprints":      {http.MethodGet, "/api/v2/recordings/{id}/fingerprints"},
 	"recording-lyrics":            {http.MethodGet, "/api/v2/recordings/{id}/lyrics"},
+	"artist-top-tracks":           {http.MethodGet, "/api/v2/entities/{id}/top-tracks"},
 	"match-recording-fingerprint": {http.MethodPost, "/api/v2/fingerprint-matches"},
 	"get-fingerprint-match":       {http.MethodGet, "/api/v2/fingerprint-matches/{id}"},
 	"release-detail":              {http.MethodGet, "/api/v2/releases/{id}"},
@@ -101,4 +102,55 @@ func TestCheckedInOpenAPIContract(t *testing.T) {
 	for operationID, route := range found {
 		t.Errorf("uncatalogued public operation %q at %s", operationID, route)
 	}
+}
+
+func TestAsynchronousSuccessResponsesAreTyped(t *testing.T) {
+	contract := filepath.Join("..", "api", "openapi.yaml")
+	document, err := openapi3.NewLoader().LoadFromFile(contract)
+	if err != nil {
+		t.Fatalf("load %s: %v", contract, err)
+	}
+	operationIDs := []string{
+		"create-discovery",
+		"discover-tv-show",
+		"discover-anime",
+		"discover-manga",
+		"discover-manga-volume",
+		"discover-comic",
+		"resolve-entity",
+		"refresh-entity",
+		"match-recording-fingerprint",
+		"image-original",
+		"image-variant",
+	}
+	for _, operationID := range operationIDs {
+		t.Run(operationID, func(t *testing.T) {
+			operation := operationByID(document, operationID)
+			if operation == nil {
+				t.Fatalf("operation %q not found", operationID)
+			}
+			response := operation.Responses.Value("202")
+			if response == nil {
+				t.Fatalf("operation %q has no 202 response", operationID)
+			}
+			if response.Value == nil {
+				t.Fatalf("operation %q has an unresolved 202 response", operationID)
+			}
+			mediaType := response.Value.Content.Get("application/json")
+			if mediaType == nil || mediaType.Schema == nil || (mediaType.Schema.Ref == "" && mediaType.Schema.Value == nil) {
+				t.Fatalf("operation %q has no typed 202 application/json body", operationID)
+			}
+		})
+	}
+}
+
+func operationByID(document *openapi3.T, operationID string) *openapi3.Operation {
+	for _, item := range document.Paths.Map() {
+		for _, operation := range item.Operations() {
+			if operation.OperationID == operationID {
+				return operation
+			}
+		}
+	}
+	return nil
 }

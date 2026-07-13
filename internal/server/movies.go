@@ -97,8 +97,9 @@ type resolutionBody struct {
 	Job      *jobResource `json:"job,omitempty"`
 }
 type resolutionOutput struct {
-	Status int
-	Body   resolutionBody
+	Status     int
+	RetryAfter string `header:"Retry-After"`
+	Body       resolutionBody
 }
 
 type refreshOutput struct {
@@ -372,7 +373,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		return ratingProjectionPage(ctx, runtime, input.ID, offset, limit)
 	})
 
-	huma.Register(api, huma.Operation{OperationID: "resolve-entity", Method: http.MethodPost, Path: "/api/v2/resolutions", Summary: "Resolve or ingest an external entity ID", Tags: []string{"Entities"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *resolutionInput) (*resolutionOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "resolve-entity", Method: http.MethodPost, Path: "/api/v2/resolutions", Summary: "Resolve or ingest an external entity ID", Tags: []string{"Entities"}, DefaultStatus: http.StatusOK, Responses: map[string]*huma.Response{"202": acceptedJSONResponse("#/components/schemas/ResolutionBody")}}, func(ctx context.Context, input *resolutionInput) (*resolutionOutput, error) {
 		if service == nil || client == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
@@ -416,7 +417,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if insertErr != nil {
 				return nil, insertErr
 			}
-			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.ArtistIngestKind, State: string(inserted.Job.State)}}}, nil
+			return &resolutionOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.ArtistIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
 		if input.Body.Kind == "release_group" {
 			entityID, err := releaseGroupService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
@@ -441,7 +442,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if insertErr != nil {
 				return nil, insertErr
 			}
-			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.ReleaseGroupIngestKind, State: string(inserted.Job.State)}}}, nil
+			return &resolutionOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.ReleaseGroupIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
 		if input.Body.Kind == "release" {
 			entityID, err := releaseService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
@@ -466,7 +467,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if insertErr != nil {
 				return nil, insertErr
 			}
-			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.ReleaseIngestKind, State: string(inserted.Job.State)}}}, nil
+			return &resolutionOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.ReleaseIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
 		if input.Body.Kind == "recording" {
 			entityID, err := recordingService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
@@ -487,7 +488,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if insertErr != nil {
 				return nil, insertErr
 			}
-			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.RecordingIngestKind, State: string(inserted.Job.State)}}}, nil
+			return &resolutionOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.RecordingIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
 		if input.Body.Kind == musicalworks.Kind {
 			entityID, err := musicalWorkService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
@@ -511,7 +512,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if insertErr != nil {
 				return nil, insertErr
 			}
-			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.MusicalWorkIngestKind, State: string(inserted.Job.State)}}}, nil
+			return &resolutionOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.MusicalWorkIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
 		if input.Body.Kind == "tv_show" {
 			entityID, err := tvService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
@@ -539,7 +540,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if insertErr != nil {
 				return nil, insertErr
 			}
-			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.TVShowIngestKind, State: string(inserted.Job.State)}}}, nil
+			return &resolutionOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.TVShowIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
 		if input.Body.Kind == "anime" {
 			entityID, err := animeService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
@@ -567,7 +568,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if insertErr != nil {
 				return nil, insertErr
 			}
-			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.AnimeIngestKind, State: string(inserted.Job.State)}}}, nil
+			return &resolutionOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.AnimeIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
 		if input.Body.Kind == "manga" {
 			entityID, err := mangaService.Resolve(ctx, input.Body.Provider, input.Body.Namespace, input.Body.Value)
@@ -595,7 +596,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if insertErr != nil {
 				return nil, insertErr
 			}
-			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.MangaIngestKind, State: string(inserted.Job.State)}}}, nil
+			return &resolutionOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.MangaIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
 		if input.Body.Kind == "book_work" || input.Body.Kind == "book_edition" || input.Body.Kind == "manga_volume" || input.Body.Kind == "manga_edition" || input.Body.Kind == "comic_volume" || input.Body.Kind == "comic_edition" || input.Body.Kind == "author" {
 			entityID, err := bookService.Resolve(ctx, input.Body.Kind, input.Body.Provider, input.Body.Namespace, input.Body.Value)
@@ -627,7 +628,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if insertErr != nil {
 				return nil, insertErr
 			}
-			return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.BookIngestKind, State: string(inserted.Job.State)}}}, nil
+			return &resolutionOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.BookIngestKind, State: string(inserted.Job.State)}}}, nil
 		}
 		if input.Body.Kind != "movie" {
 			return nil, huma.Error400BadRequest("unsupported entity kind")
@@ -681,7 +682,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			}
 		}
 	accepted:
-		return &resolutionOutput{Status: http.StatusAccepted, Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.MovieIngestKind, State: string(inserted.Job.State)}}}, nil
+		return &resolutionOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.MovieIngestKind, State: string(inserted.Job.State)}}}, nil
 	})
 
 	huma.Register(api, huma.Operation{OperationID: "refresh-entity", Method: http.MethodPost, Path: "/api/v2/entities/{id}/refreshes", Summary: "Refresh a canonical entity", Tags: []string{"Entities"}, DefaultStatus: http.StatusAccepted}, func(ctx context.Context, input *entityInput) (*refreshOutput, error) {

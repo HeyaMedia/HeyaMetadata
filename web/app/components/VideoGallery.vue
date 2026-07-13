@@ -6,7 +6,7 @@ const props = withDefaults(defineProps<{ videos?: any[] }>(), { videos: () => []
 
 const videos = computed(() =>
   (props.videos ?? [])
-    .filter(video => /youtube/i.test(video.host ?? '') && video.key)
+    .filter(video => /youtube/i.test(video.host ?? video.provider ?? '') && video.key)
     .map(video => ({
       key: video.key,
       name: formatValue(video.name) || 'Video',

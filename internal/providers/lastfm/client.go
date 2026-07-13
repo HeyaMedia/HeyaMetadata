@@ -98,6 +98,10 @@ func (c *Client) ArtistTopAlbums(ctx context.Context, mbid string, limit, page i
 	return c.artistPage(ctx, "artist.getTopAlbums", "artist_top_albums", mbid, limit, page, 12*time.Hour)
 }
 
+func (c *Client) ArtistTopTracks(ctx context.Context, mbid string, limit, page int) (providers.Payload, error) {
+	return c.artistPage(ctx, "artist.getTopTracks", "artist_top_tracks", mbid, limit, page, 12*time.Hour)
+}
+
 func (c *Client) ArtistSimilar(ctx context.Context, mbid string, limit int) (providers.Payload, error) {
 	if !mbidPattern.MatchString(mbid) {
 		return providers.Payload{}, fmt.Errorf("Last.fm similar artists requires an artist MBID")

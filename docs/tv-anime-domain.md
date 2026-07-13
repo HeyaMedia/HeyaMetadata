@@ -59,10 +59,15 @@ An accepted TVMaze `tvdb.series` claim unlocks TVDB extended series evidence.
 An accepted IMDb title claim is resolved through TMDB's external-ID index and
 then unlocks TMDB TV detail plus each conventional season. The deterministic
 mixer keeps TVMaze scalar priority while unioning titles, classifications,
-artwork, and explicit IDs. Episodes match across authorities by exact provider
-number, title, or air date and retain `tvmaze`, `tvdb`, and `tmdb` numbers.
-Season zero is deliberately excluded from the conventional TV projection: both
-TVDB and TMDB can classify hundreds of clips and featurettes as specials.
+artwork, localized text, organizations, links, videos, certifications,
+recommendations, ratings, and explicit IDs. Episodes match within an authority
+by typed external ID or exact numbering. Conventional cross-authority aired
+numbers require corroborating date or title evidence; the weaker final fallback
+requires both the same air date and normalized title. Absolute anime order can
+match across authorities even when their aired orders conflict. The result
+retains `aired`, `tvmaze`, `tvdb`, `tmdb`, and available `absolute` numbers.
+Season zero is retained, and specials have explicit `is_special` and
+`episode_type` values.
 
 AniDB AID is the initial `anime` identity spine. The official daily title dump
 is reused for at least 24 hours, then at most the best three candidates are
@@ -72,9 +77,19 @@ carry the registered client/client-version where required and the configured
 `heya-media/1.0 anidb-titles-sync` value.
 
 Anime detail retains the source episode count while exposing all returned
-episodes. Regular, special, credit, trailer, and parody episode numbers remain
-separate named schemes. Cowboy Bebop therefore reports 26 conventional
-episodes even though supplemental AniDB entries are also retained.
+episodes. Regular episodes expose canonical `aired` season one and integer
+`absolute` evidence. Special, credit, trailer, and parody entries are explicit
+typed season-zero resources and retain their AniDB scheme. Cowboy Bebop
+therefore reports 26 conventional episodes even though supplemental AniDB
+entries are also retained.
+
+Season and episode persistence first resolves typed provider child IDs, then a
+deterministic numbering priority independent of JSON slice order. Refreshes
+therefore retain child UUIDs even when provider ordering changes. Season posters
+and episode stills are materialized as opaque image IDs owned by their child
+resource rather than leaking upstream URLs or pretending they are show images.
+Within the preferred `aired` scheme, TVMaze wins for conventional TV and AniDB
+wins for anime; supplemental provider order remains present in `numbers[]`.
 
 The cached Fribb anime-lists mapping dump is the explicit AniDB-to-MAL,
 AniList, and TVDB bridge. TVDB enrichment is restricted to the mapped season;

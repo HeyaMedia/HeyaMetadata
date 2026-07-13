@@ -73,6 +73,7 @@ const similar = computed(() =>
     <LinksList :links="data.links" />
     </div>
 
+    <TopTracksPanel :entity-id="entity.id" />
     <DiscographyGrid :entity-id="entity.id" />
   </div>
 </template>

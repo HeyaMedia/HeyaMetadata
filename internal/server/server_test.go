@@ -165,6 +165,31 @@ func TestDocsUseScalar(t *testing.T) {
 	}
 }
 
+func TestProblemsUseStableTypesAndProblemJSON(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/v2/entities/not-a-uuid", nil)
+	response := httptest.NewRecorder()
+	New("test").Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Content-Type"); got != "application/problem+json" {
+		t.Fatalf("content type=%q", got)
+	}
+	var problem struct {
+		Type   string `json:"type"`
+		Title  string `json:"title"`
+		Status int    `json:"status"`
+		Detail string `json:"detail"`
+		Errors []any  `json:"errors"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if problem.Type != problemBaseURL+"validation-failed" || problem.Title == "" || problem.Status != http.StatusUnprocessableEntity || problem.Detail == "" || len(problem.Errors) == 0 {
+		t.Fatalf("problem=%+v", problem)
+	}
+}
+
 func TestPreferredWaitIsBounded(t *testing.T) {
 	t.Parallel()
 	if got := preferredWait("respond-async, wait=3"); got != 3*time.Second {

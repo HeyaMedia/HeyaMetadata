@@ -48,6 +48,7 @@ func newServer(version string, checker ReadinessChecker, runtime *platform.Runti
 	registerEpisodic(api, runtime)
 	registerPublications(api, runtime)
 	registerReleases(api, runtime)
+	registerArtists(api, runtime)
 	registerLibrary(api, runtime)
 	registerRelations(api, runtime)
 	registerPersons(api, runtime)

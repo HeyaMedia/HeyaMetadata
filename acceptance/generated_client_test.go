@@ -2,13 +2,90 @@ package acceptance_test
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/server"
 	"github.com/HeyaMedia/HeyaMetadata/sdk/go/heyametadata"
 	"github.com/google/uuid"
 )
+
+func TestGeneratedClientDecodesTypedAcceptedResponses(t *testing.T) {
+	discoveryBody := `{"id":"00000000-0000-4000-8000-000000000001","state":"queued","expires_at":"2026-07-14T00:00:00Z"}`
+	fingerprintBody := `{"id":"00000000-0000-4000-8000-000000000002","state":"queued","expires_at":"2026-07-14T00:00:00Z"}`
+	jobBody := `{"id":42,"kind":"fixture","state":"queued"}`
+	resolutionBody := `{"state":"accepted","job":{"id":42,"kind":"fixture","state":"queued"}}`
+	tests := []struct {
+		name  string
+		body  string
+		parse func(*http.Response) (bool, error)
+	}{
+		{"create discovery", discoveryBody, func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseCreateDiscoveryResponse(response)
+			return parsed != nil && parsed.JSON202 != nil, err
+		}},
+		{"discover TV", discoveryBody, func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseDiscoverTvShowResponse(response)
+			return parsed != nil && parsed.JSON202 != nil, err
+		}},
+		{"discover anime", discoveryBody, func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseDiscoverAnimeResponse(response)
+			return parsed != nil && parsed.JSON202 != nil, err
+		}},
+		{"discover manga", discoveryBody, func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseDiscoverMangaResponse(response)
+			return parsed != nil && parsed.JSON202 != nil, err
+		}},
+		{"discover manga volume", discoveryBody, func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseDiscoverMangaVolumeResponse(response)
+			return parsed != nil && parsed.JSON202 != nil, err
+		}},
+		{"discover comic", discoveryBody, func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseDiscoverComicResponse(response)
+			return parsed != nil && parsed.JSON202 != nil, err
+		}},
+		{"resolve entity", resolutionBody, func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseResolveEntityResponse(response)
+			return parsed != nil && parsed.JSON202 != nil, err
+		}},
+		{"refresh entity", jobBody, func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseRefreshEntityResponse(response)
+			return parsed != nil && parsed.JSON202 != nil, err
+		}},
+		{"fingerprint match", fingerprintBody, func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseMatchRecordingFingerprintResponse(response)
+			return parsed != nil && parsed.JSON202 != nil, err
+		}},
+		{"image original", jobBody, func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseImageOriginalResponse(response)
+			return parsed != nil && parsed.JSON202 != nil, err
+		}},
+		{"image variant", jobBody, func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseImageVariantResponse(response)
+			return parsed != nil && parsed.JSON202 != nil, err
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := &http.Response{
+				Status:     "202 Accepted",
+				StatusCode: http.StatusAccepted,
+				Header:     http.Header{"Content-Type": []string{"application/json"}, "Retry-After": []string{"1"}},
+				Body:       io.NopCloser(strings.NewReader(test.body)),
+			}
+			decoded, err := test.parse(response)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !decoded {
+				t.Fatal("generated response did not populate its typed JSON202 field")
+			}
+		})
+	}
+}
 
 func TestGeneratedClientAgainstServer(t *testing.T) {
 	host := httptest.NewServer(server.New("acceptance-test").Handler())

@@ -10,15 +10,22 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 	out.Contributors = nil
 	out.ExternalIDs = nil
 	out.Titles = nil
+	out.Overviews = nil
 	out.Genres = nil
+	out.Keywords = nil
 	out.Countries = nil
 	out.Networks = nil
 	out.Studios = nil
+	out.Organizations = nil
 	out.Seasons = nil
 	out.Episodes = nil
 	out.Images = nil
 	out.Ratings = nil
 	out.Credits = nil
+	out.Links = nil
+	out.Videos = nil
+	out.Certifications = nil
+	out.Recommendations = nil
 	for _, record := range records {
 		out.Contributors = append(out.Contributors, Contributor{Provider: record.Provider, ObservationID: record.PrimaryObservationID, NormalizerVersion: record.NormalizerVersion})
 		for _, id := range record.ExternalIDs {
@@ -31,18 +38,26 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 				out.Titles = append(out.Titles, title)
 			}
 		}
+		for _, overview := range record.Overviews {
+			if !hasText(out.Overviews, overview) {
+				out.Overviews = append(out.Overviews, overview)
+			}
+		}
 		out.Genres = unionStrings(out.Genres, record.Genres)
+		out.Keywords = unionStrings(out.Keywords, record.Keywords)
 		out.Countries = unionStrings(out.Countries, record.Countries)
 		out.Studios = unionStrings(out.Studios, record.Studios)
-		for _, network := range record.Networks {
-			found := false
-			for _, existing := range out.Networks {
-				if strings.EqualFold(existing.Name, network.Name) {
-					found = true
-					break
-				}
+		for _, organization := range record.Organizations {
+			if index := organizationIndex(out.Organizations, organization); index >= 0 {
+				mergeOrganization(&out.Organizations[index], organization)
+			} else {
+				out.Organizations = append(out.Organizations, organization)
 			}
-			if !found {
+		}
+		for _, network := range record.Networks {
+			if index := networkIndex(out.Networks, network); index >= 0 {
+				mergeNetwork(&out.Networks[index], network)
+			} else {
 				out.Networks = append(out.Networks, network)
 			}
 		}
@@ -70,6 +85,9 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 		if out.EpisodeCount == 0 {
 			out.EpisodeCount = record.EpisodeCount
 		}
+		if out.SeasonCount == 0 {
+			out.SeasonCount = record.SeasonCount
+		}
 		if out.SourceMaterial == "" {
 			out.SourceMaterial = record.SourceMaterial
 		}
@@ -78,9 +96,7 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 			for i := range out.Seasons {
 				if out.Seasons[i].Number == season.Number {
 					found = true
-					if out.Seasons[i].Name == "" {
-						out.Seasons[i].Name = season.Name
-					}
+					mergeSeason(&out.Seasons[i], season)
 					break
 				}
 			}
@@ -91,6 +107,7 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 		existingEpisodeCount := len(out.Episodes)
 		matchedEpisodes := map[int]bool{}
 		for _, episode := range record.Episodes {
+			normalizeEpisode(&episode)
 			index := episodeIndex(out.Episodes[:existingEpisodeCount], episode)
 			if index >= 0 && matchedEpisodes[index] {
 				index = -1
@@ -101,6 +118,11 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 			}
 			matchedEpisodes[index] = true
 			target := &out.Episodes[index]
+			for _, external := range episode.ExternalIDs {
+				if !hasExternal(target.ExternalIDs, external) {
+					target.ExternalIDs = append(target.ExternalIDs, external)
+				}
+			}
 			for _, number := range episode.Numbers {
 				if !hasNumber(target.Numbers, number) {
 					target.Numbers = append(target.Numbers, number)
@@ -111,6 +133,11 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 					target.Titles = append(target.Titles, title)
 				}
 			}
+			for _, overview := range episode.Overviews {
+				if !hasText(target.Overviews, overview) {
+					target.Overviews = append(target.Overviews, overview)
+				}
+			}
 			if target.Summary == "" {
 				target.Summary = episode.Summary
 			}
@@ -119,6 +146,20 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 			}
 			if target.RuntimeMinutes == 0 {
 				target.RuntimeMinutes = episode.RuntimeMinutes
+			}
+			if target.EpisodeType == "" {
+				target.EpisodeType = episode.EpisodeType
+			}
+			target.IsSpecial = target.IsSpecial || episode.IsSpecial
+			for _, rating := range episode.Ratings {
+				if !hasRating(target.Ratings, rating) {
+					target.Ratings = append(target.Ratings, rating)
+				}
+			}
+			for _, image := range episode.Images {
+				if !hasImage(target.Images, image) {
+					target.Images = append(target.Images, image)
+				}
 			}
 		}
 		for _, image := range record.Images {
@@ -139,7 +180,31 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 				out.Credits = append(out.Credits, credit)
 			}
 		}
+		for _, link := range record.Links {
+			if !hasLink(out.Links, link) {
+				out.Links = append(out.Links, link)
+			}
+		}
+		for _, video := range record.Videos {
+			if !hasVideo(out.Videos, video) {
+				out.Videos = append(out.Videos, video)
+			}
+		}
+		for _, certification := range record.Certifications {
+			if !hasCertification(out.Certifications, certification) {
+				out.Certifications = append(out.Certifications, certification)
+			}
+		}
+		for _, recommendation := range record.Recommendations {
+			if !hasRecommendation(out.Recommendations, recommendation) {
+				out.Recommendations = append(out.Recommendations, recommendation)
+			}
+		}
 	}
+	if out.SeasonCount == 0 {
+		out.SeasonCount = len(out.Seasons)
+	}
+	sortEpisodes(out.Episodes)
 	return out
 }
 func hasRating(values []Rating, value Rating) bool {
@@ -190,30 +255,34 @@ func unionStrings(values, add []string) []string {
 	return values
 }
 func episodeIndex(values []Episode, incoming Episode) int {
+	for i, existing := range values {
+		for _, left := range existing.ExternalIDs {
+			for _, right := range incoming.ExternalIDs {
+				if left.Provider == right.Provider && left.Namespace == right.Namespace && strings.EqualFold(left.Value, right.Value) {
+					return i
+				}
+			}
+		}
+	}
 	// Within one numbering authority, only an exact number identifies an
 	// episode. This prevents two specials released on one day (or sharing a
 	// generic title) from collapsing into each other.
 	for i, existing := range values {
-		if sharesNumberingScheme(existing.Numbers, incoming.Numbers) {
-			for _, a := range existing.Numbers {
-				for _, b := range incoming.Numbers {
-					if a.Scheme == b.Scheme && a.Season == b.Season && a.Number == b.Number {
-						return i
-					}
+		for _, a := range existing.Numbers {
+			for _, b := range incoming.Numbers {
+				if episodeNumbersMatch(existing, incoming, a, b) {
+					return i
 				}
 			}
 		}
 	}
 	for i, existing := range values {
-		if sharesNumberingScheme(existing.Numbers, incoming.Numbers) {
+		if sharesNumberingAuthority(existing.Numbers, incoming.Numbers) {
 			continue
-		}
-		if existing.AirDate != "" && incoming.AirDate != "" && existing.AirDate == incoming.AirDate {
-			return i
 		}
 		for _, a := range existing.Titles {
 			for _, b := range incoming.Titles {
-				if normalizedEpisodeTitle(a.Value) == normalizedEpisodeTitle(b.Value) && normalizedEpisodeTitle(a.Value) != "" {
+				if existing.AirDate != "" && incoming.AirDate != "" && existing.AirDate == incoming.AirDate && normalizedEpisodeTitle(a.Value) == normalizedEpisodeTitle(b.Value) && normalizedEpisodeTitle(a.Value) != "" {
 					return i
 				}
 			}
@@ -222,10 +291,248 @@ func episodeIndex(values []Episode, incoming Episode) int {
 	return -1
 }
 
-func sharesNumberingScheme(a, b []EpisodeNumber) bool {
+func normalizeEpisode(episode *Episode) {
+	for i := range episode.Numbers {
+		episode.Numbers[i].Scheme = strings.ToLower(strings.TrimSpace(episode.Numbers[i].Scheme))
+		episode.Numbers[i].Provider = strings.ToLower(strings.TrimSpace(episode.Numbers[i].Provider))
+	}
+	if episode.EpisodeType == "" {
+		episode.EpisodeType = "regular"
+	}
+	for _, number := range episode.Numbers {
+		if number.Scheme == "special" || number.Scheme == "credit" || number.Scheme == "trailer" || number.Scheme == "parody" || (number.Scheme == "aired" && number.Season == 0) {
+			episode.IsSpecial = true
+			if episode.EpisodeType == "regular" {
+				episode.EpisodeType = number.Scheme
+			}
+		}
+	}
+	if episode.Summary != "" && len(episode.Overviews) == 0 {
+		episode.Overviews = []Text{{Value: episode.Summary, Type: "overview"}}
+	}
+}
+
+func mergeSeason(target *Season, incoming Season) {
+	if target.ProviderID == "" {
+		target.ProviderID = incoming.ProviderID
+	}
+	if target.Name == "" {
+		target.Name = incoming.Name
+	}
+	for _, title := range incoming.Titles {
+		if !hasTitle(target.Titles, title) {
+			target.Titles = append(target.Titles, title)
+		}
+	}
+	for _, overview := range incoming.Overviews {
+		if !hasText(target.Overviews, overview) {
+			target.Overviews = append(target.Overviews, overview)
+		}
+	}
+	for _, external := range incoming.ExternalIDs {
+		if !hasExternal(target.ExternalIDs, external) {
+			target.ExternalIDs = append(target.ExternalIDs, external)
+		}
+	}
+	for _, image := range incoming.Images {
+		if !hasImage(target.Images, image) {
+			target.Images = append(target.Images, image)
+		}
+	}
+	if target.Status == "" {
+		target.Status = incoming.Status
+	}
+	if target.EpisodeOrder == 0 {
+		target.EpisodeOrder = incoming.EpisodeOrder
+	}
+	if target.EpisodeCount == 0 {
+		target.EpisodeCount = incoming.EpisodeCount
+	}
+	if target.AiredEpisodeCount == 0 {
+		target.AiredEpisodeCount = incoming.AiredEpisodeCount
+	}
+	if target.PremiereDate == "" {
+		target.PremiereDate = incoming.PremiereDate
+	}
+	if target.EndDate == "" {
+		target.EndDate = incoming.EndDate
+	}
+}
+
+func hasText(values []Text, value Text) bool {
+	for _, existing := range values {
+		if existing.Value == value.Value && existing.Language == value.Language && existing.Country == value.Country && existing.Type == value.Type {
+			return true
+		}
+	}
+	return false
+}
+
+func organizationIndex(values []Organization, value Organization) int {
+	for i := range values {
+		if strings.EqualFold(values[i].Name, value.Name) && values[i].Type == value.Type {
+			return i
+		}
+		for _, left := range values[i].ExternalIDs {
+			for _, right := range value.ExternalIDs {
+				if left.Provider == right.Provider && left.Namespace == right.Namespace && left.Value == right.Value {
+					return i
+				}
+			}
+		}
+	}
+	return -1
+}
+
+func networkIndex(values []Network, value Network) int {
+	for i := range values {
+		if strings.EqualFold(values[i].Name, value.Name) {
+			return i
+		}
+		for _, left := range values[i].ExternalIDs {
+			for _, right := range value.ExternalIDs {
+				if left.Provider == right.Provider && left.Namespace == right.Namespace && left.Value == right.Value {
+					return i
+				}
+			}
+		}
+	}
+	return -1
+}
+
+func mergeNetwork(target *Network, incoming Network) {
+	if target.Country == "" {
+		target.Country = incoming.Country
+	}
+	if target.Type == "" {
+		target.Type = incoming.Type
+	}
+	if target.LogoURL == "" {
+		target.LogoURL = incoming.LogoURL
+		target.LogoProvider = incoming.LogoProvider
+		target.LogoProviderID = incoming.LogoProviderID
+	}
+	for _, external := range incoming.ExternalIDs {
+		if !hasExternal(target.ExternalIDs, external) {
+			target.ExternalIDs = append(target.ExternalIDs, external)
+		}
+	}
+}
+
+func mergeOrganization(target *Organization, incoming Organization) {
+	if target.Country == "" {
+		target.Country = incoming.Country
+	}
+	if target.Type == "" {
+		target.Type = incoming.Type
+	}
+	if target.LogoURL == "" {
+		target.LogoURL = incoming.LogoURL
+		target.LogoProvider = incoming.LogoProvider
+		target.LogoProviderID = incoming.LogoProviderID
+	}
+	for _, external := range incoming.ExternalIDs {
+		if !hasExternal(target.ExternalIDs, external) {
+			target.ExternalIDs = append(target.ExternalIDs, external)
+		}
+	}
+}
+
+func hasLink(values []Link, value Link) bool {
+	for _, existing := range values {
+		if existing.Type == value.Type && existing.URL == value.URL {
+			return true
+		}
+	}
+	return false
+}
+
+func hasVideo(values []Video, value Video) bool {
+	for _, existing := range values {
+		if existing.Provider == value.Provider && existing.Key == value.Key && existing.URL == value.URL {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCertification(values []Certification, value Certification) bool {
+	for _, existing := range values {
+		if existing.System == value.System && existing.Country == value.Country && existing.Rating == value.Rating {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRecommendation(values []Recommendation, value Recommendation) bool {
+	for _, existing := range values {
+		if existing.Provider == value.Provider && existing.ProviderID == value.ProviderID {
+			return true
+		}
+	}
+	return false
+}
+
+func sharesNumberingAuthority(a, b []EpisodeNumber) bool {
 	for _, left := range a {
 		for _, right := range b {
-			if left.Scheme == right.Scheme {
+			if left.Scheme != right.Scheme {
+				continue
+			}
+			if left.Scheme == "absolute" || (left.Provider != "" && left.Provider == right.Provider) || providerNumberingScheme(left.Scheme) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func episodeNumbersMatch(existing, incoming Episode, left, right EpisodeNumber) bool {
+	if left.Scheme != right.Scheme || left.Season != right.Season || left.Number != right.Number {
+		return false
+	}
+	if left.Scheme == "absolute" {
+		return true
+	}
+	if left.Provider != "" && left.Provider == right.Provider {
+		return true
+	}
+	if providerNumberingScheme(left.Scheme) {
+		return true
+	}
+	if left.Scheme != "aired" || hasNumberingScheme(existing.Numbers, "absolute") || hasNumberingScheme(incoming.Numbers, "absolute") {
+		return false
+	}
+	return sameEpisodeDate(existing, incoming) || episodesShareTitle(existing, incoming)
+}
+
+func providerNumberingScheme(scheme string) bool {
+	switch scheme {
+	case "tmdb", "tvdb", "tvmaze", "anidb":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasNumberingScheme(numbers []EpisodeNumber, scheme string) bool {
+	for _, number := range numbers {
+		if number.Scheme == scheme {
+			return true
+		}
+	}
+	return false
+}
+
+func sameEpisodeDate(left, right Episode) bool {
+	return left.AirDate != "" && left.AirDate == right.AirDate
+}
+
+func episodesShareTitle(left, right Episode) bool {
+	for _, a := range left.Titles {
+		for _, b := range right.Titles {
+			if title := normalizedEpisodeTitle(a.Value); title != "" && title == normalizedEpisodeTitle(b.Value) {
 				return true
 			}
 		}

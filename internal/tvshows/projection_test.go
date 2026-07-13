@@ -1,0 +1,72 @@
+package tvshows
+
+import (
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
+)
+
+func TestNormalizeTMDBTVRetainsShowSeasonAndEpisodeProjection(t *testing.T) {
+	detail := providers.Payload{ObservationID: "show-obs", ObservedAt: time.Unix(1, 0), StatusCode: http.StatusOK, Body: []byte(`{
+		"id":1399,"name":"Game of Thrones","original_name":"Game of Thrones","original_language":"en","overview":"Kings compete.","homepage":"https://example.test/show","first_air_date":"2011-04-17","last_air_date":"2019-05-19","status":"Ended","type":"Scripted","number_of_episodes":73,"number_of_seasons":1,
+		"networks":[{"id":49,"name":"HBO","origin_country":"US","logo_path":"/hbo.png"}],
+		"production_companies":[{"id":76043,"name":"Revolution Sun Studios","origin_country":"US","logo_path":"/studio.png"}],
+		"seasons":[{"id":0,"name":"Specials","season_number":0,"episode_count":299},{"id":3624,"name":"Season 1","air_date":"2011-04-17","season_number":1,"episode_count":10,"overview":"The first season.","poster_path":"/season.jpg"}],
+		"content_ratings":{"results":[{"iso_3166_1":"US","rating":"TV-MA"}]},
+		"videos":{"results":[{"key":"trailer","name":"Trailer","site":"YouTube","type":"Trailer","iso_639_1":"en","iso_3166_1":"US","official":true}]},
+		"recommendations":{"results":[{"id":66732,"name":"Stranger Things","original_name":"Stranger Things","first_air_date":"2016-07-15","poster_path":"/recommendation.jpg","popularity":10}]},
+		"translations":{"translations":[{"iso_639_1":"da","iso_3166_1":"DK","data":{"name":"Kampen om tronen","overview":"Konger kæmper."}}]}
+	}`)}
+	season := providers.Payload{ObservationID: "season-obs", ObservedAt: time.Unix(2, 0), StatusCode: http.StatusOK, Body: []byte(`{
+		"id":3624,"name":"Season 1","season_number":1,"overview":"The first season.","poster_path":"/season.jpg",
+		"episodes":[{"id":63056,"name":"Winter Is Coming","overview":"The story begins.","air_date":"2011-04-17","still_path":"/still.jpg","episode_number":1,"season_number":1,"runtime":62,"vote_average":8.2,"vote_count":200}]
+	}`)}
+	record, err := normalizeTMDBTV([]providers.Payload{detail, season})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record.Overviews) < 2 || len(record.Networks) != 1 || record.Networks[0].LogoURL == "" || len(record.Organizations) != 1 || record.Organizations[0].LogoURL == "" {
+		t.Fatalf("show projection: %+v", record)
+	}
+	if len(record.Certifications) != 1 || len(record.Videos) != 1 || len(record.Recommendations) != 1 {
+		t.Fatalf("show supplements: %+v", record)
+	}
+	if len(record.Seasons) != 1 || len(record.Seasons[0].ExternalIDs) != 1 || len(record.Seasons[0].Images) == 0 || len(record.Seasons[0].Overviews) == 0 {
+		t.Fatalf("season projection: %+v", record.Seasons)
+	}
+	if record.SeasonCount != 1 || record.Seasons[0].Number != 1 {
+		t.Fatalf("season-zero shell leaked into canonical projection: %+v", record.Seasons)
+	}
+	if len(record.Episodes) != 1 || len(record.Episodes[0].ExternalIDs) != 1 || len(record.Episodes[0].Numbers) != 2 || len(record.Episodes[0].Ratings) != 1 || record.Episodes[0].Ratings[0].Votes != 200 || len(record.Episodes[0].Images) != 1 {
+		t.Fatalf("episode projection: %+v", record.Episodes)
+	}
+}
+
+func TestNormalizeTVDBSeriesRetainsSpecialsAbsoluteNumbersAndChildArtwork(t *testing.T) {
+	payload := providers.Payload{ObservationID: "obs", ObservedAt: time.Unix(1, 0), StatusCode: http.StatusOK, Body: []byte(`{"data":{
+		"id":121361,"name":"Game of Thrones","originalLanguage":"eng","originalCountry":"usa","firstAired":"2011-04-17","status":{"name":"Ended"},
+		"companies":{"production":[{"id":1,"name":"HBO","country":"usa"}]},"contentRatings":[{"name":"TV-MA","country":"usa","contentType":"TV"}],
+		"translations":{"nameTranslations":[{"language":"dan","name":"Kampen om tronen"}],"overviewTranslations":[{"language":"dan","overview":"Konger kæmper."}]},
+		"seasons":[{"id":10,"number":0,"name":"Specials","image":"/specials.jpg","type":{"name":"Aired Order"}},{"id":11,"number":1,"name":"Season 1","image":"/season.jpg","type":{"name":"Aired Order"}}],
+		"episodes":[{"id":20,"name":"Special","overview":"A special.","seasonNumber":0,"number":1,"absoluteNumber":0,"aired":"2010-01-01","runtime":10,"image":"/special.jpg"},{"id":21,"name":"Winter Is Coming","overview":"The story begins.","seasonNumber":1,"number":1,"absoluteNumber":1,"aired":"2011-04-17","runtime":62,"image":"/episode.jpg","translations":{"nameTranslations":[{"language":"dan","name":"Vinteren kommer"}],"overviewTranslations":[{"language":"dan","overview":"Historien begynder."}]}}]
+	}}`)}
+	record, err := normalizeTVDBSeries(payload, "tv_show", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record.Seasons) != 2 || record.Seasons[0].Number != 0 || len(record.Seasons[0].Images) != 1 || len(record.Seasons[0].ExternalIDs) != 1 {
+		t.Fatalf("seasons: %+v", record.Seasons)
+	}
+	if len(record.Episodes) != 2 || !record.Episodes[0].IsSpecial || record.Episodes[0].EpisodeType != "special" || len(record.Episodes[0].Images) != 1 {
+		t.Fatalf("special: %+v", record.Episodes)
+	}
+	regular := record.Episodes[1]
+	if len(regular.Numbers) != 3 || regular.Numbers[2].Scheme != "absolute" || len(regular.Titles) != 2 || len(regular.Overviews) != 2 || len(regular.ExternalIDs) != 1 {
+		t.Fatalf("regular episode: %+v", regular)
+	}
+	if len(record.Organizations) != 1 || len(record.Certifications) != 1 || len(record.Overviews) != 1 {
+		t.Fatalf("show supplements: %+v", record)
+	}
+}

@@ -755,15 +755,39 @@ components:
       properties:
         air_date:
           type: string
+        episode_type:
+          type: string
+        external_ids:
+          items:
+            $ref: "#/components/schemas/EpisodicExternalID"
+          nullable: true
+          type: array
         id:
           type: string
+        images:
+          items:
+            $ref: "#/components/schemas/Image"
+          nullable: true
+          type: array
+        is_special:
+          type: boolean
         numbers:
           items:
             $ref: "#/components/schemas/EpisodeNumber"
           nullable: true
           type: array
+        overviews:
+          items:
+            $ref: "#/components/schemas/Text"
+          nullable: true
+          type: array
         provider_id:
           type: string
+        ratings:
+          items:
+            $ref: "#/components/schemas/Rating"
+          nullable: true
+          type: array
         runtime_minutes:
           format: int64
           type: integer
@@ -777,9 +801,14 @@ components:
           nullable: true
           type: array
       required:
-        - provider_id
+        - external_ids
         - titles
+        - overviews
         - numbers
+        - is_special
+        - episode_type
+        - ratings
+        - images
       type: object
     EpisodeHint:
       additionalProperties: false
@@ -799,6 +828,8 @@ components:
         number:
           format: double
           type: number
+        provider:
+          type: string
         scheme:
           type: string
         season:
@@ -827,6 +858,20 @@ components:
         - id
         - show
         - data
+      type: object
+    EpisodicExternalID:
+      additionalProperties: false
+      properties:
+        namespace:
+          type: string
+        provider:
+          type: string
+        value:
+          type: string
+      required:
+        - provider
+        - namespace
+        - value
       type: object
     ErrorDetail:
       additionalProperties: false
@@ -1087,6 +1132,36 @@ components:
         year:
           format: int64
           type: integer
+      type: object
+    Image:
+      additionalProperties: false
+      properties:
+        class:
+          type: string
+        country:
+          type: string
+        height:
+          format: int64
+          type: integer
+        id:
+          type: string
+        language:
+          type: string
+        provider:
+          type: string
+        provider_id:
+          type: string
+        provider_score:
+          format: double
+          type: number
+        url:
+          type: string
+        width:
+          format: int64
+          type: integer
+      required:
+        - provider_id
+        - class
       type: object
     JobResource:
       additionalProperties: false
@@ -1445,6 +1520,29 @@ components:
         - provider
         - provider_person_id
       type: object
+    Rating:
+      additionalProperties: false
+      properties:
+        scale_max:
+          format: double
+          type: number
+        scale_min:
+          format: double
+          type: number
+        system:
+          type: string
+        value:
+          format: double
+          type: number
+        votes:
+          format: int64
+          type: integer
+      required:
+        - system
+        - value
+        - scale_min
+        - scale_max
+      type: object
     Readiness:
       additionalProperties: false
       properties:
@@ -1780,25 +1878,62 @@ components:
     Season:
       additionalProperties: false
       properties:
+        aired_episode_count:
+          format: int64
+          type: integer
         end_date:
           type: string
+        episode_count:
+          format: int64
+          type: integer
+        episode_ids:
+          items:
+            type: string
+          nullable: true
+          type: array
         episode_order:
           format: int64
           type: integer
+        external_ids:
+          items:
+            $ref: "#/components/schemas/EpisodicExternalID"
+          nullable: true
+          type: array
         id:
           type: string
+        images:
+          items:
+            $ref: "#/components/schemas/Image"
+          nullable: true
+          type: array
         name:
           type: string
         number:
           format: int64
           type: integer
+        overviews:
+          items:
+            $ref: "#/components/schemas/Text"
+          nullable: true
+          type: array
         premiere_date:
           type: string
         provider_id:
           type: string
+        status:
+          type: string
+        titles:
+          items:
+            $ref: "#/components/schemas/Title"
+          nullable: true
+          type: array
       required:
-        - provider_id
         - number
+        - titles
+        - overviews
+        - external_ids
+        - images
+        - episode_ids
       type: object
     SeasonResource:
       additionalProperties: false
@@ -1877,6 +2012,21 @@ components:
         - stale
         - generated_at
       type: object
+    Text:
+      additionalProperties: false
+      properties:
+        country:
+          type: string
+        language:
+          type: string
+        type:
+          type: string
+        value:
+          type: string
+      required:
+        - value
+        - type
+      type: object
     Title:
       additionalProperties: false
       properties:
@@ -1891,6 +2041,120 @@ components:
       required:
         - value
         - type
+      type: object
+    TopTrack:
+      additionalProperties: false
+      properties:
+        external_ids:
+          items:
+            $ref: "#/components/schemas/TopTrackExternalID"
+          nullable: true
+          type: array
+        listeners:
+          format: int64
+          type: integer
+        playcount:
+          format: int64
+          type: integer
+        provider:
+          type: string
+        provider_track_id:
+          type: string
+        rank:
+          format: int64
+          type: integer
+        recording_entity_id:
+          type: string
+        title:
+          type: string
+        url:
+          type: string
+      required:
+        - rank
+        - title
+        - provider
+        - external_ids
+      type: object
+    TopTrackExternalID:
+      additionalProperties: false
+      properties:
+        namespace:
+          type: string
+        provider:
+          type: string
+        value:
+          type: string
+      required:
+        - provider
+        - namespace
+        - value
+      type: object
+    TopTrackSource:
+      additionalProperties: false
+      properties:
+        item_count:
+          format: int64
+          type: integer
+        observed_at:
+          format: date-time
+          type: string
+        projection_version:
+          format: int64
+          type: integer
+        provider:
+          type: string
+        reported_total:
+          format: int64
+          type: integer
+        source_observation_id:
+          type: string
+        truncated:
+          type: boolean
+      required:
+        - provider
+        - item_count
+        - reported_total
+        - truncated
+        - observed_at
+        - projection_version
+      type: object
+    TopTracksPage:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: http://localhost:3030/schemas/TopTracksPage.json
+          format: uri
+          readOnly: true
+          type: string
+        artist_id:
+          type: string
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        results:
+          items:
+            $ref: "#/components/schemas/TopTrack"
+          nullable: true
+          type: array
+        sources:
+          items:
+            $ref: "#/components/schemas/TopTrackSource"
+          nullable: true
+          type: array
+        total:
+          format: int64
+          type: integer
+      required:
+        - artist_id
+        - results
+        - sources
+        - total
+        - offset
+        - limit
       type: object
     User:
       additionalProperties: false
@@ -1945,12 +2209,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/DiscoveryResource"
           description: OK
-        default:
-          content:
-            application/problem+json:
+          headers:
+            Retry-After:
               schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Error
+                type: string
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryResource"
+          description: Accepted for asynchronous processing
+          headers:
+            Retry-After:
+              description: Suggested number of seconds before polling the returned resource or job
+              schema:
+                type: string
       summary: Discover AniDB anime identities
       tags:
         - Anime
@@ -2597,12 +2870,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/DiscoveryResource"
           description: OK
-        default:
-          content:
-            application/problem+json:
+          headers:
+            Retry-After:
               schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Error
+                type: string
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryResource"
+          description: Accepted for asynchronous processing
+          headers:
+            Retry-After:
+              description: Suggested number of seconds before polling the returned resource or job
+              schema:
+                type: string
       summary: Discover comic publications
       tags:
         - Comics
@@ -2707,12 +2989,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/DiscoveryResource"
           description: OK
-        default:
-          content:
-            application/problem+json:
+          headers:
+            Retry-After:
               schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Error
+                type: string
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryResource"
+          description: Accepted for asynchronous processing
+          headers:
+            Retry-After:
+              description: Suggested number of seconds before polling the returned resource or job
+              schema:
+                type: string
       summary: Discover and rank upstream identity candidates
       tags:
         - Discovery
@@ -2733,6 +3024,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/DiscoveryResource"
           description: OK
+          headers:
+            Retry-After:
+              schema:
+                type: string
         default:
           content:
             application/problem+json:
@@ -3189,6 +3484,52 @@ paths:
       tags:
         - Entities
         - Relations
+  /api/v2/entities/{id}/top-tracks:
+    get:
+      description: Returns the complete persisted canonical ranking snapshot, ordered by provider and rank. Collection is capped at the provider's top 100 tracks; sources reports the upstream total and whether that snapshot was truncated. Existing MusicBrainz recording claims are linked at read time, while unresolved tracks remain provider evidence and never create recording entities.
+      operationId: artist-top-tracks
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+        - explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Maximum ranked provider tracks returned
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            description: Maximum ranked provider tracks returned
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopTracksPage"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Read ranked provider top tracks for an artist
+      tags:
+        - Music
   /api/v2/episodes/{id}:
     get:
       operationId: episode-detail
@@ -3242,12 +3583,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/FingerprintMatchResource"
           description: OK
-        default:
-          content:
-            application/problem+json:
+          headers:
+            Retry-After:
               schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Error
+                type: string
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FingerprintMatchResource"
+          description: Accepted for asynchronous processing
+          headers:
+            Retry-After:
+              description: Suggested number of seconds before polling the returned resource or job
+              schema:
+                type: string
       summary: Match a client Chromaprint against canonical recordings
       tags:
         - Music
@@ -3268,6 +3618,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/FingerprintMatchResource"
           description: OK
+          headers:
+            Retry-After:
+              schema:
+                type: string
         default:
           content:
             application/problem+json:
@@ -3328,11 +3682,32 @@ paths:
       responses:
         "200":
           content:
-            application/json:
+            image/avif:
               schema:
-                format: base64
+                format: binary
                 type: string
-          description: OK
+                x-contentMediaType: application/octet-stream
+            image/gif:
+              schema:
+                format: binary
+                type: string
+                x-contentMediaType: application/octet-stream
+            image/jpeg:
+              schema:
+                format: binary
+                type: string
+                x-contentMediaType: application/octet-stream
+            image/png:
+              schema:
+                format: binary
+                type: string
+                x-contentMediaType: application/octet-stream
+            image/webp:
+              schema:
+                format: binary
+                type: string
+                x-contentMediaType: application/octet-stream
+          description: Canonical image bytes
           headers:
             Cache-Control:
               schema:
@@ -3354,12 +3729,17 @@ paths:
               schema:
                 format: int64
                 type: integer
-        default:
+        "202":
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Error
+                $ref: "#/components/schemas/JobResource"
+          description: Accepted for asynchronous processing
+          headers:
+            Retry-After:
+              description: Suggested number of seconds before polling the returned resource or job
+              schema:
+                type: string
       summary: Read or queue a canonical image original
       tags:
         - Images
@@ -3392,11 +3772,17 @@ paths:
       responses:
         "200":
           content:
-            application/json:
+            image/avif:
               schema:
-                format: base64
+                format: binary
                 type: string
-          description: OK
+                x-contentMediaType: application/octet-stream
+            image/webp:
+              schema:
+                format: binary
+                type: string
+                x-contentMediaType: application/octet-stream
+          description: Canonical image bytes
           headers:
             Cache-Control:
               schema:
@@ -3418,12 +3804,17 @@ paths:
               schema:
                 format: int64
                 type: integer
-        default:
+        "202":
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Error
+                $ref: "#/components/schemas/JobResource"
+          description: Accepted for asynchronous processing
+          headers:
+            Retry-After:
+              description: Suggested number of seconds before polling the returned resource or job
+              schema:
+                type: string
       summary: Read or queue an optimized image variant
       tags:
         - Images
@@ -3524,12 +3915,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/DiscoveryResource"
           description: OK
-        default:
-          content:
-            application/problem+json:
+          headers:
+            Retry-After:
               schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Error
+                type: string
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryResource"
+          description: Accepted for asynchronous processing
+          headers:
+            Retry-After:
+              description: Suggested number of seconds before polling the returned resource or job
+              schema:
+                type: string
       summary: Discover manga publications
       tags:
         - Manga
@@ -3557,12 +3957,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/DiscoveryResource"
           description: OK
-        default:
-          content:
-            application/problem+json:
+          headers:
+            Retry-After:
               schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Error
+                type: string
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryResource"
+          description: Accepted for asynchronous processing
+          headers:
+            Retry-After:
+              description: Suggested number of seconds before polling the returned resource or job
+              schema:
+                type: string
       summary: Discover physical manga volumes
       tags:
         - Manga
@@ -3995,12 +4404,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/ResolutionBody"
           description: OK
-        default:
-          content:
-            application/problem+json:
+          headers:
+            Retry-After:
               schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Error
+                type: string
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolutionBody"
+          description: Accepted for asynchronous processing
+          headers:
+            Retry-After:
+              description: Suggested number of seconds before polling the returned resource or job
+              schema:
+                type: string
       summary: Resolve or ingest an external entity ID
       tags:
         - Entities
@@ -4171,12 +4589,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/DiscoveryResource"
           description: OK
-        default:
-          content:
-            application/problem+json:
+          headers:
+            Retry-After:
               schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Error
+                type: string
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryResource"
+          description: Accepted for asynchronous processing
+          headers:
+            Retry-After:
+              description: Suggested number of seconds before polling the returned resource or job
+              schema:
+                type: string
       summary: Discover conventional television shows
       tags:
         - TV

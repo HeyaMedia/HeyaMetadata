@@ -2,45 +2,120 @@ package episodic
 
 import "time"
 
-type ExternalID struct {
+type EpisodicExternalID struct {
 	Provider  string `json:"provider"`
 	Namespace string `json:"namespace"`
 	Value     string `json:"value"`
 }
+
+// ExternalID remains the concise package-level spelling while the named type
+// stays unique in the generated OpenAPI component registry.
+type ExternalID = EpisodicExternalID
 type Title struct {
 	Value    string `json:"value"`
 	Language string `json:"language,omitempty"`
 	Country  string `json:"country,omitempty"`
 	Type     string `json:"type"`
 }
+type Text struct {
+	Value    string `json:"value"`
+	Language string `json:"language,omitempty"`
+	Country  string `json:"country,omitempty"`
+	Type     string `json:"type"`
+}
 type EpisodeNumber struct {
-	Scheme string  `json:"scheme"`
-	Season int     `json:"season,omitempty"`
-	Number float64 `json:"number"`
+	Scheme   string  `json:"scheme"`
+	Season   int     `json:"season,omitempty"`
+	Number   float64 `json:"number"`
+	Provider string  `json:"provider,omitempty"`
 }
 type Episode struct {
 	ID             string          `json:"id,omitempty"`
 	SeasonID       string          `json:"season_id,omitempty"`
-	ProviderID     string          `json:"provider_id"`
+	ProviderID     string          `json:"provider_id,omitempty"`
+	ExternalIDs    []ExternalID    `json:"external_ids"`
 	Titles         []Title         `json:"titles"`
+	Overviews      []Text          `json:"overviews"`
 	Numbers        []EpisodeNumber `json:"numbers"`
+	IsSpecial      bool            `json:"is_special"`
+	EpisodeType    string          `json:"episode_type"`
 	AirDate        string          `json:"air_date,omitempty"`
 	RuntimeMinutes int             `json:"runtime_minutes,omitempty"`
 	Summary        string          `json:"summary,omitempty"`
+	Ratings        []Rating        `json:"ratings"`
+	Images         []Image         `json:"images"`
 }
 type Season struct {
-	ID           string `json:"id,omitempty"`
-	ProviderID   string `json:"provider_id"`
-	Number       int    `json:"number"`
-	Name         string `json:"name,omitempty"`
-	EpisodeOrder int    `json:"episode_order,omitempty"`
-	PremiereDate string `json:"premiere_date,omitempty"`
-	EndDate      string `json:"end_date,omitempty"`
+	ID                string       `json:"id,omitempty"`
+	ProviderID        string       `json:"provider_id,omitempty"`
+	Number            int          `json:"number"`
+	Name              string       `json:"name,omitempty"`
+	Titles            []Title      `json:"titles"`
+	Overviews         []Text       `json:"overviews"`
+	Status            string       `json:"status,omitempty"`
+	EpisodeOrder      int          `json:"episode_order,omitempty"`
+	EpisodeCount      int          `json:"episode_count,omitempty"`
+	AiredEpisodeCount int          `json:"aired_episode_count,omitempty"`
+	PremiereDate      string       `json:"premiere_date,omitempty"`
+	EndDate           string       `json:"end_date,omitempty"`
+	ExternalIDs       []ExternalID `json:"external_ids"`
+	Images            []Image      `json:"images"`
+	EpisodeIDs        []string     `json:"episode_ids"`
 }
 type Network struct {
-	Name    string `json:"name"`
-	Country string `json:"country,omitempty"`
-	Type    string `json:"type,omitempty"`
+	EntityID       string       `json:"entity_id,omitempty"`
+	Name           string       `json:"name"`
+	Country        string       `json:"country,omitempty"`
+	Type           string       `json:"type,omitempty"`
+	ExternalIDs    []ExternalID `json:"external_ids"`
+	LogoImageID    string       `json:"logo_image_id,omitempty"`
+	LogoURL        string       `json:"-"`
+	LogoProvider   string       `json:"-"`
+	LogoProviderID string       `json:"-"`
+}
+type Organization struct {
+	EntityID       string       `json:"entity_id,omitempty"`
+	Name           string       `json:"name"`
+	Country        string       `json:"country,omitempty"`
+	Type           string       `json:"type,omitempty"`
+	ExternalIDs    []ExternalID `json:"external_ids"`
+	LogoImageID    string       `json:"logo_image_id,omitempty"`
+	LogoURL        string       `json:"-"`
+	LogoProvider   string       `json:"-"`
+	LogoProviderID string       `json:"-"`
+}
+type Link struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
+}
+type Video struct {
+	Provider string `json:"provider"`
+	Type     string `json:"type"`
+	Name     string `json:"name,omitempty"`
+	Key      string `json:"key,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Language string `json:"language,omitempty"`
+	Country  string `json:"country,omitempty"`
+	Official bool   `json:"official,omitempty"`
+}
+type Certification struct {
+	System      string `json:"system"`
+	Country     string `json:"country"`
+	Rating      string `json:"rating"`
+	Description string `json:"description,omitempty"`
+	Order       int    `json:"order,omitempty"`
+}
+type Recommendation struct {
+	Provider      string       `json:"provider"`
+	ProviderID    string       `json:"provider_id"`
+	EntityID      string       `json:"entity_id,omitempty"`
+	Title         string       `json:"title"`
+	OriginalTitle string       `json:"original_title,omitempty"`
+	FirstAirDate  string       `json:"first_air_date,omitempty"`
+	ExternalIDs   []ExternalID `json:"external_ids"`
+	ImageID       string       `json:"image_id,omitempty"`
+	ImageURL      string       `json:"-"`
+	ProviderScore float64      `json:"provider_score,omitempty"`
 }
 type Image struct {
 	ID            string  `json:"id,omitempty"`
@@ -80,35 +155,43 @@ type Contributor struct {
 	NormalizerVersion string `json:"normalizer_version"`
 }
 type NormalizedRecord struct {
-	SchemaVersion        int           `json:"schema_version"`
-	Kind                 string        `json:"kind"`
-	Provider             string        `json:"provider"`
-	Namespace            string        `json:"namespace"`
-	ProviderID           string        `json:"provider_id"`
-	PrimaryObservationID string        `json:"primary_observation_id"`
-	ObservedAt           time.Time     `json:"observed_at"`
-	NormalizerVersion    string        `json:"normalizer_version"`
-	Contributors         []Contributor `json:"contributors,omitempty"`
-	ExternalIDs          []ExternalID  `json:"external_ids"`
-	Titles               []Title       `json:"titles"`
-	Overview             string        `json:"overview,omitempty"`
-	Format               string        `json:"format,omitempty"`
-	Status               string        `json:"status,omitempty"`
-	Language             string        `json:"language,omitempty"`
-	Countries            []string      `json:"countries,omitempty"`
-	Genres               []string      `json:"genres,omitempty"`
-	StartDate            string        `json:"start_date,omitempty"`
-	EndDate              string        `json:"end_date,omitempty"`
-	RuntimeMinutes       int           `json:"runtime_minutes,omitempty"`
-	EpisodeCount         int           `json:"episode_count,omitempty"`
-	Networks             []Network     `json:"networks,omitempty"`
-	Studios              []string      `json:"studios,omitempty"`
-	SourceMaterial       string        `json:"source_material,omitempty"`
-	Seasons              []Season      `json:"seasons,omitempty"`
-	Episodes             []Episode     `json:"episodes,omitempty"`
-	Images               []Image       `json:"images,omitempty"`
-	Ratings              []Rating      `json:"ratings,omitempty"`
-	Credits              []Credit      `json:"credits,omitempty"`
+	SchemaVersion        int              `json:"schema_version"`
+	Kind                 string           `json:"kind"`
+	Provider             string           `json:"provider"`
+	Namespace            string           `json:"namespace"`
+	ProviderID           string           `json:"provider_id"`
+	PrimaryObservationID string           `json:"primary_observation_id"`
+	ObservedAt           time.Time        `json:"observed_at"`
+	NormalizerVersion    string           `json:"normalizer_version"`
+	Contributors         []Contributor    `json:"contributors,omitempty"`
+	ExternalIDs          []ExternalID     `json:"external_ids"`
+	Titles               []Title          `json:"titles"`
+	Overview             string           `json:"overview,omitempty"`
+	Overviews            []Text           `json:"overviews,omitempty"`
+	Format               string           `json:"format,omitempty"`
+	Status               string           `json:"status,omitempty"`
+	Language             string           `json:"language,omitempty"`
+	Countries            []string         `json:"countries,omitempty"`
+	Genres               []string         `json:"genres,omitempty"`
+	StartDate            string           `json:"start_date,omitempty"`
+	EndDate              string           `json:"end_date,omitempty"`
+	RuntimeMinutes       int              `json:"runtime_minutes,omitempty"`
+	EpisodeCount         int              `json:"episode_count,omitempty"`
+	SeasonCount          int              `json:"season_count,omitempty"`
+	Networks             []Network        `json:"networks,omitempty"`
+	Studios              []string         `json:"studios,omitempty"`
+	Organizations        []Organization   `json:"organizations,omitempty"`
+	Keywords             []string         `json:"keywords,omitempty"`
+	SourceMaterial       string           `json:"source_material,omitempty"`
+	Seasons              []Season         `json:"seasons,omitempty"`
+	Episodes             []Episode        `json:"episodes,omitempty"`
+	Images               []Image          `json:"images,omitempty"`
+	Ratings              []Rating         `json:"ratings,omitempty"`
+	Credits              []Credit         `json:"credits,omitempty"`
+	Links                []Link           `json:"links,omitempty"`
+	Videos               []Video          `json:"videos,omitempty"`
+	Certifications       []Certification  `json:"certifications,omitempty"`
+	Recommendations      []Recommendation `json:"recommendations,omitempty"`
 }
 type Display struct {
 	Title         string `json:"title"`
@@ -129,19 +212,27 @@ type Lifecycle struct {
 	EndDate   string `json:"end_date,omitempty"`
 }
 type Data struct {
-	Titles         []Title        `json:"titles"`
-	Overview       string         `json:"overview,omitempty"`
-	Classification Classification `json:"classification"`
-	Lifecycle      Lifecycle      `json:"lifecycle"`
-	RuntimeMinutes int            `json:"runtime_minutes,omitempty"`
-	EpisodeCount   int            `json:"episode_count,omitempty"`
-	Networks       []Network      `json:"networks,omitempty"`
-	Studios        []string       `json:"studios,omitempty"`
-	Seasons        []Season       `json:"seasons,omitempty"`
-	Episodes       []Episode      `json:"episodes,omitempty"`
-	Images         []Image        `json:"images,omitempty"`
-	Ratings        []Rating       `json:"ratings,omitempty"`
-	Credits        []Credit       `json:"credits,omitempty"`
+	Titles          []Title          `json:"titles"`
+	Overview        string           `json:"overview,omitempty"`
+	Overviews       []Text           `json:"overviews,omitempty"`
+	Classification  Classification   `json:"classification"`
+	Lifecycle       Lifecycle        `json:"lifecycle"`
+	RuntimeMinutes  int              `json:"runtime_minutes,omitempty"`
+	EpisodeCount    int              `json:"episode_count,omitempty"`
+	SeasonCount     int              `json:"season_count,omitempty"`
+	Networks        []Network        `json:"networks,omitempty"`
+	Studios         []string         `json:"studios,omitempty"`
+	Organizations   []Organization   `json:"organizations,omitempty"`
+	Keywords        []string         `json:"keywords,omitempty"`
+	Seasons         []Season         `json:"seasons,omitempty"`
+	Episodes        []Episode        `json:"episodes,omitempty"`
+	Images          []Image          `json:"images,omitempty"`
+	Ratings         []Rating         `json:"ratings,omitempty"`
+	Credits         []Credit         `json:"credits,omitempty"`
+	Links           []Link           `json:"links,omitempty"`
+	Videos          []Video          `json:"videos,omitempty"`
+	Certifications  []Certification  `json:"certifications,omitempty"`
+	Recommendations []Recommendation `json:"recommendations,omitempty"`
 }
 type Freshness struct {
 	State      string                       `json:"state"`

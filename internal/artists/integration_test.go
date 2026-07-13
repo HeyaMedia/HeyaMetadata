@@ -137,3 +137,75 @@ func TestIntegrationArtistMergeQuarantinesConflictingStrongClaims(t *testing.T) 
 	_, _ = runtime.DB.Exec(ctx, `DELETE FROM external_id_conflicts WHERE normalized_record_id=$1`, normalizedID)
 	_, _ = runtime.DB.Exec(ctx, `DELETE FROM normalized_records WHERE id=$1`, normalizedID)
 }
+
+func TestIntegrationArtistTopTracksPersistAndLinkWithoutInventingRecordings(t *testing.T) {
+	runtime := integrationRuntime(t)
+	ctx := context.Background()
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	artistMBID := "10000000-0000-4000-8000-" + suffix[len(suffix)-12:]
+	recordingMBID := "20000000-0000-4000-8000-" + suffix[len(suffix)-12:]
+	mbObservation := testObservation(t, runtime, "musicbrainz", artistMBID)
+	lastFMObservation := testObservation(t, runtime, "lastfm", artistMBID)
+
+	var recordingID string
+	if err := runtime.DB.QueryRow(ctx, `INSERT INTO entities(kind,slug)VALUES('recording',$1)RETURNING id`, "integration-recording-"+suffix).Scan(&recordingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.DB.Exec(ctx, `INSERT INTO external_id_claims(entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at)VALUES($1,'recording','musicbrainz','recording',$2,'accepted',1,$3,now(),now())`, recordingID, recordingMBID, mbObservation); err != nil {
+		t.Fatal(err)
+	}
+
+	observedAt := time.Now().UTC()
+	spine := artistdomain.NormalizedRecordV1{
+		ProviderRecord:     artistdomain.ProviderRecord{Provider: "musicbrainz", Namespace: "artist", Value: artistMBID, PrimaryObservationID: mbObservation, ObservedAt: observedAt, NormalizerVersion: "integration", SchemaVersion: 1},
+		IdentityCandidates: []artistdomain.IdentityCandidate{{Provider: "musicbrainz", Namespace: "artist", NormalizedValue: artistMBID, Confidence: 1, Evidence: "integration"}},
+		Names:              []artistdomain.Name{{Value: "Top Track Artist " + suffix, Type: "display", Primary: true}},
+	}
+	lastFM := artistdomain.NormalizedRecordV1{
+		ProviderRecord:         artistdomain.ProviderRecord{Provider: "lastfm", Namespace: "artist", Value: artistMBID, PrimaryObservationID: lastFMObservation, ObservedAt: observedAt, NormalizerVersion: "integration", SchemaVersion: 1},
+		IdentityCandidates:     []artistdomain.IdentityCandidate{{Provider: "musicbrainz", Namespace: "artist", NormalizedValue: artistMBID, Confidence: 1, Evidence: "lastfm_mbid"}},
+		Names:                  []artistdomain.Name{{Value: "Top Track Artist " + suffix, Type: "display", Primary: true}},
+		TopTracksObserved:      true,
+		TopTracksTotal:         250,
+		TopTracksObservationID: lastFMObservation,
+		TopTracksObservedAt:    observedAt,
+		TopTracks:              []artistdomain.TopTrack{{Rank: 1, Title: "Linked Track", RecordingMBID: recordingMBID, Playcount: 1234, Listeners: 567}},
+	}
+	service := NewService(runtime)
+	spineID, err := service.recordNormalized(ctx, spine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lastFMID, err := service.recordNormalized(ctx, lastFM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.merge(ctx, []string{spineID, lastFMID}, []artistdomain.NormalizedRecordV1{spine, lastFM}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupArtist(t, runtime, []string{result.EntityID, recordingID}, []string{mbObservation, lastFMObservation})
+	})
+
+	page, err := service.TopTracks(ctx, result.EntityID, 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 || len(page.Results) != 1 || page.Results[0].RecordingEntityID != recordingID || page.Results[0].Playcount != 1234 {
+		t.Fatalf("page=%+v", page)
+	}
+	if len(page.Sources) != 1 || !page.Sources[0].Truncated || page.Sources[0].ReportedTotal != 250 {
+		t.Fatalf("sources=%+v", page.Sources)
+	}
+
+	// A later artist merge without a successful top-track snapshot must retain
+	// the last successful provider ranking.
+	if _, err := service.merge(ctx, []string{spineID}, []artistdomain.NormalizedRecordV1{spine}, 0); err != nil {
+		t.Fatal(err)
+	}
+	preserved, err := service.TopTracks(ctx, result.EntityID, 0, 50)
+	if err != nil || preserved.Total != 1 {
+		t.Fatalf("preserved=%+v err=%v", preserved, err)
+	}
+}

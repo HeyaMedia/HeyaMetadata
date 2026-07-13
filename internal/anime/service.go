@@ -19,7 +19,9 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
 )
 
-var definition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v1", MergeVersion: "anime-combiner/v2"}
+const tvdbAnimeNormalizerVersion = "tvdb-anime-series/v3"
+
+var definition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v2", MergeVersion: "anime-combiner/v3"}
 
 type Service struct{ runtime *platform.Runtime }
 
@@ -82,7 +84,7 @@ func (s *Service) IngestAniDBWithCredentials(ctx context.Context, id string, job
 		records = append(records, mappingRecord)
 		if mapping.TVDBID > 0 && mapping.Season.TVDB != nil && (credentials.APIKey("tvdb") != "" || s.runtime.Config.Providers.TVDB.APIKey != "") {
 			tvdbBase := tvdb.New(s.runtime.Config.Providers.TVDB)
-			tvdbCache, cacheErr := providercache.New(s.runtime, "tvdb-anime-series/v2", tvdbBase.Capability().RawRetention, tvdbBase.Capability().ResponseCache, jobID)
+			tvdbCache, cacheErr := providercache.New(s.runtime, tvdbAnimeNormalizerVersion, tvdbBase.Capability().RawRetention, tvdbBase.Capability().ResponseCache, jobID)
 			if cacheErr != nil {
 				return result, cacheErr
 			}
@@ -156,6 +158,9 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 		return episodic.NormalizedRecord{}, fmt.Errorf("invalid AniDB anime detail")
 	}
 	record := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "anidb", Namespace: "anime", ProviderID: value.ID, PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, Overview: strings.TrimSpace(value.Description), Format: normalizeType(value.Type), StartDate: value.StartDate, EndDate: value.EndDate, EpisodeCount: value.EpisodeCount, ExternalIDs: []episodic.ExternalID{{Provider: "anidb", Namespace: "anime", Value: value.ID}}}
+	if record.Overview != "" {
+		record.Overviews = []episodic.Text{{Value: record.Overview, Type: "overview"}}
+	}
 	for _, title := range value.Titles {
 		kind := title.Type
 		if kind == "main" {
@@ -169,7 +174,9 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 	}
 	for _, creator := range value.Creators {
 		if strings.Contains(strings.ToLower(creator.Type), "animation work") {
-			record.Studios = append(record.Studios, strings.TrimSpace(creator.Name))
+			name := strings.TrimSpace(creator.Name)
+			record.Studios = append(record.Studios, name)
+			record.Organizations = append(record.Organizations, episodic.Organization{Name: name, Type: "studio"})
 		}
 	}
 	for _, tag := range value.Tags {
@@ -205,30 +212,58 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 	}
 	record.Genres = episodic.SortStrings(record.Genres)
 	record.Studios = episodic.SortStrings(record.Studios)
+	regularCount, specialCount := 0, 0
 	for _, episode := range value.Episodes {
 		titles := []episodic.Title{}
 		for _, title := range episode.Titles {
 			titles = append(titles, episodic.Title{Value: strings.TrimSpace(title.Value), Language: title.Language, Type: "main"})
 		}
 		scheme := "aired"
+		episodeType := "regular"
 		if episode.Number.Type == 2 {
 			scheme = "special"
+			episodeType = "special"
 		} else if episode.Number.Type == 3 {
 			scheme = "credit"
+			episodeType = "credit"
 		} else if episode.Number.Type == 4 {
 			scheme = "trailer"
+			episodeType = "trailer"
 		} else if episode.Number.Type == 5 {
 			scheme = "parody"
+			episodeType = "parody"
 		}
-		record.Episodes = append(record.Episodes, episodic.Episode{ProviderID: episode.ID, Titles: titles, Numbers: []episodic.EpisodeNumber{{Scheme: scheme, Number: animeEpisodeNumber(episode.Number.Value)}}, AirDate: episode.AirDate, RuntimeMinutes: episode.Length})
+		number := animeEpisodeNumber(episode.Number.Value)
+		season := 1
+		isSpecial := scheme != "aired"
+		if isSpecial {
+			season = 0
+			specialCount++
+		} else {
+			regularCount++
+		}
+		numbers := []episodic.EpisodeNumber{{Scheme: "aired", Season: season, Number: number, Provider: "anidb"}, {Scheme: "anidb", Season: season, Number: number, Provider: "anidb"}}
+		if !isSpecial {
+			numbers = append(numbers, episodic.EpisodeNumber{Scheme: "absolute", Number: number, Provider: "anidb"})
+		} else {
+			numbers = append(numbers, episodic.EpisodeNumber{Scheme: scheme, Season: 0, Number: number, Provider: "anidb"})
+		}
+		record.Episodes = append(record.Episodes, episodic.Episode{ProviderID: episode.ID, ExternalIDs: []episodic.ExternalID{{Provider: "anidb", Namespace: "episode", Value: episode.ID}}, Titles: titles, Numbers: numbers, IsSpecial: isSpecial, EpisodeType: episodeType, AirDate: episode.AirDate, RuntimeMinutes: episode.Length})
 	}
 	sort.SliceStable(record.Episodes, func(i, j int) bool {
-		left, right := record.Episodes[i].Numbers[0], record.Episodes[j].Numbers[0]
-		if animeSchemeOrder(left.Scheme) != animeSchemeOrder(right.Scheme) {
-			return animeSchemeOrder(left.Scheme) < animeSchemeOrder(right.Scheme)
+		left, right := record.Episodes[i], record.Episodes[j]
+		if left.IsSpecial != right.IsSpecial {
+			return !left.IsSpecial
 		}
-		return left.Number < right.Number
+		return left.Numbers[0].Number < right.Numbers[0].Number
 	})
+	if regularCount > 0 || value.EpisodeCount > 0 {
+		record.Seasons = append(record.Seasons, episodic.Season{Number: 1, Name: "Season 1", Titles: []episodic.Title{{Value: "Season 1", Language: "en", Type: "display"}}, EpisodeCount: max(regularCount, value.EpisodeCount)})
+	}
+	if specialCount > 0 {
+		record.Seasons = append(record.Seasons, episodic.Season{Number: 0, Name: "Specials", Titles: []episodic.Title{{Value: "Specials", Language: "en", Type: "display"}}, EpisodeCount: specialCount})
+	}
+	record.SeasonCount = len(record.Seasons)
 	if value.Picture != "" {
 		record.Images = append(record.Images, episodic.Image{Provider: "anidb", ProviderID: value.Picture, URL: "https://cdn-eu.anidb.net/images/main/" + value.Picture, Class: "poster"})
 	}

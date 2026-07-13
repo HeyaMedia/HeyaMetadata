@@ -628,14 +628,20 @@ type EntityRelationsOutputBody struct {
 
 // Episode defines model for Episode.
 type Episode struct {
-	AirDate        *string          `json:"air_date,omitempty"`
-	Id             *string          `json:"id,omitempty"`
-	Numbers        *[]EpisodeNumber `json:"numbers"`
-	ProviderId     string           `json:"provider_id"`
-	RuntimeMinutes *int64           `json:"runtime_minutes,omitempty"`
-	SeasonId       *string          `json:"season_id,omitempty"`
-	Summary        *string          `json:"summary,omitempty"`
-	Titles         *[]Title         `json:"titles"`
+	AirDate        *string               `json:"air_date,omitempty"`
+	EpisodeType    string                `json:"episode_type"`
+	ExternalIds    *[]EpisodicExternalID `json:"external_ids"`
+	Id             *string               `json:"id,omitempty"`
+	Images         *[]Image              `json:"images"`
+	IsSpecial      bool                  `json:"is_special"`
+	Numbers        *[]EpisodeNumber      `json:"numbers"`
+	Overviews      *[]Text               `json:"overviews"`
+	ProviderId     *string               `json:"provider_id,omitempty"`
+	Ratings        *[]Rating             `json:"ratings"`
+	RuntimeMinutes *int64                `json:"runtime_minutes,omitempty"`
+	SeasonId       *string               `json:"season_id,omitempty"`
+	Summary        *string               `json:"summary,omitempty"`
+	Titles         *[]Title              `json:"titles"`
 }
 
 // EpisodeHint defines model for EpisodeHint.
@@ -647,9 +653,10 @@ type EpisodeHint struct {
 
 // EpisodeNumber defines model for EpisodeNumber.
 type EpisodeNumber struct {
-	Number float64 `json:"number"`
-	Scheme string  `json:"scheme"`
-	Season *int64  `json:"season,omitempty"`
+	Number   float64 `json:"number"`
+	Provider *string `json:"provider,omitempty"`
+	Scheme   string  `json:"scheme"`
+	Season   *int64  `json:"season,omitempty"`
 }
 
 // EpisodeResource defines model for EpisodeResource.
@@ -659,6 +666,13 @@ type EpisodeResource struct {
 	Data   Episode        `json:"data"`
 	Id     string         `json:"id"`
 	Show   ParentResource `json:"show"`
+}
+
+// EpisodicExternalID defines model for EpisodicExternalID.
+type EpisodicExternalID struct {
+	Namespace string `json:"namespace"`
+	Provider  string `json:"provider"`
+	Value     string `json:"value"`
 }
 
 // ErrorDetail defines model for ErrorDetail.
@@ -776,6 +790,20 @@ type Hints struct {
 	Tracks        *[]string      `json:"tracks,omitempty"`
 	Type          *string        `json:"type,omitempty"`
 	Year          *int64         `json:"year,omitempty"`
+}
+
+// Image defines model for Image.
+type Image struct {
+	Class         string   `json:"class"`
+	Country       *string  `json:"country,omitempty"`
+	Height        *int64   `json:"height,omitempty"`
+	Id            *string  `json:"id,omitempty"`
+	Language      *string  `json:"language,omitempty"`
+	Provider      *string  `json:"provider,omitempty"`
+	ProviderId    string   `json:"provider_id"`
+	ProviderScore *float64 `json:"provider_score,omitempty"`
+	Url           *string  `json:"url,omitempty"`
+	Width         *int64   `json:"width,omitempty"`
 }
 
 // JobResource defines model for JobResource.
@@ -925,6 +953,15 @@ type PersonSummary struct {
 	ProviderPersonId string  `json:"provider_person_id"`
 }
 
+// Rating defines model for Rating.
+type Rating struct {
+	ScaleMax float64 `json:"scale_max"`
+	ScaleMin float64 `json:"scale_min"`
+	System   string  `json:"system"`
+	Value    float64 `json:"value"`
+	Votes    *int64  `json:"votes,omitempty"`
+}
+
 // Readiness defines model for Readiness.
 type Readiness struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -1060,13 +1097,21 @@ type SearchOutputBody struct {
 
 // Season defines model for Season.
 type Season struct {
-	EndDate      *string `json:"end_date,omitempty"`
-	EpisodeOrder *int64  `json:"episode_order,omitempty"`
-	Id           *string `json:"id,omitempty"`
-	Name         *string `json:"name,omitempty"`
-	Number       int64   `json:"number"`
-	PremiereDate *string `json:"premiere_date,omitempty"`
-	ProviderId   string  `json:"provider_id"`
+	AiredEpisodeCount *int64                `json:"aired_episode_count,omitempty"`
+	EndDate           *string               `json:"end_date,omitempty"`
+	EpisodeCount      *int64                `json:"episode_count,omitempty"`
+	EpisodeIds        *[]string             `json:"episode_ids"`
+	EpisodeOrder      *int64                `json:"episode_order,omitempty"`
+	ExternalIds       *[]EpisodicExternalID `json:"external_ids"`
+	Id                *string               `json:"id,omitempty"`
+	Images            *[]Image              `json:"images"`
+	Name              *string               `json:"name,omitempty"`
+	Number            int64                 `json:"number"`
+	Overviews         *[]Text               `json:"overviews"`
+	PremiereDate      *string               `json:"premiere_date,omitempty"`
+	ProviderId        *string               `json:"provider_id,omitempty"`
+	Status            *string               `json:"status,omitempty"`
+	Titles            *[]Title              `json:"titles"`
 }
 
 // SeasonResource defines model for SeasonResource.
@@ -1094,12 +1139,63 @@ type StatsOutputBody struct {
 	Stale              int64            `json:"stale"`
 }
 
+// Text defines model for Text.
+type Text struct {
+	Country  *string `json:"country,omitempty"`
+	Language *string `json:"language,omitempty"`
+	Type     string  `json:"type"`
+	Value    string  `json:"value"`
+}
+
 // Title defines model for Title.
 type Title struct {
 	Country  *string `json:"country,omitempty"`
 	Language *string `json:"language,omitempty"`
 	Type     string  `json:"type"`
 	Value    string  `json:"value"`
+}
+
+// TopTrack defines model for TopTrack.
+type TopTrack struct {
+	ExternalIds       *[]TopTrackExternalID `json:"external_ids"`
+	Listeners         *int64                `json:"listeners,omitempty"`
+	Playcount         *int64                `json:"playcount,omitempty"`
+	Provider          string                `json:"provider"`
+	ProviderTrackId   *string               `json:"provider_track_id,omitempty"`
+	Rank              int64                 `json:"rank"`
+	RecordingEntityId *string               `json:"recording_entity_id,omitempty"`
+	Title             string                `json:"title"`
+	Url               *string               `json:"url,omitempty"`
+}
+
+// TopTrackExternalID defines model for TopTrackExternalID.
+type TopTrackExternalID struct {
+	Namespace string `json:"namespace"`
+	Provider  string `json:"provider"`
+	Value     string `json:"value"`
+}
+
+// TopTrackSource defines model for TopTrackSource.
+type TopTrackSource struct {
+	ItemCount           int64     `json:"item_count"`
+	ObservedAt          time.Time `json:"observed_at"`
+	ProjectionVersion   int64     `json:"projection_version"`
+	Provider            string    `json:"provider"`
+	ReportedTotal       int64     `json:"reported_total"`
+	SourceObservationId *string   `json:"source_observation_id,omitempty"`
+	Truncated           bool      `json:"truncated"`
+}
+
+// TopTracksPage defines model for TopTracksPage.
+type TopTracksPage struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema   *string           `json:"$schema,omitempty"`
+	ArtistId string            `json:"artist_id"`
+	Limit    int64             `json:"limit"`
+	Offset   int64             `json:"offset"`
+	Results  *[]TopTrack       `json:"results"`
+	Sources  *[]TopTrackSource `json:"sources"`
+	Total    int64             `json:"total"`
 }
 
 // User defines model for User.
@@ -1355,6 +1451,14 @@ type EntityRelationsParams struct {
 	Type   *string `form:"type,omitempty" json:"type,omitempty"`
 	Offset *int64  `form:"offset,omitempty" json:"offset,omitempty"`
 	Limit  *int64  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ArtistTopTracksParams defines parameters for ArtistTopTracks.
+type ArtistTopTracksParams struct {
+	Offset *int64 `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Limit Maximum ranked provider tracks returned
+	Limit *int64 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // MatchRecordingFingerprintParams defines parameters for MatchRecordingFingerprint.
@@ -1713,6 +1817,9 @@ type ClientInterface interface {
 
 	// EntityRelations request
 	EntityRelations(ctx context.Context, id string, params *EntityRelationsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ArtistTopTracks request
+	ArtistTopTracks(ctx context.Context, id openapi_types.UUID, params *ArtistTopTracksParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// EpisodeDetail request
 	EpisodeDetail(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2150,6 +2257,18 @@ func (c *Client) RefreshEntity(ctx context.Context, id openapi_types.UUID, param
 
 func (c *Client) EntityRelations(ctx context.Context, id string, params *EntityRelationsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewEntityRelationsRequest(c.Server, id, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ArtistTopTracks(ctx context.Context, id openapi_types.UUID, params *ArtistTopTracksParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewArtistTopTracksRequest(c.Server, id, params)
 	if err != nil {
 		return nil, err
 	}
@@ -4323,6 +4442,79 @@ func NewEntityRelationsRequest(server string, id string, params *EntityRelations
 	return req, nil
 }
 
+// NewArtistTopTracksRequest generates requests for ArtistTopTracks
+func NewArtistTopTracksRequest(server string, id openapi_types.UUID, params *ArtistTopTracksParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/entities/%s/top-tracks", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewEpisodeDetailRequest generates requests for EpisodeDetail
 func NewEpisodeDetailRequest(server string, id openapi_types.UUID) (*http.Request, error) {
 	var err error
@@ -6014,6 +6206,9 @@ type ClientWithResponsesInterface interface {
 	// EntityRelationsWithResponse request
 	EntityRelationsWithResponse(ctx context.Context, id string, params *EntityRelationsParams, reqEditors ...RequestEditorFn) (*EntityRelationsResponse, error)
 
+	// ArtistTopTracksWithResponse request
+	ArtistTopTracksWithResponse(ctx context.Context, id openapi_types.UUID, params *ArtistTopTracksParams, reqEditors ...RequestEditorFn) (*ArtistTopTracksResponse, error)
+
 	// EpisodeDetailWithResponse request
 	EpisodeDetailWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*EpisodeDetailResponse, error)
 
@@ -6101,10 +6296,10 @@ type ClientWithResponsesInterface interface {
 }
 
 type DiscoverAnimeResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *DiscoveryResource
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *DiscoveryResource
+	JSON202      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -6558,10 +6753,10 @@ func (r CollectionDetailResponse) ContentType() string {
 }
 
 type DiscoverComicResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *DiscoveryResource
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *DiscoveryResource
+	JSON202      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -6620,10 +6815,10 @@ func (r ComicVolumeDetailResponse) ContentType() string {
 }
 
 type CreateDiscoveryResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *DiscoveryResource
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *DiscoveryResource
+	JSON202      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -6867,6 +7062,37 @@ func (r EntityRelationsResponse) ContentType() string {
 	return ""
 }
 
+type ArtistTopTracksResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *TopTracksPage
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r ArtistTopTracksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ArtistTopTracksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ArtistTopTracksResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type EpisodeDetailResponse struct {
 	Body                          []byte
 	HTTPResponse                  *http.Response
@@ -6899,10 +7125,10 @@ func (r EpisodeDetailResponse) ContentType() string {
 }
 
 type MatchRecordingFingerprintResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *FingerprintMatchResource
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *FingerprintMatchResource
+	JSON202      *FingerprintMatchResource
 }
 
 // Status returns HTTPResponse.Status
@@ -7023,10 +7249,9 @@ func (r HealthReadyResponse) ContentType() string {
 }
 
 type ImageOriginalResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *string
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON202      *JobResource
 }
 
 // Status returns HTTPResponse.Status
@@ -7054,10 +7279,9 @@ func (r ImageOriginalResponse) ContentType() string {
 }
 
 type ImageVariantResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *string
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON202      *JobResource
 }
 
 // Status returns HTTPResponse.Status
@@ -7147,10 +7371,10 @@ func (r LatestLibraryResponse) ContentType() string {
 }
 
 type DiscoverMangaResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *DiscoveryResource
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *DiscoveryResource
+	JSON202      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -7178,10 +7402,10 @@ func (r DiscoverMangaResponse) ContentType() string {
 }
 
 type DiscoverMangaVolumeResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *DiscoveryResource
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *DiscoveryResource
+	JSON202      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -7457,10 +7681,10 @@ func (r ReleaseDetailResponse) ContentType() string {
 }
 
 type ResolveEntityResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *ResolutionBody
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ResolutionBody
+	JSON202      *ResolutionBody
 }
 
 // Status returns HTTPResponse.Status
@@ -7581,10 +7805,10 @@ func (r LibraryStatsResponse) ContentType() string {
 }
 
 type DiscoverTvShowResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *DiscoveryResource
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *DiscoveryResource
+	JSON202      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -7906,6 +8130,15 @@ func (c *ClientWithResponses) EntityRelationsWithResponse(ctx context.Context, i
 	return ParseEntityRelationsResponse(rsp)
 }
 
+// ArtistTopTracksWithResponse request returning *ArtistTopTracksResponse
+func (c *ClientWithResponses) ArtistTopTracksWithResponse(ctx context.Context, id openapi_types.UUID, params *ArtistTopTracksParams, reqEditors ...RequestEditorFn) (*ArtistTopTracksResponse, error) {
+	rsp, err := c.ArtistTopTracks(ctx, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseArtistTopTracksResponse(rsp)
+}
+
 // EpisodeDetailWithResponse request returning *EpisodeDetailResponse
 func (c *ClientWithResponses) EpisodeDetailWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*EpisodeDetailResponse, error) {
 	rsp, err := c.EpisodeDetail(ctx, id, reqEditors...)
@@ -8192,12 +8425,12 @@ func ParseDiscoverAnimeResponse(rsp *http.Response) (*DiscoverAnimeResponse, err
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest DiscoveryResource
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSON202 = &dest
 
 	}
 
@@ -8815,12 +9048,12 @@ func ParseDiscoverComicResponse(rsp *http.Response) (*DiscoverComicResponse, err
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest DiscoveryResource
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSON202 = &dest
 
 	}
 
@@ -8881,12 +9114,12 @@ func ParseCreateDiscoveryResponse(rsp *http.Response) (*CreateDiscoveryResponse,
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest DiscoveryResource
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSON202 = &dest
 
 	}
 
@@ -9124,6 +9357,39 @@ func ParseEntityRelationsResponse(rsp *http.Response) (*EntityRelationsResponse,
 	return response, nil
 }
 
+// ParseArtistTopTracksResponse parses an HTTP response from a ArtistTopTracksWithResponse call
+func ParseArtistTopTracksResponse(rsp *http.Response) (*ArtistTopTracksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ArtistTopTracksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TopTracksPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseEpisodeDetailResponse parses an HTTP response from a EpisodeDetailWithResponse call
 func ParseEpisodeDetailResponse(rsp *http.Response) (*EpisodeDetailResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -9178,12 +9444,12 @@ func ParseMatchRecordingFingerprintResponse(rsp *http.Response) (*MatchRecording
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest FingerprintMatchResource
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSON202 = &dest
 
 	}
 
@@ -9303,19 +9569,12 @@ func ParseImageOriginalResponse(rsp *http.Response) (*ImageOriginalResponse, err
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest string
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest JobResource
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSON202 = &dest
 
 	}
 
@@ -9336,19 +9595,12 @@ func ParseImageVariantResponse(rsp *http.Response) (*ImageVariantResponse, error
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest string
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest JobResource
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSON202 = &dest
 
 	}
 
@@ -9442,12 +9694,12 @@ func ParseDiscoverMangaResponse(rsp *http.Response) (*DiscoverMangaResponse, err
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest DiscoveryResource
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSON202 = &dest
 
 	}
 
@@ -9475,12 +9727,12 @@ func ParseDiscoverMangaVolumeResponse(rsp *http.Response) (*DiscoverMangaVolumeR
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest DiscoveryResource
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSON202 = &dest
 
 	}
 
@@ -9772,12 +10024,12 @@ func ParseResolveEntityResponse(rsp *http.Response) (*ResolveEntityResponse, err
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest ResolutionBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSON202 = &dest
 
 	}
 
@@ -9904,12 +10156,12 @@ func ParseDiscoverTvShowResponse(rsp *http.Response) (*DiscoverTvShowResponse, e
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest DiscoveryResource
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSON202 = &dest
 
 	}
 

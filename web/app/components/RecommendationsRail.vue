@@ -1,15 +1,26 @@
 <script setup lang="ts">
-// "More like this" from movie data.recommendations, as a MediaShelf. Resolved
-// titles (entity_id) link; the rest stay display-only (never a silent
-// resolution on click).
-const props = withDefaults(defineProps<{ recommendations?: any[] }>(), { recommendations: () => [] })
+// "More like this" from data.recommendations, as a MediaShelf. Resolved titles
+// (entity_id) link; the rest stay display-only (never a silent resolution on
+// click). Field names vary by domain (movie title/year vs TV
+// original_title/first_air_date), so both are normalised here. `kind` sets the
+// link route for resolved recommendations.
+const props = withDefaults(defineProps<{ recommendations?: any[]; kind?: string }>(), {
+  recommendations: () => [],
+  kind: 'movie',
+})
+
+function recYear(rec: any): string | number | undefined {
+  if (rec.year) return rec.year
+  const date = formatValue(rec.release_date ?? rec.first_air_date ?? rec.air_date)
+  return date ? date.slice(0, 4) : undefined
+}
 
 const items = computed(() =>
   (props.recommendations ?? []).map(rec => ({
-    title: formatValue(rec.title) || 'Untitled',
-    year: rec.year,
+    title: formatValue(rec.title ?? rec.name ?? rec.original_title) || 'Untitled',
+    year: recYear(rec),
     imageId: rec.image_id as string | undefined,
-    to: rec.entity_id ? entityPath({ id: rec.entity_id, kind: 'movie' }) : undefined,
+    to: rec.entity_id ? entityPath({ id: rec.entity_id, kind: rec.kind || props.kind }) : undefined,
   })),
 )
 const linkTag = resolveComponent('NuxtLink')

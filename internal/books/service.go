@@ -23,7 +23,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const MergeVersion = "publication-combiner/v2"
+const MergeVersion = "publication-combiner/v3"
 
 const (
 	KindBook        = "book_work"
@@ -32,6 +32,7 @@ const (
 )
 
 var nonSlug = regexp.MustCompile(`[^\p{L}\p{N}]+`)
+var seriesPosition = regexp.MustCompile(`(?i)^(.*?)\s*[\(\[]?\s*(?:#|book\s*|volume\s*|vol\.?\s*|bk\.?\s*|bd\.?\s*)([0-9]+(?:\.[0-9]+)?[a-z]?)\s*[\)\]]?$`)
 
 type Service struct{ runtime *platform.Runtime }
 
@@ -86,9 +87,10 @@ type olEdition struct {
 	Works []struct {
 		Key string `json:"key"`
 	} `json:"works"`
-	Covers         []int64 `json:"covers"`
-	NumberOfPages  int     `json:"number_of_pages"`
-	PhysicalFormat string  `json:"physical_format"`
+	Covers         []int64  `json:"covers"`
+	NumberOfPages  int      `json:"number_of_pages"`
+	PhysicalFormat string   `json:"physical_format"`
+	Series         []string `json:"series"`
 }
 type googleVolume struct {
 	ID         string `json:"id"`
@@ -273,6 +275,7 @@ func (s *Service) persist(ctx context.Context, key, kind string, work olWork, wp
 	doc.Data.Subtitle = work.Subtitle
 	doc.Data.Description = description(work.Description)
 	doc.Data.Subjects = clean(work.Subjects)
+	doc.Data.Series = publicationSeries(editions, "work", ep.ObservationID)
 	doc.Data.FirstPublishYear = doc.Display.Year
 	images, err := s.persistCovers(ctx, tx, workID, work.Covers, "", wp.ObservationID)
 	if err != nil {
@@ -335,7 +338,7 @@ func (s *Service) persist(ctx context.Context, key, kind string, work olWork, wp
 		if versionErr != nil {
 			return Document{}, versionErr
 		}
-		summary := EditionSummary{ID: eid, Title: first(ed.Title, work.Title), PublishedDate: ed.PublishDate, Publishers: ed.Publishers, Languages: languageKeys(ed.Languages), ISBN10: ed.ISBN10, ISBN13: ed.ISBN13, Format: ed.PhysicalFormat, PageCount: ed.NumberOfPages}
+		summary := EditionSummary{ID: eid, Title: first(ed.Title, work.Title), PublishedDate: ed.PublishDate, Publishers: ed.Publishers, Languages: languageKeys(ed.Languages), ISBN10: ed.ISBN10, ISBN13: ed.ISBN13, Format: ed.PhysicalFormat, PageCount: ed.NumberOfPages, Series: seriesMemberships(ed.Series, "edition", editionPayload.ObservationID)}
 		doc.Data.Editions = append(doc.Data.Editions, summary)
 		edoc := Document{SchemaVersion: 2, ProjectionVersion: editionVersion, ID: eid, Kind: editionKind, Slug: eslug, ExternalIDs: []ExternalID{{Provider: "openlibrary", Namespace: "edition", Value: ek}}, Freshness: fresh, Provenance: map[string][]SourceRef{"edition": {{Provider: "openlibrary", ObservationID: editionPayload.ObservationID}}}}
 		edoc.Data.Publication = PublicationClassification{Medium: Medium(kind), Scope: "work"}
@@ -351,6 +354,7 @@ func (s *Service) persist(ctx context.Context, key, kind string, work olWork, wp
 		edoc.Data.ISBN13 = clean(ed.ISBN13)
 		edoc.Data.Format = ed.PhysicalFormat
 		edoc.Data.PageCount = ed.NumberOfPages
+		edoc.Data.Series = summary.Series
 		editionImages, imageErr := s.persistCovers(ctx, tx, eid, ed.Covers, firstSlice(languageKeys(ed.Languages)), editionPayload.ObservationID)
 		if imageErr != nil {
 			return Document{}, imageErr
@@ -660,6 +664,40 @@ func nullable(v int64) any {
 func sortEditions(v []EditionSummary) []EditionSummary {
 	sort.SliceStable(v, func(i, j int) bool { return v[i].PublishedDate < v[j].PublishedDate })
 	return v
+}
+
+func publicationSeries(editions []olEdition, scope, observationID string) []SeriesMembership {
+	values := make([]string, 0)
+	for _, edition := range editions {
+		values = append(values, edition.Series...)
+	}
+	return seriesMemberships(values, scope, observationID)
+}
+
+func seriesMemberships(values []string, scope, observationID string) []SeriesMembership {
+	result := make([]SeriesMembership, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		name := strings.TrimSpace(value)
+		position := ""
+		if matches := seriesPosition.FindStringSubmatch(name); len(matches) == 3 && strings.TrimSpace(matches[1]) != "" {
+			name = strings.TrimSpace(strings.TrimRight(matches[1], ",;:-"))
+			position = strings.TrimSpace(matches[2])
+		}
+		key := strings.ToLower(name) + "\x00" + strings.ToLower(position)
+		if name == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, SeriesMembership{Name: name, Position: position, Provider: "openlibrary", Scope: scope, ObservationID: observationID})
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if strings.EqualFold(result[i].Name, result[j].Name) {
+			return result[i].Position < result[j].Position
+		}
+		return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
+	})
+	return result
 }
 func containsEdition(editions []olEdition, editionKey string) bool {
 	for _, edition := range editions {

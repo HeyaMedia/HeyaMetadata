@@ -169,6 +169,38 @@ export interface LyricDocument {
   synced_lyrics?: string
 }
 
+export interface TopTrack {
+  rank: number
+  title: string
+  provider?: string
+  provider_track_id?: string
+  /** canonical recording UUID; only link when present */
+  recording_entity_id?: string
+  external_ids?: ExternalId[]
+  playcount?: number
+  listeners?: number
+  url?: string
+}
+
+export interface TopTrackSource {
+  provider: string
+  item_count?: number
+  reported_total?: number
+  truncated?: boolean
+  source_observation_id?: string
+  observed_at?: string
+  projection_version?: number
+}
+
+export interface TopTracksResponse {
+  artist_id: string
+  results: TopTrack[]
+  sources?: TopTrackSource[]
+  total: number
+  offset: number
+  limit: number
+}
+
 export interface AuthUser {
   id: string
   username: string

@@ -10,7 +10,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 )
 
-const tvdbSeriesNormalizerVersion = "tvdb-series/v2"
+const tvdbSeriesNormalizerVersion = "tvdb-series/v3"
 
 type tvdbEnvelope struct {
 	Data tvdbSeries `json:"data"`
@@ -24,8 +24,32 @@ type tvdbSeries struct {
 	} `json:"status"`
 	Aliases         []struct{ Language, Name string } `json:"aliases"`
 	Genres, Studios []struct {
+		ID   int64  `json:"id"`
 		Name string `json:"name"`
 	}
+	Companies struct {
+		Studio, Production, Distributor, SpecialEffects []struct {
+			ID            int64 `json:"id"`
+			Name, Country string
+		}
+	} `json:"companies"`
+	ContentRatings []struct {
+		Name        string `json:"name"`
+		Country     string `json:"country"`
+		ContentType string `json:"contentType"`
+	} `json:"contentRatings"`
+	Translations struct {
+		Names []struct {
+			Aliases                  []string `json:"aliases"`
+			IsAlias, IsPrimary       bool
+			Language, Name, Overview string
+		} `json:"nameTranslations"`
+		Overviews []struct {
+			Aliases                  []string `json:"aliases"`
+			IsAlias, IsPrimary       bool
+			Language, Name, Overview string
+		} `json:"overviewTranslations"`
+	} `json:"translations"`
 	RemoteIDs []struct {
 		ID         string `json:"id"`
 		Type       int    `json:"type"`
@@ -41,11 +65,27 @@ type tvdbSeries struct {
 		ID     int64  `json:"id"`
 		Number int    `json:"number"`
 		Name   string `json:"name"`
+		Image  string `json:"image"`
+		Type   struct {
+			Name string `json:"name"`
+		} `json:"type"`
 	} `json:"seasons"`
 	Episodes []struct {
 		ID                                            int64 `json:"id"`
-		Name, Overview, Aired                         string
+		Name, Overview, Aired, Image                  string
 		SeasonNumber, Number, AbsoluteNumber, Runtime int
+		Translations                                  struct {
+			Names []struct {
+				Aliases                  []string `json:"aliases"`
+				IsAlias, IsPrimary       bool
+				Language, Name, Overview string
+			} `json:"nameTranslations"`
+			Overviews []struct {
+				Aliases                  []string `json:"aliases"`
+				IsAlias, IsPrimary       bool
+				Language, Name, Overview string
+			} `json:"overviewTranslations"`
+		} `json:"translations"`
 	} `json:"episodes"`
 	Characters []struct {
 		ID             int64  `json:"id"`
@@ -68,7 +108,7 @@ func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *i
 	if v.ID < 1 || strings.TrimSpace(v.Name) == "" {
 		return episodic.NormalizedRecord{}, fmt.Errorf("invalid TVDB series detail")
 	}
-	r := episodic.NormalizedRecord{SchemaVersion: 1, Kind: kind, Provider: "tvdb", Namespace: "series", ProviderID: strconv.FormatInt(v.ID, 10), PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, NormalizerVersion: tvdbSeriesNormalizerVersion, Titles: []episodic.Title{{Value: v.Name, Type: "main"}}, Status: normalizeType(v.Status.Name), Language: v.OriginalLanguage, Countries: []string{v.OriginalCountry}, StartDate: v.FirstAired, EndDate: v.LastAired, RuntimeMinutes: v.AverageRuntime, ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "series", Value: strconv.FormatInt(v.ID, 10)}}}
+	r := episodic.NormalizedRecord{SchemaVersion: 1, Kind: kind, Provider: "tvdb", Namespace: "series", ProviderID: strconv.FormatInt(v.ID, 10), PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, NormalizerVersion: tvdbSeriesNormalizerVersion, Titles: []episodic.Title{{Value: v.Name, Language: v.OriginalLanguage, Type: "main"}}, Status: normalizeType(v.Status.Name), Language: v.OriginalLanguage, Countries: []string{v.OriginalCountry}, StartDate: v.FirstAired, EndDate: v.LastAired, RuntimeMinutes: v.AverageRuntime, ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "series", Value: strconv.FormatInt(v.ID, 10)}}}
 	if v.Score > 0 && v.Score <= 10 {
 		r.Ratings = append(r.Ratings, episodic.Rating{System: "tvdb", Value: v.Score, ScaleMin: 0, ScaleMax: 10})
 	}
@@ -86,11 +126,54 @@ func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *i
 	for _, x := range v.Aliases {
 		r.Titles = append(r.Titles, episodic.Title{Value: x.Name, Language: x.Language, Type: "alias"})
 	}
+	for _, x := range v.Translations.Names {
+		if strings.TrimSpace(x.Name) != "" {
+			r.Titles = append(r.Titles, episodic.Title{Value: strings.TrimSpace(x.Name), Language: x.Language, Type: "translated"})
+		}
+		for _, alias := range x.Aliases {
+			if strings.TrimSpace(alias) != "" {
+				r.Titles = append(r.Titles, episodic.Title{Value: strings.TrimSpace(alias), Language: x.Language, Type: "alias"})
+			}
+		}
+	}
+	for _, x := range v.Translations.Overviews {
+		if strings.TrimSpace(x.Overview) != "" {
+			r.Overviews = append(r.Overviews, episodic.Text{Value: strings.TrimSpace(x.Overview), Language: x.Language, Type: "overview"})
+		}
+	}
+	if len(r.Overviews) > 0 {
+		r.Overview = r.Overviews[0].Value
+	}
 	for _, x := range v.Genres {
 		r.Genres = append(r.Genres, x.Name)
 	}
 	for _, x := range v.Studios {
 		r.Studios = append(r.Studios, x.Name)
+		r.Organizations = append(r.Organizations, episodic.Organization{Name: x.Name, Type: "studio", ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "company", Value: strconv.FormatInt(x.ID, 10)}}})
+	}
+	appendCompanies := func(values []struct {
+		ID            int64 `json:"id"`
+		Name, Country string
+	}, kind string) {
+		for _, company := range values {
+			if strings.TrimSpace(company.Name) == "" {
+				continue
+			}
+			organization := episodic.Organization{Name: company.Name, Country: company.Country, Type: kind}
+			if company.ID > 0 {
+				organization.ExternalIDs = []episodic.ExternalID{{Provider: "tvdb", Namespace: "company", Value: strconv.FormatInt(company.ID, 10)}}
+			}
+			r.Organizations = append(r.Organizations, organization)
+		}
+	}
+	appendCompanies(v.Companies.Studio, "studio")
+	appendCompanies(v.Companies.Production, "production_company")
+	appendCompanies(v.Companies.Distributor, "distributor")
+	appendCompanies(v.Companies.SpecialEffects, "special_effects")
+	for _, rating := range v.ContentRatings {
+		if strings.TrimSpace(rating.Name) != "" {
+			r.Certifications = append(r.Certifications, episodic.Certification{System: "tvdb", Country: rating.Country, Rating: rating.Name, Description: rating.ContentType})
+		}
 	}
 	for _, x := range v.RemoteIDs {
 		switch x.Type {
@@ -114,17 +197,19 @@ func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *i
 		}
 	}
 	for _, x := range v.Seasons {
-		if seasonFilter == nil && x.Number <= 0 {
-			continue
-		}
 		if seasonFilter == nil || x.Number == *seasonFilter {
-			r.Seasons = append(r.Seasons, episodic.Season{ProviderID: strconv.FormatInt(x.ID, 10), Number: x.Number, Name: x.Name})
+			providerID := strconv.FormatInt(x.ID, 10)
+			season := episodic.Season{ProviderID: providerID, Number: x.Number, Name: x.Name, Status: normalizeType(x.Type.Name), ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "season", Value: providerID}}}
+			if x.Name != "" {
+				season.Titles = []episodic.Title{{Value: x.Name, Language: v.OriginalLanguage, Type: "display"}}
+			}
+			if x.Image != "" {
+				season.Images = []episodic.Image{{Provider: "tvdb", ProviderID: "season:" + providerID + ":poster", URL: tvdbArtworkURL(x.Image), Class: "poster", Language: v.OriginalLanguage}}
+			}
+			r.Seasons = append(r.Seasons, season)
 		}
 	}
 	for _, x := range v.Episodes {
-		if seasonFilter == nil && x.SeasonNumber <= 0 {
-			continue
-		}
 		if seasonFilter != nil && x.SeasonNumber != *seasonFilter {
 			continue
 		}
@@ -132,9 +217,34 @@ func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *i
 		if number < 1 {
 			continue
 		}
-		r.Episodes = append(r.Episodes, episodic.Episode{ProviderID: strconv.FormatInt(x.ID, 10), Titles: []episodic.Title{{Value: x.Name, Type: "main"}}, Numbers: []episodic.EpisodeNumber{{Scheme: "tvdb", Season: x.SeasonNumber, Number: float64(number)}}, AirDate: x.Aired, RuntimeMinutes: x.Runtime, Summary: x.Overview})
+		providerID := strconv.FormatInt(x.ID, 10)
+		item := episodic.Episode{ProviderID: providerID, ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "episode", Value: providerID}}, Titles: []episodic.Title{{Value: x.Name, Language: v.OriginalLanguage, Type: "main"}}, Numbers: []episodic.EpisodeNumber{{Scheme: "aired", Season: x.SeasonNumber, Number: float64(number), Provider: "tvdb"}, {Scheme: "tvdb", Season: x.SeasonNumber, Number: float64(x.Number), Provider: "tvdb"}}, IsSpecial: x.SeasonNumber == 0, EpisodeType: "regular", AirDate: x.Aired, RuntimeMinutes: x.Runtime, Summary: strings.TrimSpace(x.Overview)}
+		if item.IsSpecial {
+			item.EpisodeType = "special"
+		}
+		if x.AbsoluteNumber > 0 {
+			item.Numbers = append(item.Numbers, episodic.EpisodeNumber{Scheme: "absolute", Number: float64(x.AbsoluteNumber), Provider: "tvdb"})
+		}
+		if item.Summary != "" {
+			item.Overviews = append(item.Overviews, episodic.Text{Value: item.Summary, Language: v.OriginalLanguage, Type: "overview"})
+		}
+		for _, translation := range x.Translations.Names {
+			if strings.TrimSpace(translation.Name) != "" {
+				item.Titles = append(item.Titles, episodic.Title{Value: strings.TrimSpace(translation.Name), Language: translation.Language, Type: "translated"})
+			}
+		}
+		for _, translation := range x.Translations.Overviews {
+			if strings.TrimSpace(translation.Overview) != "" {
+				item.Overviews = append(item.Overviews, episodic.Text{Value: strings.TrimSpace(translation.Overview), Language: translation.Language, Type: "overview"})
+			}
+		}
+		if x.Image != "" {
+			item.Images = []episodic.Image{{Provider: "tvdb", ProviderID: "episode:" + providerID + ":still", URL: tvdbArtworkURL(x.Image), Class: "still"}}
+		}
+		r.Episodes = append(r.Episodes, item)
 	}
 	r.EpisodeCount = len(r.Episodes)
+	r.SeasonCount = len(r.Seasons)
 	return r, nil
 }
 

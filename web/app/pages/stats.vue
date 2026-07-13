@@ -70,16 +70,29 @@ const generatedAt = computed(() => (stats.value?.generated_at ? new Date(stats.v
 
       <div class="stat-columns">
         <article class="panel">
-          <header><span class="section-label">Entity coverage</span><h2>By canonical kind</h2></header>
-          <div v-for="row in kindRows" :key="row.kind" class="bar-row">
+          <header>
+            <span class="section-label">Entity coverage</span>
+            <h2>By canonical kind</h2>
+            <small class="panel__hint">{{ kindRows.length }} domains · tap to browse</small>
+          </header>
+          <NuxtLink
+            v-for="row in kindRows"
+            :key="row.kind"
+            :to="`/browse?kind=${encodeURIComponent(row.kind)}`"
+            class="bar-row bar-row--link"
+          >
             <span class="bar-row__label">{{ row.label }}</span>
             <span class="bar-row__track"><b :style="{ width: `${Math.max(3, (row.count / maxKind) * 100)}%` }" /></span>
             <span class="bar-row__value">{{ formatCount(row.count) }}</span>
-          </div>
+          </NuxtLink>
         </article>
 
         <article class="panel">
-          <header><span class="section-label">Identity coverage</span><h2>Accepted provider claims</h2></header>
+          <header>
+            <span class="section-label">Identity coverage</span>
+            <h2>Accepted provider claims</h2>
+            <small class="panel__hint">{{ providerRows.length }} providers contributing evidence</small>
+          </header>
           <div v-for="row in providerRows" :key="row.provider" class="bar-row">
             <span class="bar-row__label">{{ formatKey(row.provider) }}</span>
             <span class="bar-row__track"><b :style="{ width: `${Math.max(3, (row.count / maxProvider) * 100)}%` }" /></span>
@@ -116,6 +129,7 @@ const generatedAt = computed(() => (stats.value?.generated_at ? new Date(stats.v
 .stat-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .stat-columns h2 { margin: 0.4rem 0 0; font-size: 1.1rem; font-weight: 500; }
 .stat-columns header { margin-bottom: 1.25rem; }
+.panel__hint { display: block; margin-top: 0.4rem; color: var(--muted-2); font-size: 0.64rem; }
 .bar-row {
   display: grid;
   grid-template-columns: 8rem 1fr 3rem;
@@ -126,6 +140,9 @@ const generatedAt = computed(() => (stats.value?.generated_at ? new Date(stats.v
   font-size: 0.68rem;
 }
 .bar-row:first-of-type { border-top: 0; }
+.bar-row--link { margin: 0 -0.6rem; padding-inline: 0.6rem; border-radius: var(--radius-sm); transition: background 0.15s ease; }
+.bar-row--link:hover { background: rgba(241, 201, 107, 0.06); }
+.bar-row--link:hover .bar-row__label { color: var(--gold); }
 .bar-row__label { color: var(--text-dim); text-transform: capitalize; }
 .bar-row__track { overflow: hidden; height: 0.35rem; border-radius: 1rem; background: #252d31; }
 .bar-row__track b { display: block; height: 100%; border-radius: inherit; background: var(--gold); }

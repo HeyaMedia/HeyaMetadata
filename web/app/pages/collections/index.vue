@@ -5,6 +5,10 @@ const { data, pending } = await useAsyncData(
   () => api.collections().then(r => r.collections ?? []),
   { default: () => [] },
 )
+
+const filmTotal = computed(() =>
+  (data.value ?? []).reduce((sum, collection) => sum + (collection.members?.length ?? 0), 0),
+)
 </script>
 
 <template>
@@ -13,13 +17,16 @@ const { data, pending } = await useAsyncData(
       <div>
         <span class="section-label">Provider-backed franchises</span>
         <h1>Collections</h1>
-        <p v-if="data?.length">{{ data.length }} movie collections encountered in canonical records.</p>
+        <p v-if="data?.length">
+          {{ data.length }} {{ data.length === 1 ? 'franchise' : 'franchises' }} spanning {{ filmTotal }} films, assembled
+          from the movies already in the canonical library.
+        </p>
       </div>
     </header>
 
-    <LoadingSkeleton v-if="pending" layout="grid" shape="landscape" :count="8" />
+    <LoadingSkeleton v-if="pending" layout="grid" shape="landscape" :count="6" />
 
-    <div v-else-if="data?.length" class="media-grid is-landscape">
+    <div v-else-if="data?.length" class="collection-grid">
       <CollectionCard v-for="item in data" :key="item.provider_id" :collection="item" />
     </div>
 
@@ -30,3 +37,11 @@ const { data, pending } = await useAsyncData(
     />
   </div>
 </template>
+
+<style scoped>
+.collection-grid {
+  display: grid;
+  gap: 1.1rem;
+  grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+}
+</style>

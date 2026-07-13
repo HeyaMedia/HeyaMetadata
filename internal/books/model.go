@@ -30,16 +30,26 @@ type PublicationClassification struct {
 	Medium string `json:"medium" enum:"book,manga,comic"`
 	Scope  string `json:"scope" enum:"work"`
 }
+type SeriesMembership struct {
+	EntityID      string `json:"entity_id,omitempty"`
+	ProviderID    string `json:"provider_id,omitempty"`
+	Name          string `json:"name"`
+	Position      string `json:"position,omitempty"`
+	Provider      string `json:"provider"`
+	Scope         string `json:"scope" enum:"work,edition"`
+	ObservationID string `json:"observation_id,omitempty"`
+}
 type EditionSummary struct {
-	ID            string   `json:"id"`
-	Title         string   `json:"title"`
-	PublishedDate string   `json:"published_date,omitempty"`
-	Publishers    []string `json:"publishers,omitempty"`
-	Languages     []string `json:"languages,omitempty"`
-	ISBN10        []string `json:"isbn_10,omitempty"`
-	ISBN13        []string `json:"isbn_13,omitempty"`
-	Format        string   `json:"format,omitempty"`
-	PageCount     int      `json:"page_count,omitempty"`
+	ID            string             `json:"id"`
+	Title         string             `json:"title"`
+	PublishedDate string             `json:"published_date,omitempty"`
+	Publishers    []string           `json:"publishers,omitempty"`
+	Languages     []string           `json:"languages,omitempty"`
+	ISBN10        []string           `json:"isbn_10,omitempty"`
+	ISBN13        []string           `json:"isbn_13,omitempty"`
+	Format        string             `json:"format,omitempty"`
+	PageCount     int                `json:"page_count,omitempty"`
+	Series        []SeriesMembership `json:"series,omitempty"`
 }
 type Freshness struct {
 	State      string    `json:"state"`
@@ -74,6 +84,7 @@ type Document struct {
 		PageCount        int                       `json:"page_count,omitempty"`
 		Ratings          []Rating                  `json:"ratings,omitempty"`
 		Editions         []EditionSummary          `json:"editions,omitempty"`
+		Series           []SeriesMembership        `json:"series,omitempty"`
 		Images           []Image                   `json:"images,omitempty"`
 		WorkID           string                    `json:"work_id,omitempty"`
 	} `json:"data"`

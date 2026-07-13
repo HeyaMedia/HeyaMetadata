@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/jackc/pgx/v5"
@@ -31,8 +33,15 @@ type EpisodeResource struct {
 }
 
 func episodeIdentityKey(episode Episode) string {
-	if len(episode.Numbers) > 0 {
-		number := episode.Numbers[0]
+	if len(episode.ExternalIDs) > 0 {
+		ids := append([]ExternalID(nil), episode.ExternalIDs...)
+		sort.Slice(ids, func(i, j int) bool {
+			return ids[i].Provider+":"+ids[i].Namespace+":"+strings.ToLower(ids[i].Value) < ids[j].Provider+":"+ids[j].Namespace+":"+strings.ToLower(ids[j].Value)
+		})
+		id := ids[0]
+		return "external:" + strings.ToLower(id.Provider) + ":" + strings.ToLower(id.Namespace) + ":" + strings.ToLower(strings.TrimSpace(id.Value))
+	}
+	if number, ok := preferredEpisodeNumber(episode.Numbers); ok {
 		scheme := strings.ToLower(strings.TrimSpace(number.Scheme))
 		if scheme == "" {
 			scheme = "provider"
@@ -46,37 +55,141 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 	seasonIDs := make(map[int]string, len(record.Seasons))
 	for i := range record.Seasons {
 		season := &record.Seasons[i]
+		if len(season.Titles) == 0 && season.Name != "" {
+			season.Titles = []Title{{Value: season.Name, Type: "display"}}
+		}
+		if season.Name == "" && len(season.Titles) > 0 {
+			season.Name = season.Titles[0].Value
+		}
 		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO episodic_seasons(show_entity_id,show_kind,season_number,document)VALUES($1,$2,$3,'{}')ON CONFLICT(show_entity_id,season_number)DO UPDATE SET show_kind=EXCLUDED.show_kind,updated_at=now() RETURNING id`, showID, kind, season.Number).Scan(&id); err != nil {
+		for _, external := range season.ExternalIDs {
+			err := tx.QueryRow(ctx, `SELECT season_id::text FROM episodic_season_external_ids WHERE show_entity_id=$1 AND provider=$2 AND namespace=$3 AND normalized_value=$4`, showID, strings.ToLower(external.Provider), strings.ToLower(external.Namespace), strings.ToLower(strings.TrimSpace(external.Value))).Scan(&id)
+			if err != nil && err != pgx.ErrNoRows {
+				return err
+			}
+			if id != "" {
+				break
+			}
+		}
+		if id == "" {
+			err := tx.QueryRow(ctx, `SELECT id::text FROM episodic_seasons WHERE show_entity_id=$1 AND season_number=$2`, showID, season.Number).Scan(&id)
+			if err != nil && err != pgx.ErrNoRows {
+				return err
+			}
+		}
+		if id == "" {
+			if err := tx.QueryRow(ctx, `INSERT INTO episodic_seasons(show_entity_id,show_kind,season_number,document)VALUES($1,$2,$3,'{}')RETURNING id`, showID, kind, season.Number).Scan(&id); err != nil {
+				return err
+			}
+		} else if _, err := tx.Exec(ctx, `UPDATE episodic_seasons SET show_kind=$2,season_number=$3,updated_at=now() WHERE id=$1`, id, kind, season.Number); err != nil {
 			return err
 		}
 		season.ID = id
 		seasonIDs[season.Number] = id
-		body, _ := json.Marshal(season)
-		if _, err := tx.Exec(ctx, `UPDATE episodic_seasons SET document=$2,updated_at=now() WHERE id=$1`, id, body); err != nil {
-			return err
+		for _, external := range season.ExternalIDs {
+			if external.Value == "" {
+				continue
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO episodic_season_external_ids(season_id,show_entity_id,provider,namespace,normalized_value)VALUES($1,$2,$3,$4,$5)ON CONFLICT(show_entity_id,provider,namespace,normalized_value)DO UPDATE SET season_id=EXCLUDED.season_id`, id, showID, strings.ToLower(external.Provider), strings.ToLower(external.Namespace), strings.ToLower(strings.TrimSpace(external.Value))); err != nil {
+				return err
+			}
 		}
 	}
 	for i := range record.Episodes {
 		episode := &record.Episodes[i]
+		normalizeEpisode(episode)
 		var seasonID any
-		if len(episode.Numbers) > 0 {
-			if id := seasonIDs[episode.Numbers[0].Season]; id != "" {
-				seasonID = id
-			}
+		if id := seasonIDs[episodeSeasonNumber(*episode)]; id != "" {
+			seasonID = id
 		}
 		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO episodic_episodes(show_entity_id,show_kind,season_id,identity_key,document)VALUES($1,$2,$3,$4,'{}')ON CONFLICT(show_entity_id,identity_key)DO UPDATE SET show_kind=EXCLUDED.show_kind,season_id=EXCLUDED.season_id,updated_at=now() RETURNING id`, showID, kind, seasonID, episodeIdentityKey(*episode)).Scan(&id); err != nil {
+		for _, external := range episode.ExternalIDs {
+			err := tx.QueryRow(ctx, `SELECT episode_id::text FROM episodic_episode_external_ids WHERE show_entity_id=$1 AND provider=$2 AND namespace=$3 AND normalized_value=$4`, showID, strings.ToLower(external.Provider), strings.ToLower(external.Namespace), strings.ToLower(strings.TrimSpace(external.Value))).Scan(&id)
+			if err != nil && err != pgx.ErrNoRows {
+				return err
+			}
+			if id != "" {
+				break
+			}
+		}
+		identityKey := episodeIdentityKey(*episode)
+		if id == "" {
+			err := tx.QueryRow(ctx, `SELECT id::text FROM episodic_episodes WHERE show_entity_id=$1 AND identity_key=$2`, showID, identityKey).Scan(&id)
+			if err != nil && err != pgx.ErrNoRows {
+				return err
+			}
+		}
+		if id == "" {
+			if err := tx.QueryRow(ctx, `INSERT INTO episodic_episodes(show_entity_id,show_kind,season_id,identity_key,document)VALUES($1,$2,$3,$4,'{}')RETURNING id`, showID, kind, seasonID, identityKey).Scan(&id); err != nil {
+				return err
+			}
+		} else if _, err := tx.Exec(ctx, `UPDATE episodic_episodes SET show_kind=$2,season_id=$3,updated_at=now() WHERE id=$1`, id, kind, seasonID); err != nil {
 			return err
 		}
 		episode.ID = id
 		if value, ok := seasonID.(string); ok {
 			episode.SeasonID = value
 		}
+		for _, external := range episode.ExternalIDs {
+			if external.Value == "" {
+				continue
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO episodic_episode_external_ids(episode_id,show_entity_id,provider,namespace,normalized_value)VALUES($1,$2,$3,$4,$5)ON CONFLICT(show_entity_id,provider,namespace,normalized_value)DO UPDATE SET episode_id=EXCLUDED.episode_id`, id, showID, strings.ToLower(external.Provider), strings.ToLower(external.Namespace), strings.ToLower(strings.TrimSpace(external.Value))); err != nil {
+				return err
+			}
+		}
+	}
+	sortEpisodes(record.Episodes)
+	seasonByID := map[string]*Season{}
+	reportedEpisodeCounts := map[string]int{}
+	for i := range record.Seasons {
+		reportedEpisodeCounts[record.Seasons[i].ID] = max(record.Seasons[i].EpisodeCount, record.Seasons[i].EpisodeOrder)
+		record.Seasons[i].EpisodeIDs = []string{}
+		record.Seasons[i].EpisodeCount = 0
+		record.Seasons[i].AiredEpisodeCount = 0
+		seasonByID[record.Seasons[i].ID] = &record.Seasons[i]
+	}
+	for i := range record.Episodes {
+		episode := &record.Episodes[i]
+		if season := seasonByID[episode.SeasonID]; season != nil {
+			season.EpisodeIDs = append(season.EpisodeIDs, episode.ID)
+			season.EpisodeCount++
+			if episode.AirDate != "" && episode.AirDate <= time.Now().UTC().Format("2006-01-02") {
+				season.AiredEpisodeCount++
+			}
+		}
 		body, _ := json.Marshal(episode)
-		if _, err := tx.Exec(ctx, `UPDATE episodic_episodes SET document=$2,updated_at=now() WHERE id=$1`, id, body); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE episodic_episodes SET document=$2,updated_at=now() WHERE id=$1`, episode.ID, body); err != nil {
 			return err
 		}
+	}
+	for i := range record.Seasons {
+		season := &record.Seasons[i]
+		season.EpisodeCount = max(season.EpisodeCount, reportedEpisodeCounts[season.ID])
+		body, _ := json.Marshal(season)
+		if _, err := tx.Exec(ctx, `UPDATE episodic_seasons SET document=$2,updated_at=now() WHERE id=$1`, season.ID, body); err != nil {
+			return err
+		}
+	}
+	seasonResourceIDs := make([]string, 0, len(record.Seasons))
+	for _, season := range record.Seasons {
+		seasonResourceIDs = append(seasonResourceIDs, season.ID)
+	}
+	episodeResourceIDs := make([]string, 0, len(record.Episodes))
+	for _, episode := range record.Episodes {
+		episodeResourceIDs = append(episodeResourceIDs, episode.ID)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM image_candidates WHERE entity_id=$1 AND ownership_scope='episode' AND owner_resource_id IS NOT NULL AND NOT(owner_resource_id=ANY($2::uuid[]))`, showID, episodeResourceIDs); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM image_candidates WHERE entity_id=$1 AND ownership_scope='season' AND owner_resource_id IS NOT NULL AND NOT(owner_resource_id=ANY($2::uuid[]))`, showID, seasonResourceIDs); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM episodic_episodes WHERE show_entity_id=$1 AND NOT(id=ANY($2::uuid[]))`, showID, episodeResourceIDs); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM episodic_seasons WHERE show_entity_id=$1 AND NOT(id=ANY($2::uuid[]))`, showID, seasonResourceIDs); err != nil {
+		return err
 	}
 	return nil
 }
@@ -134,7 +247,7 @@ func hydrateResources(ctx context.Context, runtime *platform.Runtime, showID str
 	if err := seasonRows.Err(); err != nil {
 		return err
 	}
-	episodeRows, err := runtime.DB.Query(ctx, `SELECT id,season_id,document FROM episodic_episodes WHERE show_entity_id=$1 ORDER BY identity_key`, showID)
+	episodeRows, err := runtime.DB.Query(ctx, `SELECT id,season_id,document FROM episodic_episodes WHERE show_entity_id=$1`, showID)
 	if err != nil {
 		return err
 	}
@@ -164,6 +277,7 @@ func hydrateResources(ctx context.Context, runtime *platform.Runtime, showID str
 		doc.Data.Seasons = seasons
 	}
 	if episodes != nil {
+		sortEpisodes(episodes)
 		doc.Data.Episodes = episodes
 	}
 	return nil
@@ -179,7 +293,7 @@ func SeasonDetail(ctx context.Context, runtime *platform.Runtime, id string) (Se
 		return result, err
 	}
 	result.Data.ID = result.ID
-	rows, err := runtime.DB.Query(ctx, `SELECT id,season_id,document FROM episodic_episodes WHERE season_id=$1 ORDER BY identity_key`, id)
+	rows, err := runtime.DB.Query(ctx, `SELECT id,season_id,document FROM episodic_episodes WHERE season_id=$1`, id)
 	if err != nil {
 		return result, err
 	}
@@ -201,7 +315,94 @@ func SeasonDetail(ctx context.Context, runtime *platform.Runtime, id string) (Se
 		}
 		result.Episodes = append(result.Episodes, episode)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return result, err
+	}
+	if result.Episodes == nil {
+		result.Episodes = []Episode{}
+	}
+	sortEpisodes(result.Episodes)
+	return result, nil
+}
+
+func preferredEpisodeNumber(numbers []EpisodeNumber) (EpisodeNumber, bool) {
+	priority := map[string]int{"aired": 0, "dvd": 1, "tmdb": 2, "tvdb": 3, "tvmaze": 4, "anidb": 5, "absolute": 6, "special": 7, "credit": 8, "trailer": 9, "parody": 10}
+	if len(numbers) == 0 {
+		return EpisodeNumber{}, false
+	}
+	values := append([]EpisodeNumber(nil), numbers...)
+	sort.SliceStable(values, func(i, j int) bool {
+		left, right := priority[strings.ToLower(values[i].Scheme)], priority[strings.ToLower(values[j].Scheme)]
+		if left == 0 && strings.ToLower(values[i].Scheme) != "aired" {
+			left = 100
+		}
+		if right == 0 && strings.ToLower(values[j].Scheme) != "aired" {
+			right = 100
+		}
+		if left != right {
+			return left < right
+		}
+		leftProvider, rightProvider := episodeNumberProviderPriority(values[i].Provider), episodeNumberProviderPriority(values[j].Provider)
+		if leftProvider != rightProvider {
+			return leftProvider < rightProvider
+		}
+		if values[i].Season != values[j].Season {
+			return values[i].Season < values[j].Season
+		}
+		return values[i].Number < values[j].Number
+	})
+	return values[0], true
+}
+
+func episodeNumberProviderPriority(provider string) int {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "tvmaze":
+		return 0
+	case "anidb":
+		return 1
+	case "tmdb":
+		return 2
+	case "tvdb":
+		return 3
+	default:
+		return 100
+	}
+}
+
+func episodeSeasonNumber(episode Episode) int {
+	if number, ok := preferredEpisodeNumber(episode.Numbers); ok {
+		if number.Scheme == "absolute" && number.Season == 0 && !episode.IsSpecial {
+			return 1
+		}
+		return number.Season
+	}
+	if episode.IsSpecial {
+		return 0
+	}
+	return 1
+}
+
+func sortEpisodes(episodes []Episode) {
+	sort.SliceStable(episodes, func(i, j int) bool {
+		left, leftOK := preferredEpisodeNumber(episodes[i].Numbers)
+		right, rightOK := preferredEpisodeNumber(episodes[j].Numbers)
+		if leftOK != rightOK {
+			return leftOK
+		}
+		if left.Season != right.Season {
+			return left.Season < right.Season
+		}
+		if episodes[i].IsSpecial != episodes[j].IsSpecial {
+			return !episodes[i].IsSpecial
+		}
+		if left.Number != right.Number {
+			return left.Number < right.Number
+		}
+		if episodes[i].AirDate != episodes[j].AirDate {
+			return episodes[i].AirDate < episodes[j].AirDate
+		}
+		return episodes[i].ID < episodes[j].ID
+	})
 }
 
 func EpisodeDetail(ctx context.Context, runtime *platform.Runtime, id string) (EpisodeResource, error) {

@@ -83,3 +83,19 @@ func TestEditionWorkMembershipUsesCanonicalOpenLibraryKeys(t *testing.T) {
 		t.Fatal("edition matched an unrelated work")
 	}
 }
+
+func TestSeriesMembershipsPreserveDecimalPositionsAndUnnumberedNames(t *testing.T) {
+	values := seriesMemberships([]string{"The Expanse (Book 1)", "The Expanse, Vol. 1.5", "The 100", "The Expanse #1", "The Expanse -- bk. 1"}, "edition", "obs")
+	if len(values) != 3 {
+		t.Fatalf("memberships: %+v", values)
+	}
+	if values[0].Name != "The 100" || values[0].Position != "" {
+		t.Fatalf("unnumbered series: %+v", values[0])
+	}
+	if values[1].Name != "The Expanse" || values[1].Position != "1" || values[1].ObservationID != "obs" {
+		t.Fatalf("numbered series: %+v", values[1])
+	}
+	if values[2].Position != "1.5" {
+		t.Fatalf("decimal position: %+v", values[2])
+	}
+}

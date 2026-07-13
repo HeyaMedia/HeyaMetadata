@@ -100,6 +100,13 @@
       "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"}, "expected_providers": ["lastfm"]}]
     },
     {
+      "id": "music.artist.top_tracks", "kind": "artist", "category": "relationship",
+      "description": "Last.fm's ranked top-track snapshot retains play and listener evidence, reports upstream truncation, links existing MusicBrainz recordings at read time, and never creates recordings merely to fill a ranking.",
+      "providers": ["lastfm", "musicbrainz", "system"],
+      "projection": {"document": "top_tracks", "path": "results"},
+      "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"}, "expected_providers": ["lastfm"]}]
+    },
+    {
       "id": "music.release_group.boundary", "kind": "release_group", "category": "capability",
       "description": "The abstract album/single/EP concept remains distinct from issued releases and provider catalog albums.",
       "providers": ["system", "musicbrainz"],

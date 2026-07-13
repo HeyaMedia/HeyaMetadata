@@ -14,6 +14,7 @@ import type {
   PersonDocument,
   RelationsResponse,
   SeasonResource,
+  TopTracksResponse,
 } from '../utils/types'
 
 // Same-origin `/api/v2` client. All reads flow through here so provider
@@ -25,9 +26,15 @@ interface RequestOptions extends RequestInit {
   json?: boolean
 }
 
+// Reads RFC 9457 application/problem+json bodies (stable type/status/title/detail
+// plus optional field errors) and falls back to the status line for anything else.
 function messageFrom(body: any, response: Response): string {
   if (body && typeof body === 'object') {
-    return body.detail || body.title || body.error || `${response.status} ${response.statusText}`
+    const base = body.detail || body.title || body.error || `${response.status} ${response.statusText}`
+    const fields = Array.isArray(body.errors)
+      ? body.errors.map((entry: any) => entry?.message || entry?.detail).filter(Boolean)
+      : []
+    return fields.length ? `${base} (${fields.join('; ')})` : base
   }
   return `${response.status} ${response.statusText}`
 }
@@ -106,6 +113,13 @@ export function useHeyaApi() {
 
   function entityCredits(id: string): Promise<{ results: Credit[] }> {
     return request(`${BASE}/entities/${id}/credits`)
+  }
+
+  function topTracks(artistId: string, options: { offset?: number; limit?: number } = {}): Promise<TopTracksResponse> {
+    const params = new URLSearchParams()
+    params.set('offset', String(options.offset ?? 0))
+    params.set('limit', String(Math.min(options.limit ?? 50, 100)))
+    return request(`${BASE}/entities/${encodeURIComponent(artistId)}/top-tracks?${params}`)
   }
 
   function entityRelations(id: string, options: { type?: string; limit?: number; offset?: number } = {}): Promise<RelationsResponse> {
@@ -224,6 +238,7 @@ export function useHeyaApi() {
     entity,
     entityImages,
     entityCredits,
+    topTracks,
     entityRelations,
     allEntityRelations,
     recordingFingerprints,

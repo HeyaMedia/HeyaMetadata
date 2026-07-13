@@ -89,8 +89,9 @@ type fingerprintMatchResource struct {
 	ExpiresAt time.Time                     `json:"expires_at"`
 }
 type fingerprintMatchOutput struct {
-	Status int
-	Body   fingerprintMatchResource
+	Status     int
+	RetryAfter string `header:"Retry-After"`
+	Body       fingerprintMatchResource
 }
 
 func registerReleases(api huma.API, runtime *platform.Runtime) {
@@ -193,7 +194,7 @@ func registerReleases(api huma.API, runtime *platform.Runtime) {
 		}
 		return out, rows.Err()
 	})
-	huma.Register(api, huma.Operation{OperationID: "match-recording-fingerprint", Method: http.MethodPost, Path: "/api/v2/fingerprint-matches", Summary: "Match a client Chromaprint against canonical recordings", Description: "Runs local preview matching and optional AcoustID lookup as one durable, short-lived job. Submitted fingerprints expire after one hour and are erased immediately after completion.", Tags: []string{"Music"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *fingerprintMatchCreateInput) (*fingerprintMatchOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "match-recording-fingerprint", Method: http.MethodPost, Path: "/api/v2/fingerprint-matches", Summary: "Match a client Chromaprint against canonical recordings", Description: "Runs local preview matching and optional AcoustID lookup as one durable, short-lived job. Submitted fingerprints expire after one hour and are erased immediately after completion.", Tags: []string{"Music"}, DefaultStatus: http.StatusOK, Responses: map[string]*huma.Response{"202": acceptedJSONResponse("#/components/schemas/FingerprintMatchResource")}}, func(ctx context.Context, input *fingerprintMatchCreateInput) (*fingerprintMatchOutput, error) {
 		if runtime == nil || jobClient == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
@@ -279,7 +280,7 @@ func registerReleases(api huma.API, runtime *platform.Runtime) {
 			}
 		}
 	accepted:
-		return &fingerprintMatchOutput{Status: http.StatusAccepted, Body: fingerprintMatchRunResource(run)}, nil
+		return &fingerprintMatchOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: fingerprintMatchRunResource(run)}, nil
 	})
 	huma.Register(api, huma.Operation{OperationID: "get-fingerprint-match", Method: http.MethodGet, Path: "/api/v2/fingerprint-matches/{id}", Summary: "Get fingerprint match status", Tags: []string{"Music"}}, func(ctx context.Context, input *fingerprintMatchGetInput) (*fingerprintMatchOutput, error) {
 		if runtime == nil {

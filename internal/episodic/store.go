@@ -48,12 +48,6 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 		return Result{}, fmt.Errorf("episodic persistence requires at least one normalized record")
 	}
 	record := Merge(records)
-	body, err := json.Marshal(record)
-	if err != nil {
-		return Result{}, err
-	}
-	sum := sha256.Sum256(body)
-	fingerprint := hex.EncodeToString(sum[:])
 	tx, err := runtime.DB.Begin(ctx)
 	if err != nil {
 		return Result{}, err
@@ -123,6 +117,22 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 			return Result{}, err
 		}
 	}
+	currentProviders := make(map[string]bool, len(records))
+	for _, source := range records {
+		currentProviders[source.Provider] = true
+	}
+	fallbacks, err := storedProviderFallbacks(ctx, tx, entityID, def.Kind, currentProviders)
+	if err != nil {
+		return Result{}, err
+	}
+	records = append(records, fallbacks...)
+	record = Merge(records)
+	body, err := json.Marshal(record)
+	if err != nil {
+		return Result{}, err
+	}
+	sum := sha256.Sum256(body)
+	fingerprint := hex.EncodeToString(sum[:])
 	var version int64
 	if err := tx.QueryRow(ctx, `UPDATE entities SET canonical_version=canonical_version+1,updated_at=now() WHERE id=$1 RETURNING canonical_version`, entityID).Scan(&version); err != nil {
 		return Result{}, err
@@ -134,33 +144,119 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 	}
 	fresh := Freshness{State: "fresh", UpdatedAt: now, FreshUntil: now.Add(freshFor), Providers: map[string]ProviderFreshness{}}
 	for _, source := range records {
-		fresh.Providers[source.Provider] = ProviderFreshness{State: "fresh", LastSuccessAt: source.ObservedAt, LastObservationID: source.PrimaryObservationID}
+		state := "stale"
+		if currentProviders[source.Provider] {
+			state = "fresh"
+		}
+		fresh.Providers[source.Provider] = ProviderFreshness{State: state, LastSuccessAt: source.ObservedAt, LastObservationID: source.PrimaryObservationID}
 	}
 	display := Display{Title: preferredTitle(record.Titles), OriginalTitle: originalTitle(record.Titles), Year: year(record.StartDate)}
+	// Allocate stable child UUIDs before artwork materialization so season and
+	// episode images can carry an opaque owner ID in the same transaction.
+	if err := persistResources(ctx, tx, entityID, def.Kind, &record); err != nil {
+		return Result{}, err
+	}
+	observationFor := func(provider string) string {
+		for _, source := range records {
+			if source.Provider == provider {
+				return source.PrimaryObservationID
+			}
+		}
+		return record.PrimaryObservationID
+	}
+	materializeImage := func(image Image, ownershipScope, ownerResourceID string) (Image, error) {
+		if image.URL == "" {
+			return image, nil
+		}
+		provider := image.Provider
+		if provider == "" {
+			provider = def.Provider
+		}
+		var imageID string
+		err := tx.QueryRow(ctx, `INSERT INTO image_candidates(entity_id,provider,provider_image_id,class,source_url,language,country,width,height,provider_score,source_observation_id,ownership_scope,owner_resource_id) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,0),NULLIF($9,0),NULLIF($10,0),$11,$12,NULLIF($13,'')::uuid) ON CONFLICT(entity_id,provider,provider_image_id,class) DO UPDATE SET source_url=EXCLUDED.source_url,language=EXCLUDED.language,country=EXCLUDED.country,width=EXCLUDED.width,height=EXCLUDED.height,provider_score=EXCLUDED.provider_score,source_observation_id=EXCLUDED.source_observation_id,ownership_scope=EXCLUDED.ownership_scope,owner_resource_id=EXCLUDED.owner_resource_id RETURNING id`, entityID, provider, image.ProviderID, image.Class, image.URL, image.Language, image.Country, image.Width, image.Height, image.ProviderScore, observationFor(provider), ownershipScope, ownerResourceID).Scan(&imageID)
+		if err != nil {
+			return Image{}, err
+		}
+		return Image{ID: imageID, Provider: provider, ProviderID: image.ProviderID, Class: image.Class, Language: image.Language, Country: image.Country, Width: image.Width, Height: image.Height, ProviderScore: image.ProviderScore}, nil
+	}
 	publicImages := make([]Image, 0, len(record.Images))
 	for _, image := range record.Images {
 		if image.URL == "" {
 			continue
 		}
-		var imageID string
-		provider := image.Provider
-		if provider == "" {
-			provider = def.Provider
-		}
-		observationID := record.PrimaryObservationID
-		for _, source := range records {
-			if source.Provider == provider {
-				observationID = source.PrimaryObservationID
-				break
-			}
-		}
-		err := tx.QueryRow(ctx, `INSERT INTO image_candidates(entity_id,provider,provider_image_id,class,source_url,language,country,width,height,provider_score,source_observation_id) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,0),NULLIF($9,0),NULLIF($10,0),$11) ON CONFLICT(entity_id,provider,provider_image_id,class) DO UPDATE SET source_url=EXCLUDED.source_url,language=EXCLUDED.language,country=EXCLUDED.country,width=EXCLUDED.width,height=EXCLUDED.height,provider_score=EXCLUDED.provider_score,source_observation_id=EXCLUDED.source_observation_id RETURNING id`, entityID, provider, image.ProviderID, image.Class, image.URL, image.Language, image.Country, image.Width, image.Height, image.ProviderScore, observationID).Scan(&imageID)
+		publicImage, err := materializeImage(image, "entity", "")
 		if err != nil {
 			return Result{}, err
 		}
-		publicImages = append(publicImages, Image{ID: imageID, Provider: provider, ProviderID: image.ProviderID, Class: image.Class, Language: image.Language, Country: image.Country, Width: image.Width, Height: image.Height, ProviderScore: image.ProviderScore})
+		publicImages = append(publicImages, publicImage)
 		if display.ImageID == "" && image.Class == "poster" {
-			display.ImageID = imageID
+			display.ImageID = publicImage.ID
+		}
+	}
+	for i := range record.Seasons {
+		public := make([]Image, 0, len(record.Seasons[i].Images))
+		for _, image := range record.Seasons[i].Images {
+			materialized, err := materializeImage(image, "season", record.Seasons[i].ID)
+			if err != nil {
+				return Result{}, err
+			}
+			if materialized.ID != "" {
+				public = append(public, materialized)
+			}
+		}
+		record.Seasons[i].Images = public
+	}
+	for i := range record.Episodes {
+		public := make([]Image, 0, len(record.Episodes[i].Images))
+		for _, image := range record.Episodes[i].Images {
+			materialized, err := materializeImage(image, "episode", record.Episodes[i].ID)
+			if err != nil {
+				return Result{}, err
+			}
+			if materialized.ID != "" {
+				public = append(public, materialized)
+			}
+		}
+		record.Episodes[i].Images = public
+	}
+	for i := range record.Networks {
+		item := &record.Networks[i]
+		if item.LogoURL == "" {
+			continue
+		}
+		image, err := materializeImage(Image{Provider: item.LogoProvider, ProviderID: item.LogoProviderID, URL: item.LogoURL, Class: "logo"}, "company", "")
+		if err != nil {
+			return Result{}, err
+		}
+		item.LogoImageID = image.ID
+		item.LogoURL, item.LogoProvider, item.LogoProviderID = "", "", ""
+	}
+	for i := range record.Organizations {
+		item := &record.Organizations[i]
+		if item.LogoURL == "" {
+			continue
+		}
+		image, err := materializeImage(Image{Provider: item.LogoProvider, ProviderID: item.LogoProviderID, URL: item.LogoURL, Class: "logo"}, "company", "")
+		if err != nil {
+			return Result{}, err
+		}
+		item.LogoImageID = image.ID
+		item.LogoURL, item.LogoProvider, item.LogoProviderID = "", "", ""
+	}
+	for i := range record.Recommendations {
+		recommendation := &record.Recommendations[i]
+		for _, external := range recommendation.ExternalIDs {
+			_ = tx.QueryRow(ctx, `SELECT entity_id::text FROM external_id_claims WHERE entity_kind=$1 AND provider=$2 AND namespace=$3 AND normalized_value=$4 AND state='accepted' LIMIT 1`, def.Kind, external.Provider, external.Namespace, strings.ToLower(external.Value)).Scan(&recommendation.EntityID)
+			if recommendation.EntityID != "" {
+				break
+			}
+		}
+		if recommendation.ImageURL != "" {
+			image, err := materializeImage(Image{Provider: recommendation.Provider, ProviderID: "recommendation:" + recommendation.ProviderID, URL: recommendation.ImageURL, Class: "poster", ProviderScore: recommendation.ProviderScore}, "recommendation", "")
+			if err != nil {
+				return Result{}, err
+			}
+			recommendation.ImageID = image.ID
 		}
 	}
 	for i := range record.Credits {
@@ -220,7 +316,7 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 	if err := persistResources(ctx, tx, entityID, def.Kind, &record); err != nil {
 		return Result{}, err
 	}
-	doc := Document{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: def.Kind, Slug: slug, Display: display, ExternalIDs: record.ExternalIDs, Data: Data{Titles: record.Titles, Overview: record.Overview, Classification: Classification{Format: record.Format, Status: record.Status, Language: record.Language, Countries: countries, Genres: genres, SourceMaterial: record.SourceMaterial}, Lifecycle: Lifecycle{StartDate: record.StartDate, EndDate: record.EndDate}, RuntimeMinutes: record.RuntimeMinutes, EpisodeCount: record.EpisodeCount, Networks: record.Networks, Studios: record.Studios, Seasons: record.Seasons, Episodes: record.Episodes, Images: publicImages, Ratings: record.Ratings, Credits: record.Credits}, Freshness: fresh, Provenance: map[string][]SourceRef{"identity": refs, "data": refs}}
+	doc := Document{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: def.Kind, Slug: slug, Display: display, ExternalIDs: record.ExternalIDs, Data: Data{Titles: record.Titles, Overview: record.Overview, Overviews: record.Overviews, Classification: Classification{Format: record.Format, Status: record.Status, Language: record.Language, Countries: countries, Genres: genres, SourceMaterial: record.SourceMaterial}, Lifecycle: Lifecycle{StartDate: record.StartDate, EndDate: record.EndDate}, RuntimeMinutes: record.RuntimeMinutes, EpisodeCount: record.EpisodeCount, SeasonCount: max(record.SeasonCount, len(record.Seasons)), Networks: record.Networks, Studios: record.Studios, Organizations: record.Organizations, Keywords: record.Keywords, Seasons: record.Seasons, Episodes: record.Episodes, Images: publicImages, Ratings: record.Ratings, Credits: record.Credits, Links: record.Links, Videos: record.Videos, Certifications: record.Certifications, Recommendations: record.Recommendations}, Freshness: fresh, Provenance: map[string][]SourceRef{"identity": refs, "data": refs}}
 	docJSON, _ := json.Marshal(doc)
 	table := "canonical_tv_shows"
 	if def.Kind == "anime" {
@@ -256,7 +352,7 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 	if created {
 		changeType = "created"
 	}
-	_, _ = tx.Exec(ctx, `INSERT INTO change_outbox(entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, entityID, def.Kind, slug, changeType, []string{"identity", "detail", "search", "provenance"}, version, record.PrimaryObservationID, nullableJob(jobID))
+	_, _ = tx.Exec(ctx, `INSERT INTO change_outbox(entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, entityID, def.Kind, slug, changeType, []string{"identity", "detail", "search", "provenance", "seasons", "episodes", "images"}, version, record.PrimaryObservationID, nullableJob(jobID))
 	if jobID > 0 {
 		_, err = tx.Exec(ctx, `UPDATE episodic_ingestion_runs SET state='completed',entity_id=$2,error=NULL,completed_at=now() WHERE river_job_id=$1`, jobID, entityID)
 		if err != nil {
@@ -274,6 +370,33 @@ func Resolve(ctx context.Context, runtime *platform.Runtime, kind, provider, nam
 	var id string
 	err := runtime.DB.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind=$1 AND provider=$2 AND namespace=$3 AND normalized_value=$4 AND state='accepted'`, kind, strings.ToLower(provider), strings.ToLower(namespace), strings.ToLower(strings.TrimSpace(value))).Scan(&id)
 	return id, err
+}
+
+func storedProviderFallbacks(ctx context.Context, tx pgx.Tx, entityID, kind string, currentProviders map[string]bool) ([]NormalizedRecord, error) {
+	providers := make([]string, 0, len(currentProviders))
+	for provider := range currentProviders {
+		providers = append(providers, provider)
+	}
+	rows, err := tx.Query(ctx, `SELECT DISTINCT ON(provider) document FROM normalized_records WHERE entity_id=$1 AND entity_kind=$2 AND NOT(provider=ANY($3)) ORDER BY provider,observed_at DESC,id DESC`, entityID, kind, providers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []NormalizedRecord{}
+	for rows.Next() {
+		var body []byte
+		if err := rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		var record NormalizedRecord
+		if err := json.Unmarshal(body, &record); err != nil {
+			return nil, err
+		}
+		if record.Provider != "" && !currentProviders[record.Provider] {
+			result = append(result, record)
+		}
+	}
+	return result, rows.Err()
 }
 func Detail(ctx context.Context, runtime *platform.Runtime, kind, id string) (Document, bool, error) {
 	var body []byte

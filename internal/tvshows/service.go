@@ -20,7 +20,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvmaze"
 )
 
-var definition = episodic.Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-tv-show/v1", MergeVersion: "tv-show-combiner/v2"}
+var definition = episodic.Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-tv-show/v2", MergeVersion: "tv-show-combiner/v3"}
 var htmlTags = regexp.MustCompile(`<[^>]+>`)
 
 type Service struct{ runtime *platform.Runtime }
@@ -109,6 +109,7 @@ func (s *Service) Detail(ctx context.Context, id string) (episodic.Document, boo
 type show struct {
 	ID                                                      int64 `json:"id"`
 	Name, Type, Language, Status, Premiered, Ended, Summary string
+	OfficialSite                                            string   `json:"officialSite"`
 	Runtime                                                 int      `json:"runtime"`
 	AverageRuntime                                          int      `json:"averageRuntime"`
 	Genres                                                  []string `json:"genres"`
@@ -137,6 +138,10 @@ type show struct {
 			EpisodeOrder int    `json:"episodeOrder"`
 			PremiereDate string `json:"premiereDate"`
 			EndDate      string `json:"endDate"`
+			Summary      string `json:"summary"`
+			Image        struct {
+				Original string `json:"original"`
+			} `json:"image"`
 		} `json:"seasons"`
 		Episodes []struct {
 			ID      int64   `json:"id"`
@@ -146,6 +151,13 @@ type show struct {
 			Airdate string  `json:"airdate"`
 			Runtime int     `json:"runtime"`
 			Summary string  `json:"summary"`
+			Type    string  `json:"type"`
+			Rating  struct {
+				Average float64 `json:"average"`
+			} `json:"rating"`
+			Image struct {
+				Original string `json:"original"`
+			} `json:"image"`
 		} `json:"episodes"`
 		Images []struct {
 			ID          int64  `json:"id"`
@@ -182,6 +194,7 @@ type show struct {
 	} `json:"_embedded"`
 }
 type network struct {
+	ID      int64  `json:"id"`
 	Name    string `json:"name"`
 	Country *struct {
 		Code string `json:"code"`
@@ -197,6 +210,12 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 		return episodic.NormalizedRecord{}, fmt.Errorf("invalid TVMaze show detail")
 	}
 	record := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "tv_show", Provider: "tvmaze", Namespace: "show", ProviderID: strconv.FormatInt(value.ID, 10), PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, Titles: []episodic.Title{{Value: value.Name, Language: languageCode(value.Language), Type: "main"}}, Overview: cleanHTML(value.Summary), Format: normalizeType(value.Type), Status: normalizeType(value.Status), Language: languageCode(value.Language), Genres: episodic.SortStrings(value.Genres), StartDate: value.Premiered, EndDate: value.Ended, RuntimeMinutes: value.Runtime, ExternalIDs: []episodic.ExternalID{{Provider: "tvmaze", Namespace: "show", Value: strconv.FormatInt(value.ID, 10)}}}
+	if record.Overview != "" {
+		record.Overviews = []episodic.Text{{Value: record.Overview, Language: record.Language, Type: "overview"}}
+	}
+	if value.OfficialSite != "" {
+		record.Links = append(record.Links, episodic.Link{Type: "official", URL: value.OfficialSite})
+	}
 	if record.RuntimeMinutes == 0 {
 		record.RuntimeMinutes = value.AverageRuntime
 	}
@@ -234,12 +253,42 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 		record.Countries = []string{record.Networks[0].Country}
 	}
 	for _, season := range value.Embedded.Seasons {
-		record.Seasons = append(record.Seasons, episodic.Season{ProviderID: strconv.FormatInt(season.ID, 10), Number: season.Number, Name: season.Name, EpisodeOrder: season.EpisodeOrder, PremiereDate: season.PremiereDate, EndDate: season.EndDate})
+		providerID := strconv.FormatInt(season.ID, 10)
+		item := episodic.Season{ProviderID: providerID, Number: season.Number, Name: season.Name, EpisodeOrder: season.EpisodeOrder, EpisodeCount: season.EpisodeOrder, PremiereDate: season.PremiereDate, EndDate: season.EndDate, ExternalIDs: []episodic.ExternalID{{Provider: "tvmaze", Namespace: "season", Value: providerID}}}
+		if season.Name != "" {
+			item.Titles = []episodic.Title{{Value: season.Name, Language: record.Language, Type: "display"}}
+		}
+		if overview := cleanHTML(season.Summary); overview != "" {
+			item.Overviews = []episodic.Text{{Value: overview, Language: record.Language, Type: "overview"}}
+		}
+		if season.EndDate != "" {
+			item.Status = "ended"
+		}
+		if season.Image.Original != "" {
+			item.Images = []episodic.Image{{Provider: "tvmaze", ProviderID: "season:" + providerID + ":poster", URL: season.Image.Original, Class: "poster"}}
+		}
+		record.Seasons = append(record.Seasons, item)
 	}
 	for _, episode := range value.Embedded.Episodes {
-		record.Episodes = append(record.Episodes, episodic.Episode{ProviderID: strconv.FormatInt(episode.ID, 10), Titles: []episodic.Title{{Value: episode.Name, Language: record.Language, Type: "main"}}, Numbers: []episodic.EpisodeNumber{{Scheme: "tvmaze", Season: episode.Season, Number: episode.Number}}, AirDate: episode.Airdate, RuntimeMinutes: episode.Runtime, Summary: cleanHTML(episode.Summary)})
+		providerID := strconv.FormatInt(episode.ID, 10)
+		summary := cleanHTML(episode.Summary)
+		item := episodic.Episode{ProviderID: providerID, ExternalIDs: []episodic.ExternalID{{Provider: "tvmaze", Namespace: "episode", Value: providerID}}, Titles: []episodic.Title{{Value: episode.Name, Language: record.Language, Type: "main"}}, Numbers: []episodic.EpisodeNumber{{Scheme: "aired", Season: episode.Season, Number: episode.Number, Provider: "tvmaze"}, {Scheme: "tvmaze", Season: episode.Season, Number: episode.Number, Provider: "tvmaze"}}, IsSpecial: episode.Season == 0, EpisodeType: normalizeType(episode.Type), AirDate: episode.Airdate, RuntimeMinutes: episode.Runtime, Summary: summary}
+		if item.EpisodeType == "" {
+			item.EpisodeType = "regular"
+		}
+		if summary != "" {
+			item.Overviews = []episodic.Text{{Value: summary, Language: record.Language, Type: "overview"}}
+		}
+		if episode.Rating.Average > 0 {
+			item.Ratings = []episodic.Rating{{System: "tvmaze", Value: episode.Rating.Average, ScaleMin: 0, ScaleMax: 10}}
+		}
+		if episode.Image.Original != "" {
+			item.Images = []episodic.Image{{Provider: "tvmaze", ProviderID: "episode:" + providerID + ":still", URL: episode.Image.Original, Class: "still"}}
+		}
+		record.Episodes = append(record.Episodes, item)
 	}
 	record.EpisodeCount = len(record.Episodes)
+	record.SeasonCount = len(record.Seasons)
 	if value.Image.Original != "" {
 		record.Images = append(record.Images, episodic.Image{Provider: "tvmaze", ProviderID: "show-original", URL: value.Image.Original, Class: "poster"})
 	}
@@ -257,7 +306,11 @@ func toNetwork(value *network, kind string) episodic.Network {
 	if value.Country != nil {
 		country = value.Country.Code
 	}
-	return episodic.Network{Name: value.Name, Country: country, Type: kind}
+	result := episodic.Network{Name: value.Name, Country: country, Type: kind}
+	if value.ID > 0 {
+		result.ExternalIDs = []episodic.ExternalID{{Provider: "tvmaze", Namespace: "network", Value: strconv.FormatInt(value.ID, 10)}}
+	}
+	return result
 }
 func cleanHTML(value string) string {
 	return strings.TrimSpace(html.UnescapeString(htmlTags.ReplaceAllString(value, " ")))

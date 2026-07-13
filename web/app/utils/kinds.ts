@@ -37,7 +37,21 @@ export const KINDS: KindMeta[] = [
   { kind: 'person', label: 'Person', plural: 'People', shape: 'portrait', route: 'people', discoverable: false },
 ]
 
+/** Primary top-level domains offered as browse category cards, in editorial
+ * priority order. Sub-entities (releases, volumes, editions) are reachable from
+ * their parents and deliberately omitted here. Cards for kinds with a zero count
+ * are hidden at render time, so this list can stay aspirational. */
+export const BROWSE_CATEGORIES: string[] = [
+  'movie', 'tv_show', 'anime', 'artist', 'release_group',
+  'recording', 'book_work', 'manga', 'comic_volume', 'person',
+]
+
 const BY_KIND = new Map(KINDS.map(item => [item.kind, item]))
+
+/** Plural label for a kind, falling back to a title-cased kind. */
+export function kindPlural(kind?: string | null): string {
+  return kindMeta(kind)?.plural ?? titleCaseKey(kind ?? '')
+}
 
 export function kindMeta(kind?: string | null): KindMeta | undefined {
   return kind ? BY_KIND.get(kind) : undefined

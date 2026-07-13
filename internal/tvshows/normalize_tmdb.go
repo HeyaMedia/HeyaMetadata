@@ -11,7 +11,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 )
 
-const tmdbTVNormalizerVersion = "tmdb-tv-show/v2"
+const tmdbTVNormalizerVersion = "tmdb-tv-show/v4"
 
 type tmdbTV struct {
 	ID               int64   `json:"id"`
@@ -19,12 +19,14 @@ type tmdbTV struct {
 	OriginalName     string  `json:"original_name"`
 	OriginalLanguage string  `json:"original_language"`
 	Overview         string  `json:"overview"`
+	Homepage         string  `json:"homepage"`
 	FirstAirDate     string  `json:"first_air_date"`
 	LastAirDate      string  `json:"last_air_date"`
 	Status           string  `json:"status"`
 	Type             string  `json:"type"`
 	EpisodeRunTime   []int   `json:"episode_run_time"`
 	NumberEpisodes   int     `json:"number_of_episodes"`
+	NumberSeasons    int     `json:"number_of_seasons"`
 	VoteAverage      float64 `json:"vote_average"`
 	VoteCount        int     `json:"vote_count"`
 	Genres           []struct {
@@ -35,11 +37,18 @@ type tmdbTV struct {
 		Name          string `json:"name"`
 		OriginCountry string `json:"origin_country"`
 		ID            int64  `json:"id"`
+		LogoPath      string `json:"logo_path"`
 	} `json:"networks"`
+	CreatedBy []struct {
+		ID          int64  `json:"id"`
+		Name        string `json:"name"`
+		ProfilePath string `json:"profile_path"`
+	} `json:"created_by"`
 	Companies []struct {
 		Name          string `json:"name"`
 		OriginCountry string `json:"origin_country"`
 		ID            int64  `json:"id"`
+		LogoPath      string `json:"logo_path"`
 	} `json:"production_companies"`
 	Seasons []struct {
 		ID           int64  `json:"id"`
@@ -47,6 +56,8 @@ type tmdbTV struct {
 		AirDate      string `json:"air_date"`
 		SeasonNumber int    `json:"season_number"`
 		EpisodeCount int    `json:"episode_count"`
+		Overview     string `json:"overview"`
+		PosterPath   string `json:"poster_path"`
 	} `json:"seasons"`
 	PosterPath   string `json:"poster_path"`
 	BackdropPath string `json:"backdrop_path"`
@@ -91,22 +102,68 @@ type tmdbTV struct {
 			} `json:"jobs"`
 		} `json:"crew"`
 	} `json:"aggregate_credits"`
+	Keywords struct {
+		Results []struct {
+			Name string `json:"name"`
+		} `json:"results"`
+	} `json:"keywords"`
+	ContentRatings struct {
+		Results []struct {
+			Country string `json:"iso_3166_1"`
+			Rating  string `json:"rating"`
+		} `json:"results"`
+	} `json:"content_ratings"`
+	Videos struct {
+		Results []struct {
+			Key      string `json:"key"`
+			Name     string `json:"name"`
+			Site     string `json:"site"`
+			Type     string `json:"type"`
+			Language string `json:"iso_639_1"`
+			Country  string `json:"iso_3166_1"`
+			Official bool   `json:"official"`
+		} `json:"results"`
+	} `json:"videos"`
+	Recommendations struct {
+		Results []struct {
+			ID           int64   `json:"id"`
+			Name         string  `json:"name"`
+			OriginalName string  `json:"original_name"`
+			FirstAirDate string  `json:"first_air_date"`
+			PosterPath   string  `json:"poster_path"`
+			Popularity   float64 `json:"popularity"`
+		} `json:"results"`
+	} `json:"recommendations"`
+	Translations struct {
+		Translations []struct {
+			Language string `json:"iso_639_1"`
+			Country  string `json:"iso_3166_1"`
+			Data     struct {
+				Name     string `json:"name"`
+				Overview string `json:"overview"`
+			} `json:"data"`
+		} `json:"translations"`
+	} `json:"translations"`
 }
 
 type tmdbSeason struct {
 	ID           int64  `json:"id"`
 	Name         string `json:"name"`
 	AirDate      string `json:"air_date"`
+	Overview     string `json:"overview"`
+	PosterPath   string `json:"poster_path"`
 	SeasonNumber int    `json:"season_number"`
 	Episodes     []struct {
-		ID            int64  `json:"id"`
-		Name          string `json:"name"`
-		Overview      string `json:"overview"`
-		AirDate       string `json:"air_date"`
-		StillPath     string `json:"still_path"`
-		EpisodeNumber int    `json:"episode_number"`
-		SeasonNumber  int    `json:"season_number"`
-		Runtime       int    `json:"runtime"`
+		ID            int64   `json:"id"`
+		Name          string  `json:"name"`
+		Overview      string  `json:"overview"`
+		AirDate       string  `json:"air_date"`
+		StillPath     string  `json:"still_path"`
+		EpisodeNumber int     `json:"episode_number"`
+		SeasonNumber  int     `json:"season_number"`
+		Runtime       int     `json:"runtime"`
+		VoteAverage   float64 `json:"vote_average"`
+		VoteCount     int     `json:"vote_count"`
 	} `json:"episodes"`
 }
 
@@ -121,7 +178,21 @@ func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, e
 	if value.ID < 1 || strings.TrimSpace(value.Name) == "" {
 		return episodic.NormalizedRecord{}, fmt.Errorf("invalid TMDB TV detail")
 	}
-	r := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "tv_show", Provider: "tmdb", Namespace: "tv", ProviderID: strconv.FormatInt(value.ID, 10), PrimaryObservationID: payloads[0].ObservationID, ObservedAt: payloads[0].ObservedAt, NormalizerVersion: tmdbTVNormalizerVersion, Overview: value.Overview, Format: normalizeType(value.Type), Status: normalizeType(value.Status), Language: value.OriginalLanguage, Countries: value.Countries, StartDate: value.FirstAirDate, EndDate: value.LastAirDate, EpisodeCount: value.NumberEpisodes, ExternalIDs: []episodic.ExternalID{{Provider: "tmdb", Namespace: "tv", Value: strconv.FormatInt(value.ID, 10)}}}
+	seasonCount := value.NumberSeasons
+	if seasonCount < 1 {
+		for _, season := range value.Seasons {
+			if season.SeasonNumber > 0 {
+				seasonCount++
+			}
+		}
+	}
+	r := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "tv_show", Provider: "tmdb", Namespace: "tv", ProviderID: strconv.FormatInt(value.ID, 10), PrimaryObservationID: payloads[0].ObservationID, ObservedAt: payloads[0].ObservedAt, NormalizerVersion: tmdbTVNormalizerVersion, Overview: value.Overview, Format: normalizeType(value.Type), Status: normalizeType(value.Status), Language: value.OriginalLanguage, Countries: value.Countries, StartDate: value.FirstAirDate, EndDate: value.LastAirDate, EpisodeCount: value.NumberEpisodes, SeasonCount: seasonCount, ExternalIDs: []episodic.ExternalID{{Provider: "tmdb", Namespace: "tv", Value: strconv.FormatInt(value.ID, 10)}}}
+	if value.Overview != "" {
+		r.Overviews = append(r.Overviews, episodic.Text{Value: value.Overview, Type: "overview"})
+	}
+	if value.Homepage != "" {
+		r.Links = append(r.Links, episodic.Link{Type: "homepage", URL: value.Homepage})
+	}
 	r.Titles = append(r.Titles, episodic.Title{Value: value.Name, Type: "main"})
 	if value.OriginalName != "" {
 		r.Titles = append(r.Titles, episodic.Title{Value: value.OriginalName, Language: value.OriginalLanguage, Type: "original"})
@@ -144,6 +215,9 @@ func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, e
 			r.Credits = append(r.Credits, episodic.Credit{Provider: "tmdb", ProviderPersonID: strconv.FormatInt(crew.ID, 10), DisplayName: crew.Name, CreditType: "crew", Department: crew.Department, Job: job.Job, ProfileURL: tmdbProfileURL(crew.ProfilePath)})
 		}
 	}
+	for _, creator := range value.CreatedBy {
+		r.Credits = append(r.Credits, episodic.Credit{Provider: "tmdb", ProviderPersonID: strconv.FormatInt(creator.ID, 10), DisplayName: creator.Name, CreditType: "crew", Department: "Creator", Job: "Creator", ProfileURL: tmdbProfileURL(creator.ProfilePath)})
+	}
 	if value.ExternalIDs.IMDbID != "" {
 		r.ExternalIDs = append(r.ExternalIDs, episodic.ExternalID{Provider: "imdb", Namespace: "title", Value: value.ExternalIDs.IMDbID})
 	}
@@ -154,16 +228,71 @@ func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, e
 		r.Genres = append(r.Genres, item.Name)
 	}
 	for _, item := range value.Networks {
-		r.Networks = append(r.Networks, episodic.Network{Name: item.Name, Country: item.OriginCountry, Type: "network"})
+		logoURL := ""
+		if item.LogoPath != "" {
+			logoURL = "https://image.tmdb.org/t/p/original" + item.LogoPath
+		}
+		providerID := strconv.FormatInt(item.ID, 10)
+		r.Networks = append(r.Networks, episodic.Network{Name: item.Name, Country: item.OriginCountry, Type: "network", ExternalIDs: []episodic.ExternalID{{Provider: "tmdb", Namespace: "network", Value: providerID}}, LogoURL: logoURL, LogoProvider: "tmdb", LogoProviderID: "network:" + providerID + ":logo"})
 	}
 	for _, item := range value.Companies {
 		r.Studios = append(r.Studios, item.Name)
+		logoURL := ""
+		if item.LogoPath != "" {
+			logoURL = "https://image.tmdb.org/t/p/original" + item.LogoPath
+		}
+		providerID := strconv.FormatInt(item.ID, 10)
+		r.Organizations = append(r.Organizations, episodic.Organization{Name: item.Name, Country: item.OriginCountry, Type: "production_company", ExternalIDs: []episodic.ExternalID{{Provider: "tmdb", Namespace: "company", Value: providerID}}, LogoURL: logoURL, LogoProvider: "tmdb", LogoProviderID: "company:" + providerID + ":logo"})
 	}
 	for _, item := range value.AlternativeTitles.Results {
 		r.Titles = append(r.Titles, episodic.Title{Value: item.Title, Country: item.ISO31661, Type: "alias"})
 	}
 	for _, item := range value.Seasons {
-		r.Seasons = append(r.Seasons, episodic.Season{ProviderID: strconv.FormatInt(item.ID, 10), Number: item.SeasonNumber, Name: item.Name, EpisodeOrder: item.EpisodeCount, PremiereDate: item.AirDate})
+		// CollectTV deliberately omits TMDB season zero because it is commonly a
+		// large bucket of clips and featurettes rather than canonical episodes.
+		// Do not expose a season shell whose reported episode_count can never be
+		// satisfied. A real specials season from TVDB/TVMaze is still merged in.
+		if item.SeasonNumber == 0 {
+			continue
+		}
+		providerID := strconv.FormatInt(item.ID, 10)
+		season := episodic.Season{ProviderID: providerID, Number: item.SeasonNumber, Name: item.Name, Titles: []episodic.Title{{Value: item.Name, Type: "display"}}, EpisodeOrder: item.EpisodeCount, EpisodeCount: item.EpisodeCount, PremiereDate: item.AirDate, ExternalIDs: []episodic.ExternalID{{Provider: "tmdb", Namespace: "season", Value: providerID}}}
+		if item.Overview != "" {
+			season.Overviews = []episodic.Text{{Value: item.Overview, Type: "overview"}}
+		}
+		if item.PosterPath != "" {
+			season.Images = []episodic.Image{{Provider: "tmdb", ProviderID: "season:" + providerID + ":poster", URL: "https://image.tmdb.org/t/p/original" + item.PosterPath, Class: "poster"}}
+		}
+		r.Seasons = append(r.Seasons, season)
+	}
+	for _, translation := range value.Translations.Translations {
+		if translation.Data.Name != "" {
+			r.Titles = append(r.Titles, episodic.Title{Value: translation.Data.Name, Language: translation.Language, Country: translation.Country, Type: "translated"})
+		}
+		if translation.Data.Overview != "" {
+			r.Overviews = append(r.Overviews, episodic.Text{Value: translation.Data.Overview, Language: translation.Language, Country: translation.Country, Type: "overview"})
+		}
+	}
+	for _, keyword := range value.Keywords.Results {
+		r.Keywords = append(r.Keywords, keyword.Name)
+	}
+	for _, rating := range value.ContentRatings.Results {
+		if rating.Rating != "" {
+			r.Certifications = append(r.Certifications, episodic.Certification{System: "tmdb", Country: rating.Country, Rating: rating.Rating})
+		}
+	}
+	for _, video := range value.Videos.Results {
+		if video.Key != "" {
+			r.Videos = append(r.Videos, episodic.Video{Provider: strings.ToLower(video.Site), Type: normalizeType(video.Type), Name: video.Name, Key: video.Key, Language: video.Language, Country: video.Country, Official: video.Official})
+		}
+	}
+	for _, recommendation := range value.Recommendations.Results[:min(len(value.Recommendations.Results), 50)] {
+		id := strconv.FormatInt(recommendation.ID, 10)
+		imageURL := ""
+		if recommendation.PosterPath != "" {
+			imageURL = "https://image.tmdb.org/t/p/original" + recommendation.PosterPath
+		}
+		r.Recommendations = append(r.Recommendations, episodic.Recommendation{Provider: "tmdb", ProviderID: id, Title: recommendation.Name, OriginalTitle: recommendation.OriginalName, FirstAirDate: recommendation.FirstAirDate, ExternalIDs: []episodic.ExternalID{{Provider: "tmdb", Namespace: "tv", Value: id}}, ImageURL: imageURL, ProviderScore: recommendation.Popularity})
 	}
 	addTMDBImage := func(id, path, class, language string, width, height int, score float64) {
 		if path != "" {
@@ -189,9 +318,34 @@ func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, e
 		if json.Unmarshal(payload.Body, &season) != nil {
 			continue
 		}
+		for i := range r.Seasons {
+			if r.Seasons[i].Number != season.SeasonNumber {
+				continue
+			}
+			if season.Overview != "" && len(r.Seasons[i].Overviews) == 0 {
+				r.Seasons[i].Overviews = []episodic.Text{{Value: season.Overview, Type: "overview"}}
+			}
+			if season.PosterPath != "" {
+				providerID := strconv.FormatInt(season.ID, 10)
+				r.Seasons[i].Images = append(r.Seasons[i].Images, episodic.Image{Provider: "tmdb", ProviderID: "season:" + providerID + ":poster", URL: "https://image.tmdb.org/t/p/original" + season.PosterPath, Class: "poster"})
+			}
+		}
 		for _, episode := range season.Episodes {
-			r.Episodes = append(r.Episodes, episodic.Episode{ProviderID: strconv.FormatInt(episode.ID, 10), Titles: []episodic.Title{{Value: episode.Name, Type: "main"}}, Numbers: []episodic.EpisodeNumber{{Scheme: "tmdb", Season: episode.SeasonNumber, Number: float64(episode.EpisodeNumber)}}, AirDate: episode.AirDate, RuntimeMinutes: episode.Runtime, Summary: episode.Overview})
-			addTMDBImage("episode:"+strconv.FormatInt(episode.ID, 10), episode.StillPath, "still", "", 0, 0, 0)
+			providerID := strconv.FormatInt(episode.ID, 10)
+			item := episodic.Episode{ProviderID: providerID, ExternalIDs: []episodic.ExternalID{{Provider: "tmdb", Namespace: "episode", Value: providerID}}, Titles: []episodic.Title{{Value: episode.Name, Type: "main"}}, Numbers: []episodic.EpisodeNumber{{Scheme: "aired", Season: episode.SeasonNumber, Number: float64(episode.EpisodeNumber), Provider: "tmdb"}, {Scheme: "tmdb", Season: episode.SeasonNumber, Number: float64(episode.EpisodeNumber), Provider: "tmdb"}}, IsSpecial: episode.SeasonNumber == 0, EpisodeType: "regular", AirDate: episode.AirDate, RuntimeMinutes: episode.Runtime, Summary: episode.Overview}
+			if episode.SeasonNumber == 0 {
+				item.EpisodeType = "special"
+			}
+			if episode.Overview != "" {
+				item.Overviews = []episodic.Text{{Value: episode.Overview, Type: "overview"}}
+			}
+			if episode.VoteAverage > 0 {
+				item.Ratings = []episodic.Rating{{System: "tmdb", Value: episode.VoteAverage, ScaleMin: 0, ScaleMax: 10, Votes: episode.VoteCount}}
+			}
+			if episode.StillPath != "" {
+				item.Images = []episodic.Image{{Provider: "tmdb", ProviderID: "episode:" + providerID + ":still", URL: "https://image.tmdb.org/t/p/original" + episode.StillPath, Class: "still"}}
+			}
+			r.Episodes = append(r.Episodes, item)
 		}
 	}
 	return r, nil

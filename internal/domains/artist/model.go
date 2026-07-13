@@ -10,6 +10,7 @@ const (
 	DeezerNormalizerVersion      = "deezer-artist/v1"
 	DiscogsNormalizerVersion     = "discogs-artist/v1"
 	LastFMNormalizerVersion      = "lastfm-artist/v1"
+	LastFMTopTracksVersion       = "lastfm-artist-top-tracks/v1"
 	WikidataNormalizerVersion    = "wikidata-artist/v1"
 	MergeVersion                 = "artist-merge/v1"
 	ProjectionSchemaVersion      = 1
@@ -120,25 +121,40 @@ type SimilarArtist struct {
 	Score      float64 `json:"score,omitempty"`
 }
 
+type TopTrack struct {
+	Rank            int    `json:"rank"`
+	Title           string `json:"title"`
+	ProviderTrackID string `json:"provider_track_id,omitempty"`
+	RecordingMBID   string `json:"recording_mbid,omitempty"`
+	Playcount       int64  `json:"playcount,omitempty"`
+	Listeners       int64  `json:"listeners,omitempty"`
+	URL             string `json:"url,omitempty"`
+}
+
 type NormalizedRecordV1 struct {
-	ProviderRecord     ProviderRecord      `json:"provider_record"`
-	IdentityCandidates []IdentityCandidate `json:"identity_candidates"`
-	Names              []Name              `json:"names"`
-	Disambiguation     string              `json:"disambiguation,omitempty"`
-	Classification     Classification      `json:"classification"`
-	Lifecycle          Lifecycle           `json:"lifecycle"`
-	Areas              []Area              `json:"areas"`
-	Biographies        []Text              `json:"biographies"`
-	Annotations        []Text              `json:"annotations"`
-	Genres             []WeightedTerm      `json:"genres"`
-	Tags               []WeightedTerm      `json:"tags"`
-	Links              []Link              `json:"links"`
-	Images             []Image             `json:"images"`
-	Metrics            []Metric            `json:"metrics"`
-	Relationships      []Relationship      `json:"relationships"`
-	SimilarArtists     []SimilarArtist     `json:"similar_artists"`
-	Warnings           []string            `json:"warnings"`
-	PartialFailure     bool                `json:"partial_failure"`
+	ProviderRecord         ProviderRecord      `json:"provider_record"`
+	IdentityCandidates     []IdentityCandidate `json:"identity_candidates"`
+	Names                  []Name              `json:"names"`
+	Disambiguation         string              `json:"disambiguation,omitempty"`
+	Classification         Classification      `json:"classification"`
+	Lifecycle              Lifecycle           `json:"lifecycle"`
+	Areas                  []Area              `json:"areas"`
+	Biographies            []Text              `json:"biographies"`
+	Annotations            []Text              `json:"annotations"`
+	Genres                 []WeightedTerm      `json:"genres"`
+	Tags                   []WeightedTerm      `json:"tags"`
+	Links                  []Link              `json:"links"`
+	Images                 []Image             `json:"images"`
+	Metrics                []Metric            `json:"metrics"`
+	Relationships          []Relationship      `json:"relationships"`
+	SimilarArtists         []SimilarArtist     `json:"similar_artists"`
+	TopTracks              []TopTrack          `json:"top_tracks,omitempty"`
+	TopTracksObserved      bool                `json:"top_tracks_observed,omitempty"`
+	TopTracksTotal         int                 `json:"top_tracks_total,omitempty"`
+	TopTracksObservationID string              `json:"top_tracks_observation_id,omitempty"`
+	TopTracksObservedAt    time.Time           `json:"top_tracks_observed_at,omitempty"`
+	Warnings               []string            `json:"warnings"`
+	PartialFailure         bool                `json:"partial_failure"`
 }
 
 type RecordInput struct {

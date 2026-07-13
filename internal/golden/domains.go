@@ -139,6 +139,8 @@ func verifyProjection(ctx context.Context, client *http.Client, baseURL, entityI
 		path = "/api/v2/recordings/" + entityID + "/fingerprints"
 	case "lyrics":
 		path = "/api/v2/recordings/" + entityID + "/lyrics"
+	case "top_tracks":
+		path += "/top-tracks?limit=100"
 	default:
 		return false, fmt.Sprintf("unsupported projection document %s", entry.Projection.Document)
 	}

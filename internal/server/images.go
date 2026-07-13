@@ -60,7 +60,13 @@ func registerImages(api huma.API, runtime *platform.Runtime) {
 			panic(err)
 		}
 	}
-	huma.Register(api, huma.Operation{OperationID: "image-original", Method: http.MethodGet, Path: "/api/v2/images/{id}", Summary: "Read or queue a canonical image original", Tags: []string{"Images"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *imageInput) (*imageOutput, error) {
+	imageResponses := func(mediaTypes ...string) map[string]*huma.Response {
+		return map[string]*huma.Response{
+			"200": binaryResponse("Canonical image bytes", mediaTypes...),
+			"202": acceptedJSONResponse("#/components/schemas/JobResource"),
+		}
+	}
+	huma.Register(api, huma.Operation{OperationID: "image-original", Method: http.MethodGet, Path: "/api/v2/images/{id}", Summary: "Read or queue a canonical image original", Tags: []string{"Images"}, DefaultStatus: http.StatusOK, Responses: imageResponses("image/jpeg", "image/png", "image/webp", "image/avif", "image/gif")}, func(ctx context.Context, input *imageInput) (*imageOutput, error) {
 		if service == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
@@ -81,7 +87,7 @@ func registerImages(api huma.API, runtime *platform.Runtime) {
 		payload, _ := json.Marshal(jobResource{ID: inserted.Job.ID, Kind: jobs.ImageMaterializeKind, State: string(inserted.Job.State)})
 		return &imageOutput{Status: http.StatusAccepted, ContentType: "application/json", CacheControl: "no-store", RetryAfter: "2", Body: payload}, nil
 	})
-	huma.Register(api, huma.Operation{OperationID: "image-variant", Method: http.MethodGet, Path: "/api/v2/images/{id}/variants/{format}/{width}", Summary: "Read or queue an optimized image variant", Tags: []string{"Images"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *imageVariantInput) (*imageOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "image-variant", Method: http.MethodGet, Path: "/api/v2/images/{id}/variants/{format}/{width}", Summary: "Read or queue an optimized image variant", Tags: []string{"Images"}, DefaultStatus: http.StatusOK, Responses: imageResponses("image/webp", "image/avif")}, func(ctx context.Context, input *imageVariantInput) (*imageOutput, error) {
 		if service == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
