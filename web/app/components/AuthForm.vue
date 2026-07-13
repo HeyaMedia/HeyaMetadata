@@ -6,12 +6,14 @@ const props = defineProps<{ mode: 'login' | 'register' }>()
 
 const route = useRoute()
 const auth = useAuth()
+const altcha = useAltcha()
 
 const username = ref('')
 const password = ref('')
 const confirm = ref('')
 const error = ref('')
 const loading = ref(false)
+const verifying = ref(false)
 
 const isRegister = computed(() => props.mode === 'register')
 const redirect = computed(() => (typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/') ? route.query.redirect : '/'))
@@ -32,15 +34,27 @@ async function submit() {
   loading.value = true
   error.value = ''
   try {
-    if (isRegister.value) await auth.register(username.value.trim(), password.value)
-    else await auth.login(username.value.trim(), password.value)
+    // Solve the proof-of-work captcha (invisible; null if the backend hasn't
+    // enabled it yet, in which case we submit without a token).
+    verifying.value = true
+    const token = await altcha.obtain()
+    verifying.value = false
+    if (isRegister.value) await auth.register(username.value.trim(), password.value, token)
+    else await auth.login(username.value.trim(), password.value, token)
     await navigateTo(redirect.value)
   } catch (reason: any) {
     error.value = reason?.message || 'Something went wrong. Try again.'
   } finally {
     loading.value = false
+    verifying.value = false
   }
 }
+
+const submitLabel = computed(() => {
+  if (verifying.value) return 'Verifying…'
+  if (loading.value) return 'Please wait…'
+  return isRegister.value ? 'Create account' : 'Sign in'
+})
 </script>
 
 <template>
@@ -93,8 +107,10 @@ async function submit() {
         </div>
 
         <button type="submit" class="btn btn--gold auth__submit" :disabled="!canSubmit">
-          {{ loading ? 'Please wait…' : isRegister ? 'Create account' : 'Sign in' }}
+          {{ submitLabel }}
         </button>
+
+        <p class="auth__captcha">Protected by a privacy-preserving proof-of-work check — no puzzles, no tracking.</p>
       </form>
 
       <p class="auth__switch">
@@ -137,6 +153,7 @@ async function submit() {
 .auth__hint { margin: -0.2rem 0 0; color: var(--muted-2); font-size: 0.68rem; }
 .auth__error { margin: 0.2rem 0 0; }
 .auth__submit { margin-top: 0.4rem; padding-block: 0.8rem; }
+.auth__captcha { margin: 0.1rem 0 0; color: var(--muted-2); font-size: 0.66rem; line-height: 1.5; text-align: center; }
 .auth__switch { margin: 1.4rem 0 0; color: var(--muted); font-size: 0.78rem; text-align: center; }
 .auth__switch a { color: var(--gold); }
 .auth__switch a:hover { text-decoration: underline; }

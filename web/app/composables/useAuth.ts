@@ -52,14 +52,14 @@ export function useAuth() {
     return hydration
   }
 
-  async function login(username: string, password: string) {
-    const data = await post('/login', { username, password })
+  async function login(username: string, password: string, altcha?: string | null) {
+    const data = await post('/login', { username, password, ...(altcha ? { altcha } : {}) })
     user.value = data?.user ?? null
     return user.value
   }
 
-  async function register(username: string, password: string) {
-    const data = await post('/register', { username, password })
+  async function register(username: string, password: string, altcha?: string | null) {
+    const data = await post('/register', { username, password, ...(altcha ? { altcha } : {}) })
     user.value = data?.user ?? null
     return user.value
   }
