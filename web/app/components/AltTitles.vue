@@ -39,17 +39,23 @@ const alts = computed<Alt[]>(() => {
 </template>
 
 <style scoped>
-.alt-titles { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.alt-titles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .alt-titles li {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   align-items: baseline;
-  padding: 0.5rem 0;
+  padding: 0.32rem 0;
   border-top: 1px solid var(--line-soft);
-  font-size: 0.76rem;
+  font-size: 0.74rem;
 }
-.alt-titles li:first-child { border-top: 0; }
 .alt-titles__value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .alt-titles__lang { flex: 0 0 auto; color: var(--muted-2); font-family: var(--font-mono); font-size: 0.62rem; text-transform: uppercase; }
 </style>

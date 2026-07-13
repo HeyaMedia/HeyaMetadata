@@ -7,7 +7,7 @@ const rows = computed(() => (props.ratings ?? []).filter(rating => rating && rat
 </script>
 
 <template>
-  <OverviewPanel v-if="rows.length" title="Ratings" kicker="Provider-native scales" full>
+  <OverviewPanel v-if="rows.length" title="Ratings" kicker="Provider-native scales">
     <div class="ratings">
       <div v-for="rating in rows" :key="`${rating.system}:${rating.provider}`" class="rating">
         <strong>{{ rating.value }}</strong>

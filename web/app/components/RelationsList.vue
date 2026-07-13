@@ -29,7 +29,8 @@ const entries = computed<Entry[]>(() => {
     const key = relation.target_entity_id || relation.provider_value || title
     if (seen.has(key)) continue
     seen.add(key)
-    const date = formatValue(meta.date)
+    // date can be a plain string or a { type, value, precision } object.
+    const date = formatValue(meta.date?.value ?? (typeof meta.date === 'string' ? meta.date : ''))
     out.push({
       title,
       sub: [formatValue(meta.country), titleCase(meta.status), formatValue(meta.barcode)].filter(Boolean).join(' · '),

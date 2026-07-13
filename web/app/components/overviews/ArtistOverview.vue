@@ -28,7 +28,18 @@ const facts = computed<Fact[]>(() => {
   ]
 })
 
-const names = computed(() => (data.value.names ?? []).filter((name: any) => formatValue(name.value)))
+const names = computed(() => {
+  const seen = new Set<string>()
+  const out: { value: string; primary: boolean }[] = []
+  for (const name of data.value.names ?? []) {
+    const value = formatValue(name.value)
+    const key = value.toLowerCase()
+    if (!value || seen.has(key)) continue
+    seen.add(key)
+    out.push({ value, primary: !!name.primary })
+  }
+  return out.sort((a, b) => Number(b.primary) - Number(a.primary))
+})
 const similar = computed(() =>
   (data.value.similar_artists ?? [])
     .map((artist: any) => ({ name: formatValue(artist.name), url: formatValue(artist.url) }))
@@ -46,14 +57,9 @@ const similar = computed(() =>
     <ExternalIdsPanel :external-ids="entity.external_ids" />
 
     <OverviewPanel v-if="names.length" title="Names & aliases" kicker="Identity">
-      <ul class="line-list">
-        <li v-for="(name, index) in names" :key="index">
-          <span class="line-list__main">
-            <span class="line-list__title">{{ formatValue(name.value) }}</span>
-          </span>
-          <span v-if="name.primary || name.type" class="line-list__meta">{{ name.primary ? 'primary' : formatKey(name.type) }}</span>
-        </li>
-      </ul>
+      <div class="chip-row">
+        <span v-for="(name, index) in names" :key="index" class="chip" :class="{ 'chip--accent': name.primary }">{{ name.value }}</span>
+      </div>
     </OverviewPanel>
 
     <OverviewPanel v-if="similar.length" title="Related artists" kicker="Neighbours">
