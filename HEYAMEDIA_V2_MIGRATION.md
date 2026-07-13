@@ -526,6 +526,12 @@ create speculative recording identities. `sources[]` reports observation time,
 upstream total, projection version, and whether the provider's top-100 snapshot
 was truncated. Artist detail does not embed the unbounded ranking.
 
+Last.fm occasionally returns the correct name-scoped artist page with an
+incorrect MusicBrainz artist ID. HeyaMetadata retains those popularity rows
+only when the returned artist name exactly matches a canonical name or alias.
+In that fallback mode `recording_mbid` and `recording_entity_id` remain absent,
+so useful rankings cannot create cross-artist identity contamination.
+
 ### Issued releases and track links
 
 An artist's `discography` points to release groups. A release group's

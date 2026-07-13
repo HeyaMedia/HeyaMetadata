@@ -242,6 +242,10 @@ identity. It supports paged search, artist top albums, and short-lived similar
 artist evidence. API keys are applied only to real upstream calls and excluded
 from request identity. Last.fm error code 6 receives a one-hour negative TTL;
 invalid keys, throttling, and all other logical errors are never shared.
+When Last.fm resolves an MBID request to the correct canonical artist name but
+reports a different MusicBrainz artist ID, the contribution is retained only
+as a name-scoped aggregate. The incorrect ID is never emitted as identity
+evidence, and its recording IDs are withheld from canonical linking.
 
 ## AniDB and TVMaze source collection
 

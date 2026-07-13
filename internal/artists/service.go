@@ -81,6 +81,7 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 	if err != nil {
 		return Result{}, err
 	}
+	expectedLastFMNames := artistNames(spine)
 	known := []providers.Identifier{{Provider: "musicbrainz", Namespace: "artist", Value: mbid}}
 	for _, candidate := range spine.IdentityCandidates {
 		known = append(known, providers.Identifier{Provider: candidate.Provider, Namespace: candidate.Namespace, Value: candidate.NormalizedValue})
@@ -157,7 +158,7 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 		case "discogs":
 			normalized, recordErr = discogs.NormalizeArtist(recorded[0].Payload.Body, recorded[0].ID, recorded[0].Payload.ObservedAt)
 		case "lastfm":
-			normalized, recordErr = lastfm.NormalizeArtist(recorded[0].Payload.Body, mbid, recorded[0].ID, recorded[0].Payload.ObservedAt)
+			normalized, recordErr = lastfm.NormalizeArtist(recorded[0].Payload.Body, mbid, expectedLastFMNames, recorded[0].ID, recorded[0].Payload.ObservedAt)
 			if recordErr == nil {
 				topCapability := lastfm.New(s.runtime.Config.Providers.LastFM).Capability()
 				topResolver, topErr := providercache.New(s.runtime, artistdomain.LastFMTopTracksVersion, topCapability.RawRetention, topCapability.ResponseCache, riverJobID)
@@ -175,7 +176,7 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 						} else if topRecorded[0].Payload.StatusCode != http.StatusOK {
 							topErr = &providers.StatusError{Provider: "lastfm", StatusCode: topRecorded[0].Payload.StatusCode}
 						} else {
-							snapshot, normalizeTopErr := lastfm.NormalizeArtistTopTracks(topRecorded[0].Payload.Body, mbid)
+							snapshot, normalizeTopErr := lastfm.NormalizeArtistTopTracks(topRecorded[0].Payload.Body, mbid, expectedLastFMNames)
 							if normalizeTopErr != nil {
 								topErr = normalizeTopErr
 							} else {
@@ -185,6 +186,9 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 								normalized.TopTracksObservationID = topRecorded[0].ID
 								normalized.TopTracksObservedAt = topRecorded[0].Payload.ObservedAt
 								normalized.ProviderRecord.SupportingObservationIDs = append(normalized.ProviderRecord.SupportingObservationIDs, topRecorded[0].ID)
+								if snapshot.NameScoped {
+									normalized.Warnings = append(normalized.Warnings, "Last.fm top tracks retained as a name-scoped aggregate")
+								}
 							}
 						}
 					}
@@ -541,6 +545,16 @@ func preferredName(record artistdomain.NormalizedRecordV1) string {
 		}
 	}
 	return "artist"
+}
+
+func artistNames(record artistdomain.NormalizedRecordV1) []string {
+	result := make([]string, 0, len(record.Names))
+	for _, name := range record.Names {
+		if value := strings.TrimSpace(name.Value); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 func artistSlug(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))

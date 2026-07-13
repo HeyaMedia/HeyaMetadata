@@ -10,11 +10,12 @@ import (
 )
 
 type TopTracksSnapshot struct {
-	Tracks []artistdomain.TopTrack
-	Total  int
+	Tracks     []artistdomain.TopTrack
+	Total      int
+	NameScoped bool
 }
 
-func NormalizeArtistTopTracks(body []byte, expectedArtistMBID string) (TopTracksSnapshot, error) {
+func NormalizeArtistTopTracks(body []byte, expectedArtistMBID string, expectedArtistNames []string) (TopTracksSnapshot, error) {
 	var envelope struct {
 		TopTracks struct {
 			Tracks []struct {
@@ -24,6 +25,7 @@ func NormalizeArtistTopTracks(body []byte, expectedArtistMBID string) (TopTracks
 				Playcount string `json:"playcount"`
 				Listeners string `json:"listeners"`
 				Artist    struct {
+					Name string `json:"name"`
 					MBID string `json:"mbid"`
 				} `json:"artist"`
 				Attributes struct {
@@ -31,7 +33,8 @@ func NormalizeArtistTopTracks(body []byte, expectedArtistMBID string) (TopTracks
 				} `json:"@attr"`
 			} `json:"track"`
 			Attributes struct {
-				Total string `json:"total"`
+				Artist string `json:"artist"`
+				Total  string `json:"total"`
 			} `json:"@attr"`
 		} `json:"toptracks"`
 		Error   int    `json:"error"`
@@ -47,13 +50,19 @@ func NormalizeArtistTopTracks(body []byte, expectedArtistMBID string) (TopTracks
 	if !mbidPattern.MatchString(expectedArtistMBID) {
 		return TopTracksSnapshot{}, fmt.Errorf("invalid expected MusicBrainz artist identity")
 	}
+	aggregateNameMatches := artistNameMatches(envelope.TopTracks.Attributes.Artist, expectedArtistNames)
 	snapshot := TopTracksSnapshot{Tracks: []artistdomain.TopTrack{}}
 	snapshot.Total, _ = strconv.Atoi(envelope.TopTracks.Attributes.Total)
 	seenRank := map[int]bool{}
 	for index, source := range envelope.TopTracks.Tracks {
 		artistMBID := strings.ToLower(strings.TrimSpace(source.Artist.MBID))
-		if artistMBID != "" && artistMBID != expectedArtistMBID {
+		identityMatches := artistMBID == expectedArtistMBID
+		nameMatches := aggregateNameMatches && artistNameMatches(source.Artist.Name, expectedArtistNames)
+		if !identityMatches && !nameMatches {
 			continue
+		}
+		if !identityMatches {
+			snapshot.NameScoped = true
 		}
 		rank, _ := strconv.Atoi(source.Attributes.Rank)
 		if rank < 1 {
@@ -70,10 +79,13 @@ func NormalizeArtistTopTracks(body []byte, expectedArtistMBID string) (TopTracks
 			Playcount: parseInt64(source.Playcount),
 			Listeners: parseInt64(source.Listeners),
 		}
-		if mbid := strings.ToLower(strings.TrimSpace(source.MBID)); mbidPattern.MatchString(mbid) {
+		if mbid := strings.ToLower(strings.TrimSpace(source.MBID)); identityMatches && mbidPattern.MatchString(mbid) {
 			track.RecordingMBID = mbid
 		}
 		snapshot.Tracks = append(snapshot.Tracks, track)
+	}
+	if snapshot.Total > 0 && len(snapshot.Tracks) == 0 {
+		return TopTracksSnapshot{}, fmt.Errorf("Last.fm top tracks do not match the expected artist identity or name")
 	}
 	if snapshot.Total < len(snapshot.Tracks) {
 		snapshot.Total = len(snapshot.Tracks)

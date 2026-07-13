@@ -10,7 +10,7 @@ import (
 	artistdomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/artist"
 )
 
-func NormalizeArtist(body []byte, expectedMBID, observationID string, observedAt time.Time) (artistdomain.NormalizedRecordV1, error) {
+func NormalizeArtist(body []byte, expectedMBID string, expectedNames []string, observationID string, observedAt time.Time) (artistdomain.NormalizedRecordV1, error) {
 	var envelope struct {
 		Artist struct {
 			Name  string `json:"name"`
@@ -54,13 +54,19 @@ func NormalizeArtist(body []byte, expectedMBID, observationID string, observedAt
 	source := envelope.Artist
 	mbid := strings.ToLower(strings.TrimSpace(source.MBID))
 	expectedMBID = strings.ToLower(strings.TrimSpace(expectedMBID))
-	if !mbidPattern.MatchString(mbid) || mbid != expectedMBID || strings.TrimSpace(source.Name) == "" {
+	name := strings.TrimSpace(source.Name)
+	identityMatches := mbidPattern.MatchString(mbid) && mbid == expectedMBID
+	if name == "" || (!identityMatches && !artistNameMatches(name, expectedNames)) {
 		return artistdomain.NormalizedRecordV1{}, fmt.Errorf("Last.fm artist does not match expected MusicBrainz identity")
 	}
 	record := artistdomain.NormalizedRecordV1{
-		ProviderRecord:     artistdomain.ProviderRecord{Provider: "lastfm", Namespace: "artist", Value: mbid, PrimaryObservationID: observationID, ObservedAt: observedAt, NormalizerVersion: artistdomain.LastFMNormalizerVersion, SchemaVersion: artistdomain.NormalizedSchemaVersion},
-		IdentityCandidates: []artistdomain.IdentityCandidate{{Provider: "musicbrainz", Namespace: "artist", NormalizedValue: mbid, Confidence: 1, Evidence: "lastfm_mbid"}},
-		Names:              []artistdomain.Name{{Value: strings.TrimSpace(source.Name), Type: "display", Primary: true}},
+		ProviderRecord: artistdomain.ProviderRecord{Provider: "lastfm", Namespace: "artist", Value: expectedMBID, PrimaryObservationID: observationID, ObservedAt: observedAt, NormalizerVersion: artistdomain.LastFMNormalizerVersion, SchemaVersion: artistdomain.NormalizedSchemaVersion},
+		Names:          []artistdomain.Name{{Value: name, Type: "display", Primary: true}},
+	}
+	if identityMatches {
+		record.IdentityCandidates = []artistdomain.IdentityCandidate{{Provider: "musicbrainz", Namespace: "artist", NormalizedValue: mbid, Confidence: 1, Evidence: "lastfm_mbid"}}
+	} else {
+		record.Warnings = append(record.Warnings, "Last.fm returned a mismatched MusicBrainz artist ID; contribution retained as a name-scoped aggregate")
 	}
 	if source.URL != "" {
 		record.Links = append(record.Links, artistdomain.Link{Type: "lastfm", URL: source.URL})
@@ -101,4 +107,17 @@ func NormalizeArtist(body []byte, expectedMBID, observationID string, observedAt
 		}
 	}
 	return record, nil
+}
+
+func artistNameMatches(value string, expected []string) bool {
+	value = strings.ToLower(strings.Join(strings.Fields(value), " "))
+	if value == "" {
+		return false
+	}
+	for _, candidate := range expected {
+		if value == strings.ToLower(strings.Join(strings.Fields(candidate), " ")) {
+			return true
+		}
+	}
+	return false
 }

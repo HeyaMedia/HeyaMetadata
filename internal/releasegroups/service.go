@@ -160,7 +160,7 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int6
 				completed[provider] = true
 				continue
 			}
-			if provider == "coverartarchive" && observations[0].Payload.StatusCode == http.StatusNotFound {
+			if observations[0].Payload.StatusCode == http.StatusNotFound {
 				completed[provider] = true
 				continue
 			}

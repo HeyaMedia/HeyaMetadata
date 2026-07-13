@@ -42,6 +42,9 @@ S3 values.
 - Worker command: `worker`
 - Migration command: `migrate up`
 
-Tags are published for `latest`, `main`, the Git SHA, and semantic version tags
-matching `v*`. Production deployments should pin a semantic version or image
-digest once releases begin.
+Container images are built only when a semantic version tag matching `v*` is
+pushed. Each release is built natively on separate amd64 and arm64 GitHub
+runners, then published as one multi-architecture manifest under `latest`, the
+full semantic version, the major/minor version, and the Git SHA. Ordinary main
+branch pushes and pull requests run verification without building an image.
+Production deployments should pin a semantic version or image digest.
