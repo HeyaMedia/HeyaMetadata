@@ -67,17 +67,6 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
       <GlobalSearch class="app-header__search" size="bar" :initial-query="(route.query.q as string) || ''" />
 
       <div class="app-header__tools">
-        <button
-          type="button"
-          class="tool-button"
-          :class="{ 'is-open': panel === 'keys' }"
-          :aria-expanded="panel === 'keys'"
-          @click="toggle('keys')"
-        >
-          Provider keys
-          <span v-if="activeCount" class="tool-button__badge">{{ activeCount }}</span>
-        </button>
-
         <div v-if="authReady" class="account">
           <template v-if="isAuthenticated && user">
             <button
@@ -93,6 +82,9 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
             <Transition name="pop">
               <div v-if="panel === 'account'" class="account__menu">
                 <NuxtLink to="/account" class="account__item">Account</NuxtLink>
+                <button type="button" class="account__item" @click="panel = 'keys'">
+                  Provider keys<span v-if="activeCount" class="account__badge">{{ activeCount }}</span>
+                </button>
                 <button type="button" class="account__item" @click="signOut">Sign out</button>
               </div>
             </Transition>
@@ -113,7 +105,7 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
     </div>
 
     <Transition name="drawer">
-      <ProviderKeysPanel v-if="panel === 'keys'" />
+      <ProviderKeysPanel v-if="panel === 'keys' && isAuthenticated" />
     </Transition>
 
     <Transition name="drawer">
@@ -132,15 +124,15 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
             <span class="section-label">Account</span>
             <template v-if="isAuthenticated && user">
               <NuxtLink to="/account">{{ user.username }}</NuxtLink>
+              <button type="button" class="btn btn--ghost" @click="panel = 'keys'">
+                Provider keys<span v-if="activeCount"> · {{ activeCount }} set</span>
+              </button>
               <button type="button" class="btn btn--ghost" @click="signOut">Sign out</button>
             </template>
-            <NuxtLink v-else :to="loginTarget">Sign in</NuxtLink>
-            <NuxtLink v-if="!isAuthenticated" to="/register">Create account</NuxtLink>
-          </div>
-          <div class="mobile-menu__group">
-            <button type="button" class="btn btn--ghost" @click="panel = 'keys'">
-              Provider keys<span v-if="activeCount"> · {{ activeCount }} set</span>
-            </button>
+            <template v-else>
+              <NuxtLink :to="loginTarget">Sign in</NuxtLink>
+              <NuxtLink to="/register">Create account</NuxtLink>
+            </template>
           </div>
         </div>
       </nav>
@@ -249,7 +241,20 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
   font-size: 0.76rem;
   text-align: left;
 }
+.account__item { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
 .account__item:hover { background: rgba(255, 255, 255, 0.04); color: #fff; }
+.account__badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  padding: 0 0.3rem;
+  border-radius: 1rem;
+  background: var(--gold);
+  color: #18150c;
+  font-size: 0.6rem;
+  font-weight: 800;
+}
 .pop-enter-active, .pop-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: translateY(-0.3rem); }
 

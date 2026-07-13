@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
+	"github.com/HeyaMedia/HeyaMetadata/internal/musiccatalog"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/ui"
 	"github.com/riverqueue/river/rivertype"
@@ -14,6 +15,44 @@ import (
 func newArtistCommand() *cobra.Command {
 	command := &cobra.Command{Use: "artist", Short: "Manage canonical artists", Args: cobra.NoArgs}
 	command.AddCommand(newArtistIngestCommand())
+	command.AddCommand(newArtistCatalogAuditCommand())
+	return command
+}
+
+func newArtistCatalogAuditCommand() *cobra.Command {
+	var entityID string
+	command := &cobra.Command{Use: "catalog-audit", Short: "Inspect mixed-discography confidence, conflicts, and possible duplicates", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if entityID == "" {
+			return fmt.Errorf("--id is required")
+		}
+		runtime, err := platform.Open(cmd.Context(), cfg)
+		if err != nil {
+			return err
+		}
+		defer runtime.Close()
+		if err := runtime.Ensure(cmd.Context(), cfg); err != nil {
+			return err
+		}
+		report, err := musiccatalog.AuditArtist(cmd.Context(), runtime, entityID)
+		if err != nil {
+			return err
+		}
+		if ui.JSONMode {
+			return ui.OutputJSON(report)
+		}
+		ui.Success("Catalog audit for %s", report.ArtistName)
+		ui.Info("Clusters", fmt.Sprintf("%d", report.Clusters))
+		ui.Info("Canonical", fmt.Sprintf("%d", report.CanonicalTargets))
+		ui.Info("Candidates", fmt.Sprintf("%d", report.CandidateOnly))
+		ui.Info("Unresolved", fmt.Sprintf("%d", report.Unresolved))
+		ui.Info("Weak", fmt.Sprintf("%d", report.Weak))
+		ui.Info("Conflicts", fmt.Sprintf("%d", report.Conflicts))
+		ui.Info("Possible dupes", fmt.Sprintf("%d", len(report.PotentialDupes)))
+		ui.Info("Strong bridges", fmt.Sprintf("%d", report.StrongBridges))
+		return nil
+	}}
+	command.Flags().StringVar(&entityID, "id", "", "Canonical artist entity ID")
+	_ = command.MarkFlagRequired("id")
 	return command
 }
 func newArtistIngestCommand() *cobra.Command {

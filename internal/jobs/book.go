@@ -15,9 +15,11 @@ import (
 const BookIngestKind = "book_ingest_v1"
 
 type BookIngestArgs struct {
-	OpenLibraryWorkID string `json:"openlibrary_work_id" river:"unique"`
-	CredentialRef     string `json:"credential_ref,omitempty"`
-	Reason            string `json:"reason,omitempty"`
+	OpenLibraryWorkID    string `json:"openlibrary_work_id" river:"unique"`
+	OpenLibraryEditionID string `json:"openlibrary_edition_id,omitempty" river:"unique"`
+	EntityKind           string `json:"entity_kind" river:"unique"`
+	CredentialRef        string `json:"credential_ref,omitempty"`
+	Reason               string `json:"reason,omitempty"`
 }
 
 func (BookIngestArgs) Kind() string { return BookIngestKind }
@@ -25,6 +27,9 @@ func (BookIngestArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{MaxAttempts: 5, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
 }
 func InsertBook(ctx context.Context, runtime *platform.Runtime, client *river.Client[pgx.Tx], args BookIngestArgs, priority int) (*rivertype.JobInsertResult, error) {
+	if args.EntityKind == "" {
+		args.EntityKind = books.KindBook
+	}
 	inserted, err := client.Insert(ctx, args, &river.InsertOpts{Priority: priority})
 	if err != nil {
 		return nil, err
@@ -50,7 +55,11 @@ func (w *BookIngestWorker) Work(ctx context.Context, job *river.Job[BookIngestAr
 	if err != nil {
 		return river.JobCancel(err)
 	}
-	_, err = w.service.IngestWork(ctx, job.Args.OpenLibraryWorkID, job.ID, credentials)
+	kind := job.Args.EntityKind
+	if kind == "" {
+		kind = books.KindBook
+	}
+	_, err = w.service.IngestWorkEditionAs(ctx, job.Args.OpenLibraryWorkID, job.Args.OpenLibraryEditionID, kind, job.ID, credentials)
 	if err == nil {
 		_ = providercredentials.Delete(context.WithoutCancel(ctx), w.runtime.Redis, job.Args.CredentialRef)
 		return nil

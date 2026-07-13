@@ -14,6 +14,7 @@ import (
 const (
 	RecordingEvidenceRefreshKind = "recording_evidence_refresh_v1"
 	BackgroundQueue              = "background"
+	CatalogQueue                 = "catalog"
 )
 
 type RecordingEvidenceRefreshArgs struct {

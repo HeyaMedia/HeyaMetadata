@@ -13,14 +13,14 @@
       "description": "Display, sort, legal, credited, translated, native-script, search-hint, and historical names retain locale and type.",
       "providers": ["musicbrainz", "discogs", "wikidata", "apple", "deezer", "lastfm"],
       "projection": {"document": "detail", "path": "data.names"},
-      "references": [{"name": "Björk", "external_ids": {"musicbrainz": "87e748f1-49d8-47d5-8e9a-66f7d9705886"}, "expected_providers": ["musicbrainz"]}]
+      "references": [{"name": "Björk", "external_ids": {"musicbrainz": "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"}, "expected_providers": ["musicbrainz"]}]
     },
     {
       "id": "music.artist.classification.type_gender", "kind": "artist", "category": "fact",
       "description": "Person, group, orchestra, choir, character, and other source types remain distinct; gender is retained only when supplied.",
       "providers": ["musicbrainz", "wikidata"],
       "projection": {"document": "detail", "path": "data.classification"},
-      "references": [{"name": "Björk", "external_ids": {"musicbrainz": "87e748f1-49d8-47d5-8e9a-66f7d9705886"}, "expected_providers": ["musicbrainz"]}]
+      "references": [{"name": "Björk", "external_ids": {"musicbrainz": "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"}, "expected_providers": ["musicbrainz"]}]
     },
     {
       "id": "music.artist.lifecycle", "kind": "artist", "category": "fact",
@@ -62,7 +62,7 @@
       "description": "Portrait, fanart, logo, background, and provider avatar candidates receive opaque IDs and retain provenance.",
       "providers": ["wikidata", "discogs", "deezer", "fanart", "lastfm", "apple"],
       "projection": {"document": "detail", "path": "data.images"},
-      "references": [{"name": "Björk", "external_ids": {"musicbrainz": "87e748f1-49d8-47d5-8e9a-66f7d9705886"}, "expected_providers": ["deezer", "wikidata"]}]
+      "references": [{"name": "Björk", "external_ids": {"musicbrainz": "87c5dedd-371d-4a53-9f7f-80522fb7f3cb"}, "expected_providers": ["deezer", "wikidata"]}]
     },
     {
       "id": "music.artist.popularity", "kind": "artist", "category": "fact",
@@ -79,6 +79,13 @@
       "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"}, "expected_providers": ["discogs"]}]
     },
     {
+      "id": "music.artist.discography.mixed", "kind": "artist", "category": "relationship",
+      "description": "Artist discographies cluster release-group evidence across scripts and storefront editions; MusicBrainz or validated Discogs evidence anchors public results, storefront-only agreement remains quarantined unless barcode, ISRC, ordered-track, or bounded Chromaprint coverage connects it to an anchor, and Last.fm can corroborate but never create a release.",
+      "providers": ["musicbrainz", "discogs", "apple", "deezer", "lastfm"],
+      "projection": {"document": "relations", "path": "discography"},
+      "references": [{"name": "ano", "external_ids": {"musicbrainz": "ebb4513e-4aab-4ac9-a949-14e77bb7b836"}, "expected_providers": ["musicbrainz", "discogs", "apple"]}]
+    },
+    {
       "id": "music.artist.similar", "kind": "artist", "category": "relationship",
       "description": "Similar-artist recommendations retain provider target identity and score and never imply canonical equivalence.",
       "providers": ["lastfm"],
@@ -90,21 +97,21 @@
       "description": "The abstract album/single/EP concept remains distinct from issued releases and provider catalog albums.",
       "providers": ["system", "musicbrainz"],
       "projection": {"document": "detail", "path": "kind"},
-      "references": [{"name": "Abbey Road", "external_ids": {"musicbrainz": "ecf29693-10a1-3617-8e81-9f55d7b3d1bb"}, "expected_providers": ["system"]}]
+      "references": [{"name": "Abbey Road", "external_ids": {"musicbrainz": "9162580e-5df4-32de-80cc-f45a8d8a9b1d"}, "expected_providers": ["system"]}]
     },
     {
       "id": "music.release.boundary", "kind": "release", "category": "capability",
       "description": "Country/date/label/barcode/catalog-number/format editions remain distinct beneath a release group.",
       "providers": ["system", "musicbrainz", "discogs", "apple", "deezer"],
       "projection": {"document": "detail", "path": "kind"},
-      "references": [{"name": "Abbey Road UK LP", "external_ids": {"musicbrainz": "a46b3a41-9f63-3d8f-b6b1-a2b2b0d8b2e1"}, "expected_providers": ["system"]}]
+      "references": [{"name": "Abbey Road UK LP", "external_ids": {"musicbrainz": "31765b9f-e969-4257-855f-c7ea1f657b2a"}, "expected_providers": ["system"]}]
     },
     {
       "id": "music.recording_track.boundary", "kind": "recording", "category": "capability",
       "description": "A captured recording remains distinct from every release-track placement and provider song object.",
       "providers": ["system", "musicbrainz", "apple", "deezer"],
       "projection": {"document": "detail", "path": "kind"},
-      "references": [{"name": "Come Together", "external_ids": {"musicbrainz": "9edb3d47-4f3f-4f5f-8f2e-73f78b0d0d32"}, "expected_providers": ["system"]}]
+      "references": [{"name": "Come Together", "external_ids": {"musicbrainz": "485bbe7f-d0f7-4ffe-8adb-0f1093dd2dbf"}, "expected_providers": ["system"]}]
     },
     {
       "id": "music.recording.discovery_standalone", "kind": "recording", "category": "capability",
@@ -118,14 +125,14 @@
       "description": "Verified provider previews produce versioned raw Chromaprint evidence without retaining preview audio or signed URLs.",
       "providers": ["apple", "deezer"],
       "projection": {"document": "fingerprints", "path": "items"},
-      "references": [{"name": "Come Together", "external_ids": {"musicbrainz": "9edb3d47-4f3f-4f5f-8f2e-73f78b0d0d32"}, "expected_providers": ["apple", "deezer"]}]
+      "references": [{"name": "Come Together", "external_ids": {"musicbrainz": "485bbe7f-d0f7-4ffe-8adb-0f1093dd2dbf"}, "expected_providers": ["deezer"]}]
     },
     {
       "id": "music.recording.lyrics.lrclib", "kind": "recording", "category": "fact",
       "description": "Plain, synchronized, and instrumental LRCLIB evidence retains its record ID, response observation, checksum, and retrieval time.",
       "providers": ["lrclib"],
       "projection": {"document": "lyrics", "path": "items"},
-      "references": [{"name": "Fuhen", "external_ids": {"musicbrainz": "recording"}, "expected_providers": ["lrclib"]}]
+      "references": [{"name": "Come Together", "external_ids": {"musicbrainz": "485bbe7f-d0f7-4ffe-8adb-0f1093dd2dbf"}, "expected_providers": ["lrclib"]}]
     },
     {
       "id": "music.recording.fingerprint.client_match", "kind": "recording", "category": "capability",

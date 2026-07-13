@@ -35,8 +35,8 @@ type openLibrarySearch struct {
 
 func (s *Service) DiscoverBook(ctx context.Context, request Request, jobID int64) (Result, error) {
 	request = NormalizeRequest(request)
-	if request.Kind != KindBookWork || request.Query == "" {
-		return Result{}, fmt.Errorf("book discovery requires kind book_work and a query")
+	if request.Kind != KindBookWork && request.Kind != KindMangaVolume && request.Kind != KindComicVolume || request.Query == "" {
+		return Result{}, fmt.Errorf("publication discovery requires kind book_work, manga_volume, or comic_volume and a query")
 	}
 	base := openlibrary.New(s.runtime.Config.Providers.OpenLibrary)
 	resolver, err := providercache.New(s.runtime, "openlibrary-book-discovery/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
@@ -56,11 +56,14 @@ func (s *Service) DiscoverBook(ctx context.Context, request Request, jobID int64
 	}
 	candidates := []Candidate{}
 	for index, value := range source.Docs {
+		if !publicationSubjectsMatch(request.Kind, value.Subject) {
+			continue
+		}
 		key := strings.ToUpper(strings.TrimPrefix(value.Key, "/works/"))
 		if key == "" || value.Title == "" {
 			continue
 		}
-		c := Candidate{ProviderScore: max(1, 100-index*3), Identity: ExternalID{Provider: "openlibrary", Namespace: "work", Value: key}, Display: Display{Title: value.Title, Year: value.FirstPublishYear, Authors: value.AuthorName, EditionCount: value.EditionCount, ISBNs: value.ISBN, Languages: value.Language}, Resolution: Resolution{Kind: KindBookWork, Provider: "openlibrary", Namespace: "work", Value: key}}
+		c := Candidate{ProviderScore: max(1, 100-index*3), Identity: ExternalID{Provider: "openlibrary", Namespace: "work", Value: key}, Display: Display{Title: value.Title, Type: request.Kind, Year: value.FirstPublishYear, Authors: value.AuthorName, EditionCount: value.EditionCount, ISBNs: value.ISBN, Languages: value.Language}, Resolution: Resolution{Kind: request.Kind, Provider: "openlibrary", Namespace: "work", Value: key}}
 		if len(c.Display.ISBNs) > 20 {
 			c.Display.ISBNs = c.Display.ISBNs[:20]
 		}
@@ -69,7 +72,7 @@ func (s *Service) DiscoverBook(ctx context.Context, request Request, jobID int64
 		}
 		scoreBook(request, &c)
 		var id string
-		err = s.runtime.DB.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind='book_work'AND provider='openlibrary'AND namespace='work'AND normalized_value=$1 AND state='accepted'`, key).Scan(&id)
+		err = s.runtime.DB.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind=$1 AND provider='openlibrary'AND namespace='work'AND normalized_value=$2 AND state='accepted'`, request.Kind, key).Scan(&id)
 		if err == nil {
 			c.ExistingEntityID = id
 		} else if err != pgx.ErrNoRows {
@@ -84,7 +87,28 @@ func (s *Service) DiscoverBook(ctx context.Context, request Request, jobID int64
 	for i := range candidates {
 		candidates[i].Rank = i + 1
 	}
-	return Result{SchemaVersion: SchemaVersion, Kind: KindBookWork, Query: request.Query, Status: "completed", Recommendation: recommendation(candidates), Candidates: candidates, Providers: []string{"openlibrary"}, ObservedAt: time.Now().UTC()}, nil
+	return Result{SchemaVersion: SchemaVersion, Kind: request.Kind, Query: request.Query, Status: "completed", Recommendation: recommendation(candidates), Candidates: candidates, Providers: []string{"openlibrary"}, ObservedAt: time.Now().UTC()}, nil
+}
+
+func publicationSubjectsMatch(kind string, subjects []string) bool {
+	if kind == KindBookWork {
+		return true
+	}
+	manga := false
+	comic := false
+	for _, subject := range subjects {
+		value := strings.ToLower(subject)
+		if strings.Contains(value, "manga") || strings.Contains(value, "manhwa") || strings.Contains(value, "manhua") {
+			manga = true
+		}
+		if strings.Contains(value, "comic") || strings.Contains(value, "graphic novel") || strings.Contains(value, "sequential art") {
+			comic = true
+		}
+	}
+	if kind == KindMangaVolume {
+		return manga
+	}
+	return comic && !manga
 }
 func scoreBook(r Request, c *Candidate) {
 	score := float64(c.ProviderScore) / 100 * .15

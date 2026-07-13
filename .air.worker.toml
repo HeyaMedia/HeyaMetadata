@@ -4,9 +4,16 @@ tmp_dir = ".worker"
 [build]
   # The API Air process owns compilation. This watcher only restarts the
   # separate worker process when that one shared binary is atomically replaced.
-  cmd = "/usr/bin/true"
+  # mprocs starts all panes concurrently. On a clean tree the API has not
+  # produced the shared binary yet, so keep Air's initial build phase alive
+  # until it exists; otherwise Air exits its runner before there is anything
+  # useful to watch and background jobs silently remain offline.
+  cmd = "while [ ! -x heya-metadata ]; do sleep 0.1; done"
   entrypoint = ["./heya-metadata", "worker"]
-  include_file = ["heya-metadata"]
+  # Go replaces binaries atomically, which does not reliably produce a file
+  # event for every watcher. The API build touches this marker only after a
+  # successful shared-binary build, giving the worker a deterministic restart.
+  include_file = ["heya-metadata", "heya-metadata.worker-reload"]
   include_ext = ["*"]
   exclude_dir = [".worker"]
   delay = 250

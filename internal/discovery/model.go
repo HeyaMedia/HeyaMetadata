@@ -13,7 +13,11 @@ const (
 	KindArtist       = "artist"
 	KindReleaseGroup = "release_group"
 	KindRecording    = "recording"
+	KindMusicalWork  = "musical_work"
 	KindBookWork     = "book_work"
+	KindManga        = "manga"
+	KindMangaVolume  = "manga_volume"
+	KindComicVolume  = "comic_volume"
 )
 
 type Request struct {
@@ -35,6 +39,9 @@ type Hints struct {
 	Aliases       []string      `json:"aliases,omitempty"`
 	Artists       []string      `json:"artists,omitempty"`
 	ArtistIDs     []string      `json:"artist_ids,omitempty"`
+	Composers     []string      `json:"composers,omitempty"`
+	ComposerIDs   []string      `json:"composer_ids,omitempty"`
+	Catalogue     string        `json:"catalogue,omitempty"`
 	Tracks        []string      `json:"tracks,omitempty"`
 	Network       string        `json:"network,omitempty"`
 	Status        string        `json:"status,omitempty"`
@@ -103,6 +110,7 @@ type Display struct {
 	Authors        []string        `json:"authors,omitempty"`
 	EditionCount   int             `json:"edition_count,omitempty"`
 	ISBNs          []string        `json:"isbns,omitempty"`
+	Catalogue      string          `json:"catalogue,omitempty"`
 }
 type ArtistDisplay struct {
 	ID   string `json:"id,omitempty"`

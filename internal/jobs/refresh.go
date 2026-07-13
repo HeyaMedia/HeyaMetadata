@@ -209,6 +209,31 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 		}
 		_, _ = w.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET current_job_id=$3 WHERE entity_id=$1 AND provider=$2`, item.entityID, "musicbrainz", inserted.Job.ID)
 	}
+	musicalWorkRows, err := w.runtime.DB.Query(ctx, `SELECT claims.normalized_value,refresh.entity_id FROM provider_refresh_states refresh JOIN external_id_claims claims ON claims.entity_id=refresh.entity_id LEFT JOIN entity_access_stats stats ON stats.entity_id=refresh.entity_id WHERE refresh.provider='openopus' AND refresh.next_eligible_at<=now() AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN('available','pending','retryable','running','scheduled')) AND claims.entity_kind='musical_work' AND claims.provider='openopus' AND claims.namespace='work' AND claims.state='accepted' ORDER BY COALESCE(stats.decayed_score*exp(-EXTRACT(EPOCH FROM(now()-stats.score_updated_at))/604800.0),0) DESC,refresh.next_eligible_at LIMIT 500`)
+	if err != nil {
+		return fmt.Errorf("select adaptive musical-work refreshes: %w", err)
+	}
+	var musicalWorks []dueReleaseGroup
+	for musicalWorkRows.Next() {
+		var item dueReleaseGroup
+		if err := musicalWorkRows.Scan(&item.mbid, &item.entityID); err != nil {
+			musicalWorkRows.Close()
+			return err
+		}
+		musicalWorks = append(musicalWorks, item)
+	}
+	if err := musicalWorkRows.Err(); err != nil {
+		musicalWorkRows.Close()
+		return err
+	}
+	musicalWorkRows.Close()
+	for _, item := range musicalWorks {
+		inserted, err := InsertMusicalWork(ctx, w.runtime, client, MusicalWorkIngestArgs{OpenOpusWorkID: item.mbid, Reason: "adaptive_refresh"}, PriorityScheduled)
+		if err != nil {
+			return err
+		}
+		_, _ = w.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET current_job_id=$3 WHERE entity_id=$1 AND provider=$2`, item.entityID, "openopus", inserted.Job.ID)
+	}
 	recordingRows, err := w.runtime.DB.Query(ctx, `SELECT refresh.entity_id FROM provider_refresh_states refresh LEFT JOIN entity_access_stats stats ON stats.entity_id=refresh.entity_id WHERE refresh.provider='lrclib' AND refresh.next_eligible_at<=now() AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN('available','pending','retryable','running','scheduled')) ORDER BY COALESCE(stats.decayed_score*exp(-EXTRACT(EPOCH FROM(now()-stats.score_updated_at))/604800.0),0) DESC,refresh.next_eligible_at LIMIT 200`)
 	if err != nil {
 		return fmt.Errorf("select recording evidence refreshes: %w", err)
@@ -274,6 +299,46 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 			return err
 		}
 		_, _ = w.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET current_job_id=$3 WHERE entity_id=$1 AND provider=$2`, item.entityID, "anidb", inserted.Job.ID)
+	}
+	personRows, err := w.runtime.DB.Query(ctx, `SELECT refresh.provider,claims.normalized_value,refresh.entity_id FROM provider_refresh_states refresh JOIN external_id_claims claims ON claims.entity_id=refresh.entity_id AND claims.provider=refresh.provider LEFT JOIN entity_access_stats stats ON stats.entity_id=refresh.entity_id WHERE refresh.provider IN('tmdb','tvmaze','tvdb') AND refresh.next_eligible_at<=now() AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN('available','pending','retryable','running','scheduled')) AND claims.entity_kind='person' AND claims.namespace='person' AND claims.state='accepted' ORDER BY COALESCE(stats.decayed_score*exp(-EXTRACT(EPOCH FROM(now()-stats.score_updated_at))/604800.0),0)DESC,refresh.next_eligible_at LIMIT 600`)
+	if err != nil {
+		return err
+	}
+	type duePerson struct {
+		entityID string
+		ids      map[string]string
+	}
+	peopleByID := map[string]*duePerson{}
+	var people []*duePerson
+	for personRows.Next() {
+		var provider, value, entityID string
+		if err := personRows.Scan(&provider, &value, &entityID); err != nil {
+			personRows.Close()
+			return err
+		}
+		item := peopleByID[entityID]
+		if item == nil {
+			item = &duePerson{entityID: entityID, ids: map[string]string{}}
+			peopleByID[entityID] = item
+			people = append(people, item)
+		}
+		item.ids[provider] = value
+	}
+	if err := personRows.Err(); err != nil {
+		personRows.Close()
+		return err
+	}
+	personRows.Close()
+	for _, item := range people {
+		inserted, err := InsertPersonEnrich(ctx, w.runtime, client, PersonEnrichArgs{EntityID: item.entityID, TMDBID: item.ids["tmdb"], TVMazeID: item.ids["tvmaze"], TVDBID: item.ids["tvdb"], Reason: "adaptive_refresh"}, PriorityScheduled)
+		if err != nil {
+			return err
+		}
+		providers := make([]string, 0, len(item.ids))
+		for provider := range item.ids {
+			providers = append(providers, provider)
+		}
+		_, _ = w.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET current_job_id=$2 WHERE entity_id=$1 AND provider=ANY($3)`, item.entityID, inserted.Job.ID, providers)
 	}
 	return nil
 }

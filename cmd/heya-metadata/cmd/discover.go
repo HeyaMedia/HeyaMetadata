@@ -19,9 +19,25 @@ func newDiscoverCommand() *cobra.Command {
 	command.AddCommand(newDiscoverMovieCommand())
 	command.AddCommand(newDiscoverReleaseGroupCommand())
 	command.AddCommand(newDiscoverRecordingCommand())
+	command.AddCommand(newDiscoverMusicalWorkCommand())
 	command.AddCommand(newDiscoverTVCommand())
 	command.AddCommand(newDiscoverAnimeCommand())
 	command.AddCommand(newDiscoverBookCommand())
+	return command
+}
+
+func newDiscoverMusicalWorkCommand() *cobra.Command {
+	var query, catalogue string
+	var composers, composerIDs []string
+	var limit int
+	var wait time.Duration
+	command := &cobra.Command{Use: "musical-work", Short: "Discover Open Opus composed works with structured hints", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		return runDiscovery(cmd, discovery.Request{Kind: discovery.KindMusicalWork, Query: query, Limit: limit, Hints: discovery.Hints{Composers: composers, ComposerIDs: composerIDs, Catalogue: catalogue}}, wait, providercredentials.Credentials{})
+	}}
+	command.Flags().StringSliceVar(&composers, "composer", nil, "Known composer name; repeat or comma-separate")
+	command.Flags().StringSliceVar(&composerIDs, "composer-openopus", nil, "Known Open Opus composer ID; repeat or comma-separate")
+	command.Flags().StringVar(&catalogue, "catalogue", "", "Known catalogue reference, e.g. op. 67 or BWV 1007")
+	addDiscoveryCommonFlags(command, &query, &limit, &wait)
 	return command
 }
 

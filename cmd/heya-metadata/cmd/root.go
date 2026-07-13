@@ -78,12 +78,15 @@ func init() {
 	rootCmd.AddCommand(newReleaseGroupCommand())
 	rootCmd.AddCommand(newReleaseCommand())
 	rootCmd.AddCommand(newRecordingCommand())
+	rootCmd.AddCommand(newMusicalWorkCommand())
+	rootCmd.AddCommand(newPersonCommand())
 	rootCmd.AddCommand(newBookCommand())
 	rootCmd.AddCommand(newRetentionCommand())
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newOpenAPICommand())
 	rootCmd.AddCommand(newProviderCommand())
 	rootCmd.AddCommand(newDiscoverCommand())
+	rootCmd.AddCommand(newCoverageCommand())
 }
 
 func configureLogger(levelName, format string) error {

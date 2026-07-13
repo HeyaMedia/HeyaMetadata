@@ -349,10 +349,18 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 		}
 	}
 	var version int64
-	if err := tx.QueryRow(ctx, `UPDATE entities SET canonical_version=canonical_version+1,updated_at=now() WHERE id=$1 RETURNING canonical_version`, entityID).Scan(&version); err != nil {
+	if err := tx.QueryRow(ctx, `UPDATE entities SET canonical_version=canonical_version+1,updated_at=now(),deleted_at=NULL WHERE id=$1 RETURNING canonical_version`, entityID).Scan(&version); err != nil {
 		return Result{}, err
 	}
 	projection := rgdomain.Combine(entityID, slug, version, records, imageIDs, time.Now().UTC())
+	for i := range projection.Detail.Data.Tracks {
+		track := &projection.Detail.Data.Tracks[i]
+		provider, namespace, value := track.Provider, "track", track.ProviderID
+		if track.RecordingProvider != "" && track.RecordingID != "" {
+			provider, namespace, value = track.RecordingProvider, "recording", track.RecordingID
+		}
+		_ = tx.QueryRow(ctx, `SELECT entity_id::text FROM external_id_claims WHERE entity_kind='recording' AND provider=$1 AND namespace=$2 AND normalized_value=$3 AND state='accepted' LIMIT 1`, provider, namespace, strings.ToLower(value)).Scan(&track.RecordingEntityID)
+	}
 	detailJSON, _ := json.Marshal(projection.Detail)
 	summaryJSON, _ := json.Marshal(projection.Summary)
 	provenanceJSON, _ := json.Marshal(projection.Detail.Provenance)
@@ -376,6 +384,26 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO search_entities (entity_id,kind,slug,display_title,release_year,status,genres,countries,languages,summary,projection_version) VALUES ($1,'release_group',$2,$3,NULLIF($4,0),$5,$6,'{}','{}',$7,$8) ON CONFLICT (entity_id) DO UPDATE SET slug=EXCLUDED.slug,display_title=EXCLUDED.display_title,release_year=EXCLUDED.release_year,status=EXCLUDED.status,genres=EXCLUDED.genres,summary=EXCLUDED.summary,projection_version=EXCLUDED.projection_version,updated_at=now()`, entityID, slug, projection.Detail.Display.Title, projection.Detail.Display.Year, projection.Detail.Data.Classification.PrimaryType, genres, summaryJSON, version); err != nil {
 		return Result{}, err
+	}
+	for _, input := range records {
+		for _, edition := range input.Record.Editions {
+			if edition.Provider == "" || edition.Namespace == "" || edition.ProviderID == "" {
+				continue
+			}
+			metadata, _ := json.Marshal(map[string]any{
+				"title": edition.Title, "status": edition.Status, "date": edition.Date,
+				"country": edition.Country, "barcode": edition.Barcode,
+				"track_count": edition.TrackCount, "formats": edition.Formats,
+			})
+			if _, err := tx.Exec(ctx, `INSERT INTO entity_relations(source_entity_id,source_kind,target_kind,relation_type,provider,namespace,provider_value,metadata,state,source_observation_id,first_observed_at,last_observed_at) VALUES($1,'release_group','release','editions',$2,$3,$4,$5,'accepted',$6,$7,$7) ON CONFLICT(source_entity_id,relation_type,provider,namespace,provider_value) DO UPDATE SET metadata=EXCLUDED.metadata,state='accepted',source_observation_id=EXCLUDED.source_observation_id,last_observed_at=EXCLUDED.last_observed_at`, entityID, edition.Provider, edition.Namespace, edition.ProviderID, metadata, input.Record.ProviderRecord.PrimaryObservationID, input.Record.ProviderRecord.ObservedAt); err != nil {
+				return Result{}, fmt.Errorf("persist release edition relation: %w", err)
+			}
+		}
+	}
+	for _, candidate := range candidates {
+		if _, err := tx.Exec(ctx, `UPDATE entity_relations SET target_entity_id=$1 WHERE target_kind='release_group' AND provider=$2 AND namespace=$3 AND provider_value=$4 AND state='accepted'`, entityID, candidate.Provider, candidate.Namespace, candidate.NormalizedValue); err != nil {
+			return Result{}, fmt.Errorf("link release group relations: %w", err)
+		}
 	}
 	_, _ = tx.Exec(ctx, `DELETE FROM search_names WHERE entity_id=$1`, entityID)
 	for _, title := range projection.SearchTitles {
@@ -415,6 +443,7 @@ func (s *Service) Detail(ctx context.Context, id string) (rgdomain.DetailDocumen
 	if body, err := s.runtime.Redis.Get(ctx, key).Bytes(); err == nil {
 		var document rgdomain.DetailDocument
 		if json.Unmarshal(body, &document) == nil && document.Kind == "release_group" {
+			s.hydrateRecordingIDs(ctx, &document)
 			return document, time.Now().Before(document.Freshness.FreshUntil), nil
 		}
 	}
@@ -429,7 +458,22 @@ func (s *Service) Detail(ctx context.Context, id string) (rgdomain.DetailDocumen
 	if err := json.Unmarshal(body, &document); err != nil {
 		return document, false, err
 	}
+	s.hydrateRecordingIDs(ctx, &document)
 	return document, time.Now().Before(fresh), nil
+}
+
+func (s *Service) hydrateRecordingIDs(ctx context.Context, document *rgdomain.DetailDocument) {
+	for i := range document.Data.Tracks {
+		track := &document.Data.Tracks[i]
+		if track.RecordingEntityID != "" {
+			continue
+		}
+		provider, namespace, value := track.Provider, "track", track.ProviderID
+		if track.RecordingProvider != "" && track.RecordingID != "" {
+			provider, namespace, value = track.RecordingProvider, "recording", track.RecordingID
+		}
+		_ = s.runtime.DB.QueryRow(ctx, `SELECT entity_id::text FROM external_id_claims WHERE entity_kind='recording' AND provider=$1 AND namespace=$2 AND normalized_value=$3 AND state='accepted' LIMIT 1`, provider, namespace, strings.ToLower(value)).Scan(&track.RecordingEntityID)
+	}
 }
 func (s *Service) Resolve(ctx context.Context, provider, namespace, value string) (string, error) {
 	provider = strings.ToLower(provider)

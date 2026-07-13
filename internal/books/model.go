@@ -26,6 +26,10 @@ type Image struct {
 	Width    int    `json:"width,omitempty"`
 	Height   int    `json:"height,omitempty"`
 }
+type PublicationClassification struct {
+	Medium string `json:"medium" enum:"book,manga,comic"`
+	Scope  string `json:"scope" enum:"work"`
+}
 type EditionSummary struct {
 	ID            string   `json:"id"`
 	Title         string   `json:"title"`
@@ -55,22 +59,23 @@ type Document struct {
 	} `json:"display"`
 	ExternalIDs []ExternalID `json:"external_ids"`
 	Data        struct {
-		Subtitle         string           `json:"subtitle,omitempty"`
-		Description      string           `json:"description,omitempty"`
-		Authors          []Author         `json:"authors,omitempty"`
-		Subjects         []string         `json:"subjects,omitempty"`
-		Languages        []string         `json:"languages,omitempty"`
-		FirstPublishYear int              `json:"first_publish_year,omitempty"`
-		PublishedDate    string           `json:"published_date,omitempty"`
-		Publishers       []string         `json:"publishers,omitempty"`
-		ISBN10           []string         `json:"isbn_10,omitempty"`
-		ISBN13           []string         `json:"isbn_13,omitempty"`
-		Format           string           `json:"format,omitempty"`
-		PageCount        int              `json:"page_count,omitempty"`
-		Ratings          []Rating         `json:"ratings,omitempty"`
-		Editions         []EditionSummary `json:"editions,omitempty"`
-		Images           []Image          `json:"images,omitempty"`
-		WorkID           string           `json:"work_id,omitempty"`
+		Publication      PublicationClassification `json:"publication"`
+		Subtitle         string                    `json:"subtitle,omitempty"`
+		Description      string                    `json:"description,omitempty"`
+		Authors          []Author                  `json:"authors,omitempty"`
+		Subjects         []string                  `json:"subjects,omitempty"`
+		Languages        []string                  `json:"languages,omitempty"`
+		FirstPublishYear int                       `json:"first_publish_year,omitempty"`
+		PublishedDate    string                    `json:"published_date,omitempty"`
+		Publishers       []string                  `json:"publishers,omitempty"`
+		ISBN10           []string                  `json:"isbn_10,omitempty"`
+		ISBN13           []string                  `json:"isbn_13,omitempty"`
+		Format           string                    `json:"format,omitempty"`
+		PageCount        int                       `json:"page_count,omitempty"`
+		Ratings          []Rating                  `json:"ratings,omitempty"`
+		Editions         []EditionSummary          `json:"editions,omitempty"`
+		Images           []Image                   `json:"images,omitempty"`
+		WorkID           string                    `json:"work_id,omitempty"`
 	} `json:"data"`
 	Freshness  Freshness              `json:"freshness"`
 	Provenance map[string][]SourceRef `json:"provenance"`

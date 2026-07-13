@@ -41,11 +41,16 @@ func newServer(version string, checker ReadinessChecker, runtime *platform.Runti
 
 	api := humago.New(mux, config)
 	registerHealth(api, version, checker)
+	registerAuth(api, runtime)
 	registerMovies(api, runtime)
 	registerImages(api, runtime)
 	registerDiscovery(api, runtime)
 	registerEpisodic(api, runtime)
+	registerPublications(api, runtime)
 	registerReleases(api, runtime)
+	registerLibrary(api, runtime)
+	registerRelations(api, runtime)
+	registerPersons(api, runtime)
 
 	return &Server{handler: mux, api: api}
 }

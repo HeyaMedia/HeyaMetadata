@@ -21,6 +21,9 @@ var booksCatalogJSON []byte
 //go:embed tv.json
 var tvCatalogJSON []byte
 
+//go:embed people.json
+var peopleCatalogJSON []byte
+
 // Catalog is a versioned collection of semantic metadata requirements.
 type Catalog struct {
 	SchemaVersion int     `json:"schema_version"`
@@ -49,6 +52,7 @@ type Projection struct {
 // that are theoretically able to supply the fact.
 type Reference struct {
 	Name              string            `json:"name"`
+	EntityKind        string            `json:"reference_kind,omitempty"`
 	ExternalIDs       map[string]string `json:"external_ids"`
 	ExpectedProviders []string          `json:"expected_providers"`
 }
@@ -91,6 +95,16 @@ func TV() (Catalog, error) {
 	var catalog Catalog
 	if err := json.Unmarshal(tvCatalogJSON, &catalog); err != nil {
 		return Catalog{}, fmt.Errorf("decode TV coverage catalog: %w", err)
+	}
+	if err := catalog.Validate(); err != nil {
+		return Catalog{}, err
+	}
+	return catalog, nil
+}
+func People() (Catalog, error) {
+	var catalog Catalog
+	if err := json.Unmarshal(peopleCatalogJSON, &catalog); err != nil {
+		return Catalog{}, fmt.Errorf("decode people coverage catalog: %w", err)
 	}
 	if err := catalog.Validate(); err != nil {
 		return Catalog{}, err

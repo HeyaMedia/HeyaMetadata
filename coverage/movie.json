@@ -34,7 +34,7 @@
       "category": "fact",
       "description": "Alternative and regional names are searchable and retain source metadata.",
       "providers": ["tmdb", "tvdb"],
-      "projection": {"document": "detail", "path": "data.aliases"},
+      "projection": {"document": "detail", "path": "data.titles"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -61,7 +61,7 @@
       "category": "fact",
       "description": "Animation classification is retained without changing the canonical movie boundary.",
       "providers": ["tmdb", "tvdb"],
-      "projection": {"document": "detail", "path": "data.attributes"},
+      "projection": {"document": "detail", "path": "data.classification.animation_evidence"},
       "references": [{"name": "Spirited Away", "external_ids": {"tmdb": "129"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -70,7 +70,7 @@
       "category": "fact",
       "description": "Provider genres remain available as normalized, provenance-bearing classifications.",
       "providers": ["tmdb", "tvdb"],
-      "projection": {"document": "detail", "path": "data.genres"},
+      "projection": {"document": "detail", "path": "data.classification.genres"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -79,7 +79,7 @@
       "category": "fact",
       "description": "Tags and keywords remain distinguishable and retain provider identifiers when supplied.",
       "providers": ["tmdb", "tvdb"],
-      "projection": {"document": "detail", "path": "data.keywords"},
+      "projection": {"document": "detail", "path": "data.classification.keywords"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -88,7 +88,7 @@
       "category": "fact",
       "description": "Origin countries, original language, and spoken languages are exposed independently.",
       "providers": ["tmdb", "tvdb"],
-      "projection": {"document": "detail", "path": "data.languages"},
+      "projection": {"document": "detail", "path": "data.classification.spoken_languages"},
       "references": [{"name": "Spirited Away", "external_ids": {"tmdb": "129"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -97,7 +97,7 @@
       "category": "fact",
       "description": "The selected tagline retains its source and locale where known.",
       "providers": ["tmdb"],
-      "projection": {"document": "detail", "path": "data.tagline"},
+      "projection": {"document": "detail", "path": "data.taglines"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -106,7 +106,7 @@
       "category": "fact",
       "description": "A preferred overview is selected deterministically with fallback and provenance.",
       "providers": ["tmdb", "omdb"],
-      "projection": {"document": "detail", "path": "data.overview"},
+      "projection": {"document": "detail", "path": "data.overviews"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603", "imdb": "tt0133093"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -133,7 +133,7 @@
       "category": "fact",
       "description": "Regional theatrical, digital, physical, festival, and premiere dates are retained as typed events.",
       "providers": ["tmdb", "tvdb"],
-      "projection": {"document": "detail", "path": "data.release.events"},
+      "projection": {"document": "detail", "path": "data.release.release_events"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -142,7 +142,7 @@
       "category": "fact",
       "description": "Content certifications are keyed by country and associated release event where possible.",
       "providers": ["tmdb", "tvdb"],
-      "projection": {"document": "detail", "path": "data.certifications"},
+      "projection": {"document": "detail", "path": "data.release.release_events"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -151,7 +151,7 @@
       "category": "fact",
       "description": "Normalized and raw lifecycle status are available with provenance.",
       "providers": ["tmdb", "tvdb"],
-      "projection": {"document": "detail", "path": "data.status"},
+      "projection": {"document": "detail", "path": "data.release.normalized_status"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -160,7 +160,7 @@
       "category": "fact",
       "description": "Runtime is exposed in minutes with its provider provenance.",
       "providers": ["tmdb", "tvdb", "omdb"],
-      "projection": {"document": "detail", "path": "data.runtime_minutes"},
+      "projection": {"document": "detail", "path": "data.measurements.runtime_minutes"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -169,7 +169,7 @@
       "category": "fact",
       "description": "Budget and revenue preserve amount, currency assumption, source, and unknown-versus-zero semantics.",
       "providers": ["tmdb"],
-      "projection": {"document": "detail", "path": "data.financials"},
+      "projection": {"document": "detail", "path": "data.measurements"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -178,7 +178,7 @@
       "category": "fact",
       "description": "Provider popularity signals retain provider-specific meaning and are not mislabeled as ratings.",
       "providers": ["tmdb", "tvdb"],
-      "projection": {"document": "detail", "path": "data.popularity"},
+      "projection": {"document": "detail", "path": "data.measurements.popularity"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -205,7 +205,7 @@
       "category": "relationship",
       "description": "Ordered cast credits point to canonical people when resolved and never merge people by name alone.",
       "providers": ["tmdb", "tvdb"],
-      "projection": {"document": "detail", "path": "data.credits.cast"},
+      "projection": {"document": "detail", "path": "data.credits"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
     },
     {
@@ -214,7 +214,7 @@
       "category": "relationship",
       "description": "Crew credits retain person, department, job, ordering, and provenance.",
       "providers": ["tmdb", "tvdb"],
-      "projection": {"document": "detail", "path": "data.credits.crew"},
+      "projection": {"document": "detail", "path": "data.credits"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]
     },
     {

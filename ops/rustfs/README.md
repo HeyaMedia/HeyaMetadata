@@ -11,6 +11,14 @@ No rule matches `images/`, `data/blobs/`, or any other bucket prefix. Object
 Lock retention is unrelated and remains disabled; these are lifecycle expiry
 rules on an unversioned bucket.
 
+Image retention is intentionally application-managed. S3 lifecycle measures
+time since an object was written, not time since it was last read, so a bucket
+rule would eventually delete even a frequently requested content-addressed
+image. HeyaMetadata coalesces image access timestamps in Redis, persists them
+hourly, and evicts originals plus derived variants after 180 days without an
+access. Objects shared by multiple image records are removed only after their
+last database reference disappears.
+
 [`heyamedia-lifecycle.json`](./heyamedia-lifecycle.json) is an export of the
 live bucket configuration. An administrator can restore it with:
 

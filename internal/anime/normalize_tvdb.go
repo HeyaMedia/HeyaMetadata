@@ -15,17 +15,18 @@ import (
 func normalizeTVDBAnime(payload providers.Payload, season, offset int) (episodic.NormalizedRecord, error) {
 	var wrapper struct {
 		Data struct {
-			ID          int64 `json:"id"`
-			Name, Image string
-			Episodes    []struct {
+			ID                            int64 `json:"id"`
+			Name, Image, OriginalLanguage string
+			Episodes                      []struct {
 				ID                            int64 `json:"id"`
 				Name, Overview, Aired         string
 				SeasonNumber, Number, Runtime int
 			} `json:"episodes"`
 			Artworks []struct {
 				ID                  int64 `json:"id"`
-				Image               string
+				Image, Language     string
 				Type, Width, Height int
+				Score               float64
 			} `json:"artworks"`
 		} `json:"data"`
 	}
@@ -36,17 +37,17 @@ func normalizeTVDBAnime(payload providers.Payload, season, offset int) (episodic
 	if v.ID < 1 {
 		return episodic.NormalizedRecord{}, fmt.Errorf("invalid TVDB anime supplement")
 	}
-	r := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "tvdb", Namespace: "series", ProviderID: strconv.FormatInt(v.ID, 10), PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, NormalizerVersion: "tvdb-anime-series/v1", ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "series", Value: strconv.FormatInt(v.ID, 10)}}}
+	r := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "tvdb", Namespace: "series", ProviderID: strconv.FormatInt(v.ID, 10), PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, NormalizerVersion: "tvdb-anime-series/v2", ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "series", Value: strconv.FormatInt(v.ID, 10)}}}
 	if v.Name != "" {
 		r.Titles = []episodic.Title{{Value: v.Name, Type: "alias"}}
 	}
 	if v.Image != "" {
-		r.Images = append(r.Images, episodic.Image{Provider: "tvdb", ProviderID: "primary", URL: animeTVDBURL(v.Image), Class: "poster"})
+		r.Images = append(r.Images, episodic.Image{Provider: "tvdb", ProviderID: "primary", URL: animeTVDBURL(v.Image), Class: "poster", Language: v.OriginalLanguage})
 	}
 	for _, x := range v.Artworks[:min(len(v.Artworks), 50)] {
 		class := map[int]string{1: "banner", 2: "poster", 3: "backdrop", 6: "poster", 7: "backdrop", 13: "banner", 14: "poster", 15: "backdrop", 25: "logo"}[x.Type]
 		if class != "" {
-			r.Images = append(r.Images, episodic.Image{Provider: "tvdb", ProviderID: strconv.FormatInt(x.ID, 10), URL: animeTVDBURL(x.Image), Class: class, Width: x.Width, Height: x.Height})
+			r.Images = append(r.Images, episodic.Image{Provider: "tvdb", ProviderID: strconv.FormatInt(x.ID, 10), URL: animeTVDBURL(x.Image), Class: class, Language: x.Language, Width: x.Width, Height: x.Height, ProviderScore: x.Score})
 		}
 	}
 	for _, x := range v.Episodes {

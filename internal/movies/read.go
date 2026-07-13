@@ -20,6 +20,12 @@ func (s *Service) Detail(ctx context.Context, entityID string) (moviedomain.Deta
 	if cached, err := s.runtime.Redis.Get(ctx, cacheKey).Bytes(); err == nil {
 		var document moviedomain.DetailDocument
 		if json.Unmarshal(cached, &document) == nil {
+			if err := hydrateRecommendationIDs(ctx, s.runtime.DB, &document); err != nil {
+				return moviedomain.DetailDocument{}, false, err
+			}
+			if err := hydrateCreditPersonIDs(ctx, s.runtime.DB, &document); err != nil {
+				return moviedomain.DetailDocument{}, false, err
+			}
 			_ = accessstats.Track(ctx, s.runtime.Redis, entityID)
 			return document, time.Now().Before(document.Freshness.FreshUntil), nil
 		}
@@ -38,12 +44,93 @@ func (s *Service) Detail(ctx context.Context, entityID string) (moviedomain.Deta
 	if err := json.Unmarshal(body, &document); err != nil {
 		return moviedomain.DetailDocument{}, false, err
 	}
+	if err := hydrateRecommendationIDs(ctx, s.runtime.DB, &document); err != nil {
+		return moviedomain.DetailDocument{}, false, err
+	}
+	if err := hydrateCreditPersonIDs(ctx, s.runtime.DB, &document); err != nil {
+		return moviedomain.DetailDocument{}, false, err
+	}
 	ttl := time.Until(freshUntil)
 	if ttl > 0 {
 		_ = s.runtime.Redis.Set(ctx, cacheKey, body, ttl).Err()
 	}
 	_ = accessstats.Track(ctx, s.runtime.Redis, entityID)
 	return document, time.Now().Before(freshUntil), nil
+}
+
+type recommendationQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func hydrateRecommendationIDs(ctx context.Context, db recommendationQuerier, document *moviedomain.DetailDocument) error {
+	if len(document.Data.Recommendations) == 0 {
+		return nil
+	}
+	providers := make([]string, 0, len(document.Data.Recommendations))
+	values := make([]string, 0, len(document.Data.Recommendations))
+	for i := range document.Data.Recommendations {
+		provider := document.Data.Recommendations[i].Provider
+		if provider == "" {
+			provider = "tmdb"
+			document.Data.Recommendations[i].Provider = provider
+		}
+		providers = append(providers, provider)
+		values = append(values, document.Data.Recommendations[i].ProviderTargetID)
+	}
+	rows, err := db.Query(ctx, `SELECT provider,normalized_value,entity_id::text FROM external_id_claims WHERE entity_kind='movie' AND namespace='movie' AND state='accepted' AND provider=ANY($1) AND normalized_value=ANY($2)`, providers, values)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	resolved := map[string]string{}
+	for rows.Next() {
+		var provider, value, entityID string
+		if err := rows.Scan(&provider, &value, &entityID); err != nil {
+			return err
+		}
+		resolved[provider+":"+value] = entityID
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range document.Data.Recommendations {
+		recommendation := &document.Data.Recommendations[i]
+		recommendation.EntityID = resolved[recommendation.Provider+":"+recommendation.ProviderTargetID]
+	}
+	return nil
+}
+
+func hydrateCreditPersonIDs(ctx context.Context, db recommendationQuerier, document *moviedomain.DetailDocument) error {
+	if len(document.Data.Credits) == 0 {
+		return nil
+	}
+	providers := make([]string, 0, len(document.Data.Credits))
+	values := make([]string, 0, len(document.Data.Credits))
+	for _, credit := range document.Data.Credits {
+		providers = append(providers, credit.Provider)
+		values = append(values, credit.ProviderPersonID)
+	}
+	rows, err := db.Query(ctx, `SELECT provider,normalized_value,entity_id::text FROM external_id_claims WHERE entity_kind='person' AND namespace='person' AND state='accepted' AND provider=ANY($1) AND normalized_value=ANY($2)`, providers, values)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	resolved := map[string]string{}
+	for rows.Next() {
+		var provider, value, entityID string
+		if err := rows.Scan(&provider, &value, &entityID); err != nil {
+			return err
+		}
+		resolved[provider+":"+value] = entityID
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range document.Data.Credits {
+		credit := &document.Data.Credits[i]
+		credit.PersonEntityID = resolved[credit.Provider+":"+credit.ProviderPersonID]
+	}
+	return nil
 }
 
 func (s *Service) Resolve(ctx context.Context, provider, namespace, value string) (string, error) {

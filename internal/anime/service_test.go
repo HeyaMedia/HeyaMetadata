@@ -44,7 +44,12 @@ func TestNormalizeDoesNotClaimAmbiguousRelatedExternalIDs(t *testing.T) {
 }
 
 func TestTVDBAnimeMappingPreservesTVDBAndRelativeAniDBNumbers(t *testing.T) {
-	payload:=providers.Payload{ObservationID:"obs",ObservedAt:time.Unix(1,0),Body:[]byte(`{"data":{"id":7,"name":"Split Cour","episodes":[{"id":9,"name":"Return","seasonNumber":1,"number":13}]}}`)}
-	record,err:=normalizeTVDBAnime(payload,1,12);if err!=nil{t.Fatal(err)}
-	if len(record.Episodes)!=1||len(record.Episodes[0].Numbers)!=2||record.Episodes[0].Numbers[0].Number!=13||record.Episodes[0].Numbers[1].Number!=1{t.Fatalf("numbers: %+v",record.Episodes)}
+	payload := providers.Payload{ObservationID: "obs", ObservedAt: time.Unix(1, 0), Body: []byte(`{"data":{"id":7,"name":"Split Cour","episodes":[{"id":9,"name":"Return","seasonNumber":1,"number":13}]}}`)}
+	record, err := normalizeTVDBAnime(payload, 1, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record.Episodes) != 1 || len(record.Episodes[0].Numbers) != 2 || record.Episodes[0].Numbers[0].Number != 13 || record.Episodes[0].Numbers[1].Number != 1 {
+		t.Fatalf("numbers: %+v", record.Episodes)
+	}
 }

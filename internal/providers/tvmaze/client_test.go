@@ -39,3 +39,29 @@ func TestExternalLookupUnlocksRichShowDetail(t *testing.T) {
 		t.Fatalf("payloads: %+v", payloads)
 	}
 }
+
+func TestPersonCollectionEmbedsShowsInCastAndCrewCredits(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/people/123":
+			_, _ = writer.Write([]byte(`{"id":123,"name":"Example Person"}`))
+		case "/people/123/castcredits", "/people/123/crewcredits":
+			if request.URL.Query().Get("embed") != "show" {
+				t.Errorf("missing embedded show: %s", request.URL.RawQuery)
+			}
+			_, _ = writer.Write([]byte(`[]`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	client := New(config.TVMazeConfig{BaseURL: server.URL, RequestsPerSecond: 1000})
+	payloads, err := client.Collect(context.Background(), providers.Identifier{Provider: "tvmaze", Namespace: "person", Value: "123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payloads) != 3 || payloads[1].ProviderNamespace != "person_castcredits" || payloads[2].ProviderNamespace != "person_crewcredits" {
+		t.Fatalf("payloads: %+v", payloads)
+	}
+}

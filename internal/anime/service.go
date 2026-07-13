@@ -19,7 +19,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
 )
 
-var definition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v1", MergeVersion: "anime-combiner/v1"}
+var definition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v1", MergeVersion: "anime-combiner/v2"}
 
 type Service struct{ runtime *platform.Runtime }
 
@@ -82,7 +82,7 @@ func (s *Service) IngestAniDBWithCredentials(ctx context.Context, id string, job
 		records = append(records, mappingRecord)
 		if mapping.TVDBID > 0 && mapping.Season.TVDB != nil && (credentials.APIKey("tvdb") != "" || s.runtime.Config.Providers.TVDB.APIKey != "") {
 			tvdbBase := tvdb.New(s.runtime.Config.Providers.TVDB)
-			tvdbCache, cacheErr := providercache.New(s.runtime, "tvdb-anime-series/v1", tvdbBase.Capability().RawRetention, tvdbBase.Capability().ResponseCache, jobID)
+			tvdbCache, cacheErr := providercache.New(s.runtime, "tvdb-anime-series/v2", tvdbBase.Capability().RawRetention, tvdbBase.Capability().ResponseCache, jobID)
 			if cacheErr != nil {
 				return result, cacheErr
 			}

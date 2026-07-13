@@ -17,15 +17,21 @@ func Workers(runtime *platform.Runtime) *river.Workers {
 	river.AddWorker(workers, NewPlatformSmokeWorker(runtime))
 	river.AddWorker(workers, NewMovieIngestWorker(runtime))
 	river.AddWorker(workers, NewArtistIngestWorker(runtime))
+	river.AddWorker(workers, NewArtistCatalogSyncWorker(runtime))
+	river.AddWorker(workers, NewArtistCatalogSchedulerWorker(runtime))
 	river.AddWorker(workers, NewImageMaterializeWorker(runtime))
+	river.AddWorker(workers, NewImageMaintenanceWorker(runtime))
 	river.AddWorker(workers, NewReleaseGroupIngestWorker(runtime))
 	river.AddWorker(workers, NewReleaseIngestWorker(runtime))
 	river.AddWorker(workers, NewRecordingIngestWorker(runtime))
+	river.AddWorker(workers, NewMusicalWorkIngestWorker(runtime))
 	river.AddWorker(workers, NewRecordingEvidenceRefreshWorker(runtime))
+	river.AddWorker(workers, NewPersonEnrichWorker(runtime))
 	river.AddWorker(workers, NewDiscoverySearchWorker(runtime))
 	river.AddWorker(workers, NewTVShowIngestWorker(runtime))
 	river.AddWorker(workers, NewAnimeIngestWorker(runtime))
 	river.AddWorker(workers, NewBookIngestWorker(runtime))
+	river.AddWorker(workers, NewMangaIngestWorker(runtime))
 	river.AddWorker(workers, NewFingerprintMatchWorker(runtime))
 	river.AddWorker(workers, NewBlobRetentionWorker(runtime))
 	river.AddWorker(workers, NewRefreshSchedulerWorker(runtime))
@@ -45,8 +51,18 @@ func NewClient(runtime *platform.Runtime, maxWorkers int, work bool) (*river.Cli
 			),
 			river.NewPeriodicJob(
 				river.PeriodicInterval(time.Hour),
+				func() (river.JobArgs, *river.InsertOpts) { return ImageMaintenanceArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "image-cache-maintenance", RunOnStart: true},
+			),
+			river.NewPeriodicJob(
+				river.PeriodicInterval(time.Hour),
 				func() (river.JobArgs, *river.InsertOpts) { return RefreshSchedulerArgs{}, nil },
 				&river.PeriodicJobOpts{ID: "adaptive-provider-refresh", RunOnStart: true},
+			),
+			river.NewPeriodicJob(
+				river.PeriodicInterval(time.Hour),
+				func() (river.JobArgs, *river.InsertOpts) { return ArtistCatalogSchedulerArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "artist-catalog-refresh", RunOnStart: true},
 			),
 		},
 	}
@@ -54,6 +70,8 @@ func NewClient(runtime *platform.Runtime, maxWorkers int, work bool) (*river.Cli
 		config.Queues = map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: maxWorkers},
 			BackgroundQueue:    {MaxWorkers: 1},
+			CatalogQueue:       {MaxWorkers: 2},
+			ImageQueue:         {MaxWorkers: 2},
 		}
 	}
 	client, err := river.NewClient(riverpgxv5.New(runtime.DB), config)

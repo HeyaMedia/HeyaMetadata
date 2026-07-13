@@ -67,13 +67,26 @@ func (c *Client) Collect(ctx context.Context, identifier providers.Identifier) (
 		if !positiveID(identifier.Value) {
 			return nil, fmt.Errorf("TVMaze person collector requires a positive ID")
 		}
-		payload, err := c.get(ctx, "/people/"+identifier.Value, embedValues("castcredits", "crewcredits"), providers.Payload{
+		payload, err := c.get(ctx, "/people/"+identifier.Value, nil, providers.Payload{
 			Provider: "tvmaze", ProviderNamespace: "person", ProviderRecordID: identifier.Value,
 		}, 24*time.Hour, classifyObjectID(identifier.Value))
 		if err != nil {
 			return nil, err
 		}
-		return []providers.Payload{payload}, nil
+		payloads := []providers.Payload{payload}
+		if payload.StatusCode != http.StatusOK {
+			return payloads, nil
+		}
+		for _, creditType := range []string{"castcredits", "crewcredits"} {
+			credits, err := c.get(ctx, "/people/"+identifier.Value+"/"+creditType, url.Values{"embed": {"show"}}, providers.Payload{
+				Provider: "tvmaze", ProviderNamespace: "person_" + creditType, ProviderRecordID: identifier.Value,
+			}, 24*time.Hour, classifyArray)
+			if err != nil {
+				return payloads, err
+			}
+			payloads = append(payloads, credits)
+		}
+		return payloads, nil
 	}
 	if identifier.Provider == "tvmaze" && identifier.Namespace == "show" {
 		return c.collectShow(ctx, identifier.Value, nil)

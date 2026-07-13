@@ -58,7 +58,8 @@ func (w *ArtistIngestWorker) Work(ctx context.Context, job *river.Job[ArtistInge
 	if err != nil {
 		return river.JobCancel(err)
 	}
-	if _, err = w.service.IngestMusicBrainz(ctx, job.Args.MusicBrainzID, job.ID, credentials); err != nil {
+	result, err := w.service.IngestMusicBrainz(ctx, job.Args.MusicBrainzID, job.ID, credentials)
+	if err != nil {
 		wrapped := fmt.Errorf("ingest MusicBrainz artist %s: %w", job.Args.MusicBrainzID, err)
 		var status *providers.StatusError
 		if errors.As(err, &status) {
@@ -71,6 +72,10 @@ func (w *ArtistIngestWorker) Work(ctx context.Context, job *river.Job[ArtistInge
 			}
 		}
 		return wrapped
+	}
+	client := river.ClientFromContext[pgx.Tx](ctx)
+	if err := InsertArtistCatalog(ctx, client, result.EntityID, job.Args.MusicBrainzID); err != nil {
+		return fmt.Errorf("enqueue artist catalog: %w", err)
 	}
 	_ = providercredentials.Delete(context.WithoutCancel(ctx), w.runtime.Redis, job.Args.CredentialRef)
 	return nil

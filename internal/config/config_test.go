@@ -41,6 +41,8 @@ func TestConfigValidateRejectsInvalidDependencyURLs(t *testing.T) {
 		"OpenLibrary":  func(config *Config) { config.Providers.OpenLibrary.BaseURL = "openlibrary.org" },
 		"Google Books": func(config *Config) { config.Providers.GoogleBooks.BaseURL = "googleapis.com/books/v1" },
 		"AcoustID":     func(config *Config) { config.Providers.AcoustID.BaseURL = "api.acoustid.org" },
+		"Kitsu":        func(config *Config) { config.Providers.Kitsu.BaseURL = "kitsu.io/api/edge" },
+		"MyAnimeList":  func(config *Config) { config.Providers.MyAnimeList.BaseURL = "api.myanimelist.net/v2" },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -98,6 +100,8 @@ func validConfig() Config {
 			OpenLibrary: OpenLibraryConfig{BaseURL: "https://openlibrary.org", CoversBaseURL: "https://covers.openlibrary.org", RequestsPerSecond: 3, UserAgent: "HeyaMetadata/test (test@example.com)"},
 			GoogleBooks: GoogleBooksConfig{BaseURL: "https://www.googleapis.com/books/v1", RequestsPerSecond: 5},
 			AcoustID:    AcoustIDConfig{BaseURL: "https://api.acoustid.org", RequestsPerSecond: 3},
+			Kitsu:       KitsuConfig{BaseURL: "https://kitsu.io/api/edge", RequestsPerSecond: 2},
+			MyAnimeList: MyAnimeListConfig{BaseURL: "https://api.myanimelist.net/v2", RequestsPerSecond: 2},
 		},
 		Chromaprint: ChromaprintConfig{MaxPerRelease: 100},
 	}

@@ -16,6 +16,7 @@ import (
 
 const appendedMovieScopes = "credits,external_ids,keywords,release_dates,videos,recommendations,images,alternative_titles,translations"
 const appendedTVScopes = "aggregate_credits,external_ids,keywords,content_ratings,videos,recommendations,images,alternative_titles,translations"
+const appendedPersonScopes = "combined_credits,external_ids,images,translations"
 
 type Client struct {
 	config config.TMDBConfig
@@ -78,6 +79,32 @@ func (c *Client) CollectTV(ctx context.Context, identifier providers.Identifier)
 		payloads = append(payloads, payload)
 	}
 	return payloads, nil
+}
+
+func PersonCapability() providers.Capability {
+	return providers.Capability{
+		Provider: "tmdb", EntityKind: "person",
+		RawRetention:        providers.RetentionPolicy{Class: "provider_raw_48h", Duration: 48 * time.Hour, ObjectPrefix: "ephemeral/48h"},
+		ResponseCache:       providers.ResponseCachePolicy{ReuseDuration: 24 * time.Hour, NegativeDuration: time.Hour, RedisBodyDuration: time.Hour, MaxRedisBodyBytes: 2 * 1024 * 1024},
+		AcceptedIdentifiers: []providers.Identifier{{Provider: "tmdb", Namespace: "person"}},
+		Provides:            []providers.Scope{providers.ScopeIdentity, providers.ScopeTitles, providers.ScopeDescriptions, providers.ScopeCredits, providers.ScopeArtwork},
+	}
+}
+
+func (c *Client) CollectPerson(ctx context.Context, identifier providers.Identifier) ([]providers.Payload, error) {
+	if identifier.Provider != "tmdb" || identifier.Namespace != "person" {
+		return nil, fmt.Errorf("TMDB person collector cannot accept %s.%s", identifier.Provider, identifier.Namespace)
+	}
+	id, err := strconv.ParseInt(identifier.Value, 10, 64)
+	if err != nil || id < 1 {
+		return nil, fmt.Errorf("invalid TMDB person ID %q", identifier.Value)
+	}
+	payload, err := c.get(ctx, fmt.Sprintf("person/%d", id), url.Values{
+		"append_to_response":     {appendedPersonScopes},
+		"include_image_language": {languageFromLocale(c.config.Language) + ",en,null"},
+		"language":               {c.config.Language},
+	}, providers.Payload{Provider: "tmdb", ProviderNamespace: "person", ProviderRecordID: identifier.Value, RequestKey: fmt.Sprintf("person/%d?append=%s&language=%s", id, appendedPersonScopes, c.config.Language)})
+	return []providers.Payload{payload}, err
 }
 
 func New(config config.TMDBConfig) *Client {

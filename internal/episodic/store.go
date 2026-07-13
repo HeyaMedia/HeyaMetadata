@@ -154,11 +154,11 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 				break
 			}
 		}
-		err := tx.QueryRow(ctx, `INSERT INTO image_candidates(entity_id,provider,provider_image_id,class,source_url,width,height,source_observation_id) VALUES($1,$2,$3,$4,$5,NULLIF($6,0),NULLIF($7,0),$8) ON CONFLICT(entity_id,provider,provider_image_id,class) DO UPDATE SET source_url=EXCLUDED.source_url,width=EXCLUDED.width,height=EXCLUDED.height,source_observation_id=EXCLUDED.source_observation_id RETURNING id`, entityID, provider, image.ProviderID, image.Class, image.URL, image.Width, image.Height, observationID).Scan(&imageID)
+		err := tx.QueryRow(ctx, `INSERT INTO image_candidates(entity_id,provider,provider_image_id,class,source_url,language,country,width,height,provider_score,source_observation_id) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,0),NULLIF($9,0),NULLIF($10,0),$11) ON CONFLICT(entity_id,provider,provider_image_id,class) DO UPDATE SET source_url=EXCLUDED.source_url,language=EXCLUDED.language,country=EXCLUDED.country,width=EXCLUDED.width,height=EXCLUDED.height,provider_score=EXCLUDED.provider_score,source_observation_id=EXCLUDED.source_observation_id RETURNING id`, entityID, provider, image.ProviderID, image.Class, image.URL, image.Language, image.Country, image.Width, image.Height, image.ProviderScore, observationID).Scan(&imageID)
 		if err != nil {
 			return Result{}, err
 		}
-		publicImages = append(publicImages, Image{ID: imageID, Provider: provider, ProviderID: image.ProviderID, Class: image.Class, Width: image.Width, Height: image.Height})
+		publicImages = append(publicImages, Image{ID: imageID, Provider: provider, ProviderID: image.ProviderID, Class: image.Class, Language: image.Language, Country: image.Country, Width: image.Width, Height: image.Height, ProviderScore: image.ProviderScore})
 		if display.ImageID == "" && image.Class == "poster" {
 			display.ImageID = imageID
 		}
@@ -176,7 +176,7 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 			}
 		}
 		var imageID string
-		if err := tx.QueryRow(ctx, `INSERT INTO image_candidates(entity_id,provider,provider_image_id,class,source_url,source_observation_id)VALUES($1,$2,$3,'profile',$4,$5)ON CONFLICT(entity_id,provider,provider_image_id,class)DO UPDATE SET source_url=EXCLUDED.source_url,source_observation_id=EXCLUDED.source_observation_id RETURNING id`, entityID, credit.Provider, "person:"+credit.ProviderPersonID, credit.ProfileURL, observationID).Scan(&imageID); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO image_candidates(entity_id,provider,provider_image_id,class,source_url,source_observation_id,ownership_scope)VALUES($1,$2,$3,'profile',$4,$5,'credit')ON CONFLICT(entity_id,provider,provider_image_id,class)DO UPDATE SET source_url=EXCLUDED.source_url,source_observation_id=EXCLUDED.source_observation_id,ownership_scope='credit' RETURNING id`, entityID, credit.Provider, "person:"+credit.ProviderPersonID, credit.ProfileURL, observationID).Scan(&imageID); err != nil {
 			return Result{}, err
 		}
 		credit.ProfileImageID = imageID
@@ -200,8 +200,9 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 	if _, err = tx.Exec(ctx, `DELETE FROM entity_credit_projections WHERE entity_id=$1`, entityID); err != nil {
 		return Result{}, err
 	}
-	for _, credit := range record.Credits {
-		if _, err = tx.Exec(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,character_name,department,job,credit_order,profile_image_id,projection_version)VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),$9,NULLIF($10,'')::uuid,$11)`, entityID, credit.Provider, credit.ProviderPersonID, credit.DisplayName, credit.CreditType, credit.Character, credit.Department, credit.Job, credit.Order, credit.ProfileImageID, version); err != nil {
+	for i := range record.Credits {
+		credit := &record.Credits[i]
+		if err = tx.QueryRow(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,character_name,department,job,credit_order,profile_image_id,projection_version)VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),$9,NULLIF($10,'')::uuid,$11) RETURNING person_entity_id::text`, entityID, credit.Provider, credit.ProviderPersonID, credit.DisplayName, credit.CreditType, credit.Character, credit.Department, credit.Job, credit.Order, credit.ProfileImageID, version).Scan(&credit.PersonEntityID); err != nil {
 			return Result{}, err
 		}
 	}
@@ -215,6 +216,9 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 	}
 	if len(record.Credits) > 50 {
 		record.Credits = record.Credits[:50]
+	}
+	if err := persistResources(ctx, tx, entityID, def.Kind, &record); err != nil {
+		return Result{}, err
 	}
 	doc := Document{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: def.Kind, Slug: slug, Display: display, ExternalIDs: record.ExternalIDs, Data: Data{Titles: record.Titles, Overview: record.Overview, Classification: Classification{Format: record.Format, Status: record.Status, Language: record.Language, Countries: countries, Genres: genres, SourceMaterial: record.SourceMaterial}, Lifecycle: Lifecycle{StartDate: record.StartDate, EndDate: record.EndDate}, RuntimeMinutes: record.RuntimeMinutes, EpisodeCount: record.EpisodeCount, Networks: record.Networks, Studios: record.Studios, Seasons: record.Seasons, Episodes: record.Episodes, Images: publicImages, Ratings: record.Ratings, Credits: record.Credits}, Freshness: fresh, Provenance: map[string][]SourceRef{"identity": refs, "data": refs}}
 	docJSON, _ := json.Marshal(doc)
@@ -280,6 +284,9 @@ func Detail(ctx context.Context, runtime *platform.Runtime, kind, id string) (Do
 	}
 	var doc Document
 	if err := json.Unmarshal(body, &doc); err != nil {
+		return Document{}, false, err
+	}
+	if err := hydrateResources(ctx, runtime, id, &doc); err != nil {
 		return Document{}, false, err
 	}
 	_ = accessstats.Track(ctx, runtime.Redis, id)

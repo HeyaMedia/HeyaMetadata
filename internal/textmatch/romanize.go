@@ -15,6 +15,7 @@ import (
 	ipadict "github.com/ikawaha/kagome-dict/ipa"
 	"github.com/ikawaha/kagome/v2/tokenizer"
 	"github.com/mozillazg/go-unidecode"
+	"golang.org/x/text/unicode/norm"
 )
 
 var tokenizerOnce sync.Once
@@ -77,7 +78,7 @@ func Romanize(value string) string {
 	return unidecode.Unidecode(out)
 }
 func normalized(value string) string {
-	return strings.ToLower(nonAlphanumeric.ReplaceAllString(value, ""))
+	return strings.ToLower(nonAlphanumeric.ReplaceAllString(norm.NFKC.String(value), ""))
 }
 func StripEditionAnnotations(value string) string {
 	for {

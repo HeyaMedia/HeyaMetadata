@@ -27,3 +27,9 @@ func TestReleaseKeysCollapseScriptAndCommercialEditionButNotRemix(t *testing.T) 
 		t.Fatal("direct Han transliteration did not produce a comparison key")
 	}
 }
+
+func TestReleaseKeysNormalizeUnicodeComposition(t *testing.T) {
+	if !EquivalentRelease("この世界に二人だけ", 2025, "この世界に二人だけ", 2025) {
+		t.Fatal("canonically equivalent Unicode titles did not match")
+	}
+}

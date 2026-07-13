@@ -137,16 +137,17 @@ type RecordingRef struct {
 	ISRCs      []string `json:"isrcs,omitempty"`
 }
 type TrackDocument struct {
-	ID            string         `json:"id"`
-	ProviderID    string         `json:"provider_id"`
-	Position      string         `json:"position"`
-	Number        string         `json:"number"`
-	Title         string         `json:"title"`
-	Sequence      int            `json:"sequence"`
-	DurationMS    int64          `json:"duration_ms,omitempty"`
-	ArtistCredits []ArtistCredit `json:"artist_credits"`
-	Recording     RecordingRef   `json:"recording"`
-	Sources       []TrackSource  `json:"sources"`
+	ID                string         `json:"id"`
+	RecordingEntityID string         `json:"recording_entity_id,omitempty"`
+	ProviderID        string         `json:"provider_id"`
+	Position          string         `json:"position"`
+	Number            string         `json:"number"`
+	Title             string         `json:"title"`
+	Sequence          int            `json:"sequence"`
+	DurationMS        int64          `json:"duration_ms,omitempty"`
+	ArtistCredits     []ArtistCredit `json:"artist_credits"`
+	Recording         RecordingRef   `json:"recording"`
+	Sources           []TrackSource  `json:"sources"`
 }
 type TrackSource struct {
 	Provider   string `json:"provider"`

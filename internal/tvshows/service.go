@@ -20,7 +20,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvmaze"
 )
 
-var definition = episodic.Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-tv-show/v1", MergeVersion: "tv-show-combiner/v1"}
+var definition = episodic.Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-tv-show/v1", MergeVersion: "tv-show-combiner/v2"}
 var htmlTags = regexp.MustCompile(`<[^>]+>`)
 
 type Service struct{ runtime *platform.Runtime }

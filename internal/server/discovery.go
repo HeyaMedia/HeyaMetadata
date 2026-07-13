@@ -57,7 +57,7 @@ func registerDiscovery(api huma.API, runtime *platform.Runtime) {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
 		request = discovery.NormalizeRequest(request)
-		if request.Kind != discovery.KindArtist && request.Kind != discovery.KindMovie && request.Kind != discovery.KindReleaseGroup && request.Kind != discovery.KindRecording && request.Kind != discovery.KindTVShow && request.Kind != discovery.KindAnime && request.Kind != discovery.KindBookWork {
+		if request.Kind != discovery.KindArtist && request.Kind != discovery.KindMovie && request.Kind != discovery.KindReleaseGroup && request.Kind != discovery.KindRecording && request.Kind != discovery.KindMusicalWork && request.Kind != discovery.KindTVShow && request.Kind != discovery.KindAnime && request.Kind != discovery.KindBookWork && request.Kind != discovery.KindManga && request.Kind != discovery.KindMangaVolume && request.Kind != discovery.KindComicVolume {
 			return nil, huma.Error400BadRequest("unsupported discovery kind")
 		}
 		run, err := discovery.EnsureRun(ctx, runtime, request)
@@ -124,6 +124,15 @@ func registerDiscovery(api huma.API, runtime *platform.Runtime) {
 	})
 	huma.Register(api, huma.Operation{OperationID: "discover-anime", Method: http.MethodPost, Path: "/api/v2/anime/discoveries", Summary: "Discover AniDB anime identities", Tags: []string{"Anime", "Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
 		return create(ctx, discovery.Request{Kind: discovery.KindAnime, Query: input.Body.Query, Limit: input.Body.Limit, Hints: input.Body.Hints}, input.Prefer, "")
+	})
+	huma.Register(api, huma.Operation{OperationID: "discover-manga", Method: http.MethodPost, Path: "/api/v2/manga/discoveries", Summary: "Discover manga publications", Tags: []string{"Manga", "Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
+		return create(ctx, discovery.Request{Kind: discovery.KindManga, Query: input.Body.Query, Limit: input.Body.Limit, Hints: input.Body.Hints}, input.Prefer, "")
+	})
+	huma.Register(api, huma.Operation{OperationID: "discover-comic", Method: http.MethodPost, Path: "/api/v2/comics/discoveries", Summary: "Discover comic publications", Tags: []string{"Comics", "Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
+		return create(ctx, discovery.Request{Kind: discovery.KindComicVolume, Query: input.Body.Query, Limit: input.Body.Limit, Hints: input.Body.Hints}, input.Prefer, "")
+	})
+	huma.Register(api, huma.Operation{OperationID: "discover-manga-volume", Method: http.MethodPost, Path: "/api/v2/manga/volumes/discoveries", Summary: "Discover physical manga volumes", Tags: []string{"Manga", "Discovery"}, DefaultStatus: http.StatusOK}, func(ctx context.Context, input *dedicatedDiscoveryInput) (*discoveryOutput, error) {
+		return create(ctx, discovery.Request{Kind: discovery.KindMangaVolume, Query: input.Body.Query, Limit: input.Body.Limit, Hints: input.Body.Hints}, input.Prefer, "")
 	})
 	huma.Register(api, huma.Operation{OperationID: "get-discovery", Method: http.MethodGet, Path: "/api/v2/discoveries/{id}", Summary: "Get smart-discovery status and candidates", Tags: []string{"Discovery"}}, func(ctx context.Context, input *discoveryGetInput) (*discoveryOutput, error) {
 		if runtime == nil {

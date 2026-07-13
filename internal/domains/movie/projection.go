@@ -51,6 +51,7 @@ type ProjectedCompany struct {
 }
 
 type ProjectedCredit struct {
+	PersonEntityID   string `json:"person_entity_id,omitempty"`
 	Provider         string `json:"provider"`
 	ProviderPersonID string `json:"provider_person_id"`
 	DisplayName      string `json:"display_name"`
@@ -79,6 +80,8 @@ type ProjectedCollection struct {
 }
 
 type ProjectedRecommendation struct {
+	EntityID         string  `json:"entity_id,omitempty"`
+	Provider         string  `json:"provider,omitempty"`
 	ProviderTargetID string  `json:"provider_target_id"`
 	Title            string  `json:"title"`
 	Year             int     `json:"year,omitempty"`
@@ -328,7 +331,7 @@ func Combine(entityID, slug string, projectionVersion int64, records []RecordInp
 				continue
 			}
 			seenRecommendations[key] = true
-			detail.Data.Recommendations = append(detail.Data.Recommendations, ProjectedRecommendation{ProviderTargetID: recommendation.ProviderTargetID, Title: recommendation.Title, Year: recommendation.Year, ImageID: imageIDs[AuxiliaryImageKey(record.ProviderRecord.Provider, "recommendation", recommendation.ProviderTargetID, recommendation.ImageURL)], ProviderScore: recommendation.ProviderScore})
+			detail.Data.Recommendations = append(detail.Data.Recommendations, ProjectedRecommendation{Provider: record.ProviderRecord.Provider, ProviderTargetID: recommendation.ProviderTargetID, Title: recommendation.Title, Year: recommendation.Year, ImageID: imageIDs[AuxiliaryImageKey(record.ProviderRecord.Provider, "recommendation", recommendation.ProviderTargetID, recommendation.ImageURL)], ProviderScore: recommendation.ProviderScore})
 		}
 	}
 	if detail.Display.Title == "" && len(detail.Data.Titles) > 0 {

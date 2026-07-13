@@ -21,6 +21,7 @@ const MovieIngestKind = "movie_ingest_v1"
 const (
 	PriorityInteractive = 1
 	PriorityStaleRead   = 2
+	PriorityCatalog     = 3
 	PriorityScheduled   = 4
 )
 

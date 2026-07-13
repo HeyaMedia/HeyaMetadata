@@ -61,6 +61,19 @@ type ProvidersConfig struct {
 	OpenLibrary OpenLibraryConfig
 	GoogleBooks GoogleBooksConfig
 	AcoustID    AcoustIDConfig
+	Kitsu       KitsuConfig
+	MyAnimeList MyAnimeListConfig
+}
+
+type KitsuConfig struct {
+	BaseURL           string
+	RequestsPerSecond float64
+}
+
+type MyAnimeListConfig struct {
+	BaseURL           string
+	ClientID          string
+	RequestsPerSecond float64
 }
 
 type AcoustIDConfig struct {
@@ -249,6 +262,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	kitsuRate, err := envFloat("HEYA_METADATA_KITSU_REQUESTS_PER_SECOND", 2)
+	if err != nil {
+		return Config{}, err
+	}
+	malRate, err := envFloat("HEYA_METADATA_MAL_REQUESTS_PER_SECOND", 2)
+	if err != nil {
+		return Config{}, err
+	}
 	chromaprintMax, err := envInt("HEYA_METADATA_CHROMAPRINT_MAX_PER_RELEASE", 100)
 	if err != nil {
 		return Config{}, err
@@ -326,6 +347,10 @@ func Load() (Config, error) {
 			APIKey: env("HEYA_METADATA_GOOGLE_BOOKS_API_KEY", ""), BaseURL: env("HEYA_METADATA_GOOGLE_BOOKS_BASE_URL", "https://www.googleapis.com/books/v1"), RequestsPerSecond: googleBooksRate,
 		}, AcoustID: AcoustIDConfig{
 			APIKey: env("HEYA_METADATA_ACOUSTID_API_KEY", ""), BaseURL: env("HEYA_METADATA_ACOUSTID_BASE_URL", "https://api.acoustid.org"), RequestsPerSecond: acoustIDRate,
+		}, Kitsu: KitsuConfig{
+			BaseURL: env("HEYA_METADATA_KITSU_BASE_URL", "https://kitsu.io/api/edge"), RequestsPerSecond: kitsuRate,
+		}, MyAnimeList: MyAnimeListConfig{
+			BaseURL: env("HEYA_METADATA_MAL_BASE_URL", "https://api.myanimelist.net/v2"), ClientID: env("HEYA_METADATA_MAL_CLIENT_ID", ""), RequestsPerSecond: malRate,
 		}},
 	}
 	if err := config.Validate(); err != nil {
@@ -481,6 +506,8 @@ func (c Config) Validate() error {
 		"HEYA_METADATA_OPENLIBRARY_COVERS_BASE_URL": c.Providers.OpenLibrary.CoversBaseURL,
 		"HEYA_METADATA_GOOGLE_BOOKS_BASE_URL":       c.Providers.GoogleBooks.BaseURL,
 		"HEYA_METADATA_ACOUSTID_BASE_URL":           c.Providers.AcoustID.BaseURL,
+		"HEYA_METADATA_KITSU_BASE_URL":              c.Providers.Kitsu.BaseURL,
+		"HEYA_METADATA_MAL_BASE_URL":                c.Providers.MyAnimeList.BaseURL,
 	} {
 		parsed, parseErr := url.Parse(rawURL)
 		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" {
@@ -503,6 +530,8 @@ func (c Config) Validate() error {
 		"HEYA_METADATA_OPENLIBRARY_REQUESTS_PER_SECOND":  c.Providers.OpenLibrary.RequestsPerSecond,
 		"HEYA_METADATA_GOOGLE_BOOKS_REQUESTS_PER_SECOND": c.Providers.GoogleBooks.RequestsPerSecond,
 		"HEYA_METADATA_ACOUSTID_REQUESTS_PER_SECOND":     c.Providers.AcoustID.RequestsPerSecond,
+		"HEYA_METADATA_KITSU_REQUESTS_PER_SECOND":        c.Providers.Kitsu.RequestsPerSecond,
+		"HEYA_METADATA_MAL_REQUESTS_PER_SECOND":          c.Providers.MyAnimeList.RequestsPerSecond,
 	} {
 		if rate <= 0 || rate > 1000 {
 			return fmt.Errorf("%s must be greater than 0 and at most 1000", name)

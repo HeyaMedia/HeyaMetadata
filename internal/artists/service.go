@@ -246,9 +246,13 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	defer tx.Rollback(ctx)
 	entityIDs := map[string]bool{}
 	var allCandidates []artistdomain.IdentityCandidate
+	spineMusicBrainzID := successful[0].ProviderRecord.Value
 	for _, record := range successful {
 		for _, candidate := range record.IdentityCandidates {
 			if candidate.Confidence < 1 {
+				continue
+			}
+			if candidate.Provider == "musicbrainz" && candidate.Namespace == "artist" && candidate.NormalizedValue != spineMusicBrainzID {
 				continue
 			}
 			allCandidates = append(allCandidates, candidate)
@@ -302,6 +306,9 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	for _, record := range successful {
 		for _, candidate := range record.IdentityCandidates {
 			if candidate.Confidence < 1 {
+				continue
+			}
+			if candidate.Provider == "musicbrainz" && candidate.Namespace == "artist" && candidate.NormalizedValue != spineMusicBrainzID {
 				continue
 			}
 			tag, err := tx.Exec(ctx, `INSERT INTO external_id_claims (entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at) VALUES ($1,'artist',$2,$3,$4,'accepted',$5,$6,$7,$7) ON CONFLICT (entity_kind,provider,namespace,normalized_value) DO UPDATE SET last_observed_at=EXCLUDED.last_observed_at,source_observation_id=EXCLUDED.source_observation_id WHERE external_id_claims.entity_id=EXCLUDED.entity_id`, entityID, candidate.Provider, candidate.Namespace, candidate.NormalizedValue, candidate.Confidence, record.ProviderRecord.PrimaryObservationID, record.ProviderRecord.ObservedAt)

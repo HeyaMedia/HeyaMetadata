@@ -11,7 +11,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 )
 
-const tmdbTVNormalizerVersion = "tmdb-tv-show/v1"
+const tmdbTVNormalizerVersion = "tmdb-tv-show/v2"
 
 type tmdbTV struct {
 	ID               int64   `json:"id"`
@@ -61,11 +61,12 @@ type tmdbTV struct {
 		} `json:"results"`
 	} `json:"alternative_titles"`
 	Images struct {
-		Posters, Backdrops []struct {
-			FilePath string `json:"file_path"`
-			ISO6391  string `json:"iso_639_1"`
-			Width    int    `json:"width"`
-			Height   int    `json:"height"`
+		Posters, Backdrops, Logos []struct {
+			FilePath    string  `json:"file_path"`
+			ISO6391     string  `json:"iso_639_1"`
+			Width       int     `json:"width"`
+			Height      int     `json:"height"`
+			VoteAverage float64 `json:"vote_average"`
 		}
 	} `json:"images"`
 	AggregateCredits struct {
@@ -164,18 +165,21 @@ func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, e
 	for _, item := range value.Seasons {
 		r.Seasons = append(r.Seasons, episodic.Season{ProviderID: strconv.FormatInt(item.ID, 10), Number: item.SeasonNumber, Name: item.Name, EpisodeOrder: item.EpisodeCount, PremiereDate: item.AirDate})
 	}
-	addTMDBImage := func(id, path, class string, width, height int) {
+	addTMDBImage := func(id, path, class, language string, width, height int, score float64) {
 		if path != "" {
-			r.Images = append(r.Images, episodic.Image{Provider: "tmdb", ProviderID: id, URL: "https://image.tmdb.org/t/p/original" + path, Class: class, Width: width, Height: height})
+			r.Images = append(r.Images, episodic.Image{Provider: "tmdb", ProviderID: id, URL: "https://image.tmdb.org/t/p/original" + path, Class: class, Language: language, Width: width, Height: height, ProviderScore: score})
 		}
 	}
-	addTMDBImage("poster", value.PosterPath, "poster", 0, 0)
-	addTMDBImage("backdrop", value.BackdropPath, "backdrop", 0, 0)
+	addTMDBImage("poster", value.PosterPath, "poster", "", 0, 0, 0)
+	addTMDBImage("backdrop", value.BackdropPath, "backdrop", "", 0, 0, 0)
 	for _, item := range value.Images.Posters[:min(len(value.Images.Posters), 25)] {
-		addTMDBImage(item.FilePath, item.FilePath, "poster", item.Width, item.Height)
+		addTMDBImage(item.FilePath, item.FilePath, "poster", item.ISO6391, item.Width, item.Height, item.VoteAverage)
 	}
 	for _, item := range value.Images.Backdrops[:min(len(value.Images.Backdrops), 25)] {
-		addTMDBImage(item.FilePath, item.FilePath, "backdrop", item.Width, item.Height)
+		addTMDBImage(item.FilePath, item.FilePath, "backdrop", item.ISO6391, item.Width, item.Height, item.VoteAverage)
+	}
+	for _, item := range value.Images.Logos[:min(len(value.Images.Logos), 25)] {
+		addTMDBImage(item.FilePath, item.FilePath, "logo", item.ISO6391, item.Width, item.Height, item.VoteAverage)
 	}
 	for _, payload := range payloads[1:] {
 		if payload.StatusCode != http.StatusOK {
@@ -187,7 +191,7 @@ func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, e
 		}
 		for _, episode := range season.Episodes {
 			r.Episodes = append(r.Episodes, episodic.Episode{ProviderID: strconv.FormatInt(episode.ID, 10), Titles: []episodic.Title{{Value: episode.Name, Type: "main"}}, Numbers: []episodic.EpisodeNumber{{Scheme: "tmdb", Season: episode.SeasonNumber, Number: float64(episode.EpisodeNumber)}}, AirDate: episode.AirDate, RuntimeMinutes: episode.Runtime, Summary: episode.Overview})
-			addTMDBImage("episode:"+strconv.FormatInt(episode.ID, 10), episode.StillPath, "still", 0, 0)
+			addTMDBImage("episode:"+strconv.FormatInt(episode.ID, 10), episode.StillPath, "still", "", 0, 0, 0)
 		}
 	}
 	return r, nil

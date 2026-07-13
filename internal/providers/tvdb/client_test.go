@@ -58,3 +58,32 @@ func TestEmptyRemoteSearchGetsShortReuseOverride(t *testing.T) {
 		t.Fatal("empty remote search was not negative cached")
 	}
 }
+
+func TestPersonCollectorUsesExactTVDBPersonID(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/login":
+			_, _ = writer.Write([]byte(`{"status":"success","data":{"token":"bearer-token"}}`))
+		case "/people/6384/extended":
+			if request.URL.Query().Get("meta") != "translations" {
+				t.Errorf("missing translations metadata: %s", request.URL.RawQuery)
+			}
+			if request.Header.Get("Authorization") != "Bearer bearer-token" {
+				t.Errorf("missing bearer token")
+			}
+			_, _ = writer.Write([]byte(`{"status":"success","data":{"id":6384,"name":"Example Person"}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	client := New(config.TVDBConfig{APIKey: "tvdb-key", BaseURL: server.URL})
+	payloads, err := client.CollectPerson(context.Background(), providers.Identifier{Provider: "tvdb", Namespace: "person", Value: "6384"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payloads) != 1 || payloads[0].ProviderNamespace != "person" || payloads[0].ProviderRecordID != "6384" {
+		t.Fatalf("payloads: %+v", payloads)
+	}
+}

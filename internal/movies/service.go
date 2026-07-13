@@ -472,7 +472,9 @@ func (s *Service) merge(ctx context.Context, normalizedID string, additionalNorm
                     language, country, width, height, provider_score, source_observation_id
                 ) VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), $8, $9, $10, $11)
                 ON CONFLICT (entity_id, provider, provider_image_id, class)
-                DO UPDATE SET width = EXCLUDED.width, height = EXCLUDED.height,
+                DO UPDATE SET source_url = EXCLUDED.source_url,
+                              language = EXCLUDED.language, country = EXCLUDED.country,
+                              width = EXCLUDED.width, height = EXCLUDED.height,
                               provider_score = EXCLUDED.provider_score,
                               source_observation_id = EXCLUDED.source_observation_id
                 RETURNING id`, entityID, input.Record.ProviderRecord.Provider,
@@ -489,13 +491,14 @@ func (s *Service) merge(ctx context.Context, normalizedID string, additionalNorm
 			if err := tx.QueryRow(ctx, `
                 INSERT INTO image_candidates (
                     entity_id, provider, provider_image_id, class, source_url,
-                    language, country, width, height, provider_score, source_observation_id
-                ) VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), $8, $9, $10, $11)
+                    language, country, width, height, provider_score, source_observation_id, ownership_scope
+                ) VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), $8, $9, $10, $11, $12)
                 ON CONFLICT (entity_id, provider, provider_image_id, class)
-                DO UPDATE SET source_observation_id = EXCLUDED.source_observation_id
+                DO UPDATE SET source_observation_id = EXCLUDED.source_observation_id,
+                              ownership_scope = EXCLUDED.ownership_scope
                 RETURNING id`, entityID, input.Record.ProviderRecord.Provider,
 				image.providerID, image.class, image.sourceURL, "", "", 0, 0, 0,
-				input.Record.ProviderRecord.PrimaryObservationID).Scan(&imageID); err != nil {
+				input.Record.ProviderRecord.PrimaryObservationID, image.ownershipScope).Scan(&imageID); err != nil {
 				return Result{}, fmt.Errorf("record auxiliary image candidate: %w", err)
 			}
 			imageIDs[image.key] = imageID
@@ -507,11 +510,15 @@ func (s *Service) merge(ctx context.Context, normalizedID string, additionalNorm
 	}
 	now := time.Now().UTC()
 	projection := moviedomain.Combine(entityID, slug, projectionVersion, records, imageIDs, now)
+	if err := hydrateRecommendationIDs(ctx, tx, &projection.Detail); err != nil {
+		return Result{}, err
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM entity_credit_projections WHERE entity_id=$1`, entityID); err != nil {
 		return Result{}, err
 	}
-	for _, credit := range projection.Detail.Data.Credits {
-		if _, err := tx.Exec(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,character_name,department,job,credit_order,profile_image_id,projection_version)VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),$9,NULLIF($10,'')::uuid,$11)`, entityID, credit.Provider, credit.ProviderPersonID, credit.DisplayName, credit.CreditType, credit.Character, credit.Department, credit.Job, credit.Order, credit.ProfileImageID, projectionVersion); err != nil {
+	for i := range projection.Detail.Data.Credits {
+		credit := &projection.Detail.Data.Credits[i]
+		if err := tx.QueryRow(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,character_name,department,job,credit_order,profile_image_id,projection_version)VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),$9,NULLIF($10,'')::uuid,$11) RETURNING person_entity_id::text`, entityID, credit.Provider, credit.ProviderPersonID, credit.DisplayName, credit.CreditType, credit.Character, credit.Department, credit.Job, credit.Order, credit.ProfileImageID, projectionVersion).Scan(&credit.PersonEntityID); err != nil {
 			return Result{}, err
 		}
 	}
@@ -701,7 +708,7 @@ func titleQuality(kind string) int {
 	}
 }
 
-type auxiliaryImage struct{ key, providerID, class, sourceURL string }
+type auxiliaryImage struct{ key, providerID, class, sourceURL, ownershipScope string }
 
 func auxiliaryImages(record moviedomain.NormalizedRecordV1) []auxiliaryImage {
 	provider := record.ProviderRecord.Provider
@@ -710,7 +717,11 @@ func auxiliaryImages(record moviedomain.NormalizedRecordV1) []auxiliaryImage {
 		if sourceURL == "" {
 			return
 		}
-		result = append(result, auxiliaryImage{key: moviedomain.AuxiliaryImageKey(provider, scope, providerID, sourceURL), providerID: scope + ":" + providerID + ":" + sourceURL, class: class, sourceURL: sourceURL})
+		ownershipScope := scope
+		if strings.HasPrefix(scope, "collection_") && scope != "collection_member" {
+			ownershipScope = "collection"
+		}
+		result = append(result, auxiliaryImage{key: moviedomain.AuxiliaryImageKey(provider, scope, providerID, sourceURL), providerID: scope + ":" + providerID + ":" + sourceURL, class: class, sourceURL: sourceURL, ownershipScope: ownershipScope})
 	}
 	for _, company := range record.Companies {
 		appendImage("company", company.ProviderID, "logo", company.LogoURL)

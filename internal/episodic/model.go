@@ -19,6 +19,8 @@ type EpisodeNumber struct {
 	Number float64 `json:"number"`
 }
 type Episode struct {
+	ID             string          `json:"id,omitempty"`
+	SeasonID       string          `json:"season_id,omitempty"`
 	ProviderID     string          `json:"provider_id"`
 	Titles         []Title         `json:"titles"`
 	Numbers        []EpisodeNumber `json:"numbers"`
@@ -27,6 +29,7 @@ type Episode struct {
 	Summary        string          `json:"summary,omitempty"`
 }
 type Season struct {
+	ID           string `json:"id,omitempty"`
 	ProviderID   string `json:"provider_id"`
 	Number       int    `json:"number"`
 	Name         string `json:"name,omitempty"`
@@ -40,13 +43,16 @@ type Network struct {
 	Type    string `json:"type,omitempty"`
 }
 type Image struct {
-	ID         string `json:"id,omitempty"`
-	Provider   string `json:"provider,omitempty"`
-	ProviderID string `json:"provider_id"`
-	URL        string `json:"url,omitempty"`
-	Class      string `json:"class"`
-	Width      int    `json:"width,omitempty"`
-	Height     int    `json:"height,omitempty"`
+	ID            string  `json:"id,omitempty"`
+	Provider      string  `json:"provider,omitempty"`
+	ProviderID    string  `json:"provider_id"`
+	URL           string  `json:"url,omitempty"`
+	Class         string  `json:"class"`
+	Language      string  `json:"language,omitempty"`
+	Country       string  `json:"country,omitempty"`
+	Width         int     `json:"width,omitempty"`
+	Height        int     `json:"height,omitempty"`
+	ProviderScore float64 `json:"provider_score,omitempty"`
 }
 type Rating struct {
 	System   string  `json:"system"`
@@ -56,6 +62,7 @@ type Rating struct {
 	Votes    int     `json:"votes,omitempty"`
 }
 type Credit struct {
+	PersonEntityID   string `json:"person_entity_id,omitempty"`
 	Provider         string `json:"provider"`
 	ProviderPersonID string `json:"provider_person_id"`
 	DisplayName      string `json:"display_name"`

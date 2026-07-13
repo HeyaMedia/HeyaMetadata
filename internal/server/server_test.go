@@ -79,14 +79,19 @@ func TestOpenAPIDocumentContainsPublicRoutes(t *testing.T) {
 	text := string(document)
 	for _, path := range []string{
 		"/api/v2/health/live", "/api/v2/health/ready",
+		"/api/v2/auth/register", "/api/v2/auth/login", "/api/v2/auth/logout", "/api/v2/auth/me",
 		"/api/v2/entities/{id}", "/api/v2/resolutions", "/api/v2/jobs/{id}", "/api/v2/search", "/api/v2/changes",
 		"/api/v2/images/{id}",
+		"/api/v2/entities/{id}/images",
 		"/api/v2/discoveries", "/api/v2/discoveries/{id}",
 		"/api/v2/tv/discoveries", "/api/v2/anime/discoveries",
+		"/api/v2/manga/discoveries", "/api/v2/comics/discoveries",
 		"/api/v2/tv/shows/{id}", "/api/v2/anime/{id}",
+		"/api/v2/manga/{id}", "/api/v2/manga/volumes/{id}", "/api/v2/comics/volumes/{id}",
 		"/api/v2/recordings/{id}/fingerprints", "/api/v2/recordings/{id}/lyrics",
 		"/api/v2/fingerprint-matches", "/api/v2/fingerprint-matches/{id}",
 		"/api/v2/entities/{id}/credits", "/api/v2/entities/{id}/ratings",
+		"/api/v2/latest", "/api/v2/browse", "/api/v2/stats", "/api/v2/collections", "/api/v2/collections/{id}",
 	} {
 		if !strings.Contains(text, path) {
 			t.Errorf("OpenAPI document does not contain %s", path)
@@ -104,18 +109,39 @@ func TestOpenAPIDocumentContainsPublicRoutes(t *testing.T) {
 	if !strings.Contains(text, "X-Heya-Fanart-API-Key") {
 		t.Error("OpenAPI document does not expose request-scoped Fanart.tv credentials")
 	}
-	for _, header := range []string{"X-Heya-Apple-API-Key", "X-Heya-Discogs-API-Key", "X-Heya-LastFM-API-Key", "X-Heya-Google-Books-API-Key", "X-Heya-AcoustID-API-Key"} {
+	for _, header := range []string{"X-Heya-Apple-API-Key", "X-Heya-Discogs-API-Key", "X-Heya-LastFM-API-Key", "X-Heya-Google-Books-API-Key", "X-Heya-AcoustID-API-Key", "X-Heya-MAL-Client-ID"} {
 		if !strings.Contains(text, header) {
 			t.Errorf("OpenAPI document does not expose %s", header)
 		}
 	}
-	for _, kind := range []string{"tv_show", "anime", "book_work", "book_edition"} {
+	for _, kind := range []string{"tv_show", "anime", "book_work", "book_edition", "manga", "manga_volume", "comic_volume"} {
 		if !strings.Contains(text, kind) {
 			t.Errorf("OpenAPI document does not preserve distinct %s kind", kind)
 		}
 	}
 	if strings.Contains(text, "recording_evidence_refresh_v1") || strings.Contains(text, "/api/v2/recordings/{id}/refreshes") {
 		t.Error("internal recording evidence refresh leaked into the public API")
+	}
+}
+
+func TestAuthSessionCookiesAreBrowserOnlyAndSecure(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 13, 12, 0, 0, 0, time.UTC)
+	cookie := newSessionCookie("opaque-token", now)
+	if cookie.Name != "__Host-heya_session" || cookie.Value != "opaque-token" || cookie.Path != "/" {
+		t.Fatalf("unexpected session cookie identity: %+v", cookie)
+	}
+	if !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("session cookie security attributes are incomplete: %+v", cookie)
+	}
+	if cookie.MaxAge != int((30*24*time.Hour)/time.Second) || !cookie.Expires.Equal(now.Add(30*24*time.Hour)) {
+		t.Fatalf("session cookie lifetime does not match the Redis TTL: %+v", cookie)
+	}
+
+	expired := expiredSessionCookie()
+	if expired.MaxAge >= 0 || !expired.HttpOnly || !expired.Secure || expired.Path != "/" {
+		t.Fatalf("logout cookie does not reliably clear the session: %+v", expired)
 	}
 }
 

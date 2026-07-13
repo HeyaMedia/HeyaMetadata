@@ -162,6 +162,9 @@ func (s *Service) persist(ctx context.Context, records []releasedomain.Normalize
 						isrc = match.Recording.ISRCs[0]
 					}
 					trackSources = append(trackSources, releasedomain.TrackSource{Provider: source.ProviderRecord.Provider, Namespace: "track", ProviderID: match.ProviderID, ISRC: isrc})
+					if recordingID != "" && match.ProviderID != "" {
+						_, _ = tx.Exec(ctx, `INSERT INTO external_id_claims(entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at)VALUES($1,'recording',$2,'track',lower($3),'accepted',1,$4,$5,$5)ON CONFLICT(entity_kind,provider,namespace,normalized_value)DO UPDATE SET state='accepted',last_observed_at=EXCLUDED.last_observed_at,source_observation_id=EXCLUDED.source_observation_id WHERE external_id_claims.entity_id=EXCLUDED.entity_id`, recordingID, source.ProviderRecord.Provider, match.ProviderID, source.ProviderRecord.PrimaryObservationID, source.ProviderRecord.ObservedAt)
+					}
 				}
 			}
 			trackBody, _ := json.Marshal(struct {
@@ -172,7 +175,7 @@ func (s *Service) persist(ctx context.Context, records []releasedomain.Normalize
 			if err = tx.QueryRow(ctx, `INSERT INTO release_tracks(release_entity_id,medium_id,sequence,position,number,title,duration_ms,recording_entity_id,provider,provider_track_id,document)VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,0),NULLIF($8,'' )::uuid,'musicbrainz',$9,$10)RETURNING id`, entityID, mediumID, track.Sequence, track.Position, track.Number, track.Title, track.DurationMS, recordingID, track.ProviderID, trackBody).Scan(&trackID); err != nil {
 				return Result{}, err
 			}
-			projected.Tracks = append(projected.Tracks, releasedomain.TrackDocument{ID: trackID, ProviderID: track.ProviderID, Position: track.Position, Number: track.Number, Title: track.Title, Sequence: track.Sequence, DurationMS: track.DurationMS, ArtistCredits: track.ArtistCredits, Recording: releasedomain.RecordingRef{ID: recordingID, Provider: track.Recording.Provider, Namespace: track.Recording.Namespace, ProviderID: track.Recording.ProviderID, Title: track.Recording.Title, DurationMS: track.Recording.DurationMS, ISRCs: track.Recording.ISRCs}, Sources: trackSources})
+			projected.Tracks = append(projected.Tracks, releasedomain.TrackDocument{ID: trackID, RecordingEntityID: recordingID, ProviderID: track.ProviderID, Position: track.Position, Number: track.Number, Title: track.Title, Sequence: track.Sequence, DurationMS: track.DurationMS, ArtistCredits: track.ArtistCredits, Recording: releasedomain.RecordingRef{ID: recordingID, Provider: track.Recording.Provider, Namespace: track.Recording.Namespace, ProviderID: track.Recording.ProviderID, Title: track.Recording.Title, DurationMS: track.Recording.DurationMS, ISRCs: track.Recording.ISRCs}, Sources: trackSources})
 		}
 		doc.Data.Media = append(doc.Data.Media, projected)
 	}
@@ -192,6 +195,9 @@ func (s *Service) persist(ctx context.Context, records []releasedomain.Normalize
 	_, err = tx.Exec(ctx, `INSERT INTO search_entities(entity_id,kind,slug,display_title,release_year,status,genres,countries,languages,summary,projection_version)VALUES($1,'release',$2,$3,NULLIF($4,0),$5,$6,$7,'{}',$8,$9)ON CONFLICT(entity_id)DO UPDATE SET display_title=EXCLUDED.display_title,release_year=EXCLUDED.release_year,status=EXCLUDED.status,countries=EXCLUDED.countries,summary=EXCLUDED.summary,projection_version=EXCLUDED.projection_version,updated_at=now()`, entityID, slug, r.Title, year(r.Date), r.Status, genres, []string{r.Country}, summary, version)
 	if err != nil {
 		return Result{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE entity_relations SET target_entity_id=$1 WHERE target_kind='release' AND provider='musicbrainz' AND namespace='release' AND provider_value=$2 AND state='accepted'`, entityID, strings.ToLower(r.ProviderRecord.Value)); err != nil {
+		return Result{}, fmt.Errorf("link release relations: %w", err)
 	}
 	_, _ = tx.Exec(ctx, `DELETE FROM search_names WHERE entity_id=$1`, entityID)
 	_, _ = tx.Exec(ctx, `INSERT INTO search_names(entity_id,value,normalized_value,name_type,source_quality)VALUES($1,$2,lower(unaccent($2)),'display',90)ON CONFLICT DO NOTHING`, entityID, r.Title)
@@ -368,6 +374,14 @@ func (s *Service) Detail(ctx context.Context, id string) (releasedomain.DetailDo
 	var d releasedomain.DetailDocument
 	if err := json.Unmarshal(body, &d); err != nil {
 		return d, false, err
+	}
+	for mediumIndex := range d.Data.Media {
+		for trackIndex := range d.Data.Media[mediumIndex].Tracks {
+			track := &d.Data.Media[mediumIndex].Tracks[trackIndex]
+			if track.RecordingEntityID == "" {
+				track.RecordingEntityID = track.Recording.ID
+			}
+		}
 	}
 	return d, time.Now().Before(fresh), nil
 }

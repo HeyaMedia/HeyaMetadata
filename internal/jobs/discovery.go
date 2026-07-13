@@ -80,11 +80,15 @@ func (w *DiscoverySearchWorker) Work(ctx context.Context, job *river.Job[Discove
 		result, err = w.service.DiscoverReleaseGroup(ctx, run.Request, job.ID)
 	case discovery.KindRecording:
 		result, err = w.service.DiscoverRecording(ctx, run.Request, job.ID)
+	case discovery.KindMusicalWork:
+		result, err = w.service.DiscoverMusicalWork(ctx, run.Request, job.ID)
 	case discovery.KindTVShow:
 		result, err = w.service.DiscoverTV(ctx, run.Request, job.ID)
 	case discovery.KindAnime:
 		result, err = w.service.DiscoverAnime(ctx, run.Request, job.ID)
-	case discovery.KindBookWork:
+	case discovery.KindManga:
+		result, err = w.service.DiscoverManga(ctx, run.Request, job.ID)
+	case discovery.KindBookWork, discovery.KindMangaVolume, discovery.KindComicVolume:
 		result, err = w.service.DiscoverBook(ctx, run.Request, job.ID)
 	default:
 		return fmt.Errorf("discovery kind %q is not implemented", run.Request.Kind)

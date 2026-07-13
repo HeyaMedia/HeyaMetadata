@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/books"
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
@@ -13,7 +14,7 @@ import (
 
 func newBookCommand() *cobra.Command {
 	command := &cobra.Command{Use: "book", Short: "Manage canonical books", Args: cobra.NoArgs}
-	var workID, apiKey string
+	var workID, editionID, apiKey, kind string
 	var wait time.Duration
 	ingest := &cobra.Command{Use: "ingest", Short: "Ingest an Open Library work and its editions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		runtime, err := platform.Open(cmd.Context(), cfg)
@@ -27,6 +28,9 @@ func newBookCommand() *cobra.Command {
 		if err = requireCurrentSchema(cmd.Context(), runtime); err != nil {
 			return err
 		}
+		if !books.ValidWorkKind(kind) {
+			return fmt.Errorf("kind must be book_work, manga_volume, or comic_volume")
+		}
 		credentials := providercredentials.Credentials{}
 		if apiKey != "" {
 			credentials.APIKeys = map[string]string{"googlebooks": apiKey}
@@ -39,7 +43,7 @@ func newBookCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		inserted, err := jobs.InsertBook(cmd.Context(), runtime, client, jobs.BookIngestArgs{OpenLibraryWorkID: workID, CredentialRef: ref, Reason: "cli"}, jobs.PriorityInteractive)
+		inserted, err := jobs.InsertBook(cmd.Context(), runtime, client, jobs.BookIngestArgs{OpenLibraryWorkID: workID, OpenLibraryEditionID: editionID, EntityKind: kind, CredentialRef: ref, Reason: "cli"}, jobs.PriorityInteractive)
 		if err != nil {
 			return err
 		}
@@ -60,6 +64,8 @@ func newBookCommand() *cobra.Command {
 		return fmt.Errorf("timed out waiting for book ingestion job %d", inserted.Job.ID)
 	}}
 	ingest.Flags().StringVar(&workID, "openlibrary", "", "Open Library work key (for example OL45883W)")
+	ingest.Flags().StringVar(&editionID, "edition", "", "Optional Open Library edition key to force through the bounded work catalog")
+	ingest.Flags().StringVar(&kind, "kind", books.KindBook, "Canonical kind: book_work, manga_volume, or comic_volume")
 	ingest.Flags().StringVar(&apiKey, "google-books-api-key", "", "Request-scoped Google Books API key")
 	ingest.Flags().DurationVar(&wait, "wait", 2*time.Minute, "Maximum wait for ingestion")
 	_ = ingest.MarkFlagRequired("openlibrary")

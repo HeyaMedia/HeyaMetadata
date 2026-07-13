@@ -1,6 +1,10 @@
 /bin/
+/heya-metadata
 /.cache/
 /.dev/
 /.env
 /.env.local
 *.log
+HANDOFF.md
+HeyaMetadataV2.md
+docs/

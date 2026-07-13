@@ -10,7 +10,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 )
 
-const tvdbSeriesNormalizerVersion = "tvdb-series/v1"
+const tvdbSeriesNormalizerVersion = "tvdb-series/v2"
 
 type tvdbEnvelope struct {
 	Data tvdbSeries `json:"data"`
@@ -35,6 +35,7 @@ type tvdbSeries struct {
 		ID                  int64 `json:"id"`
 		Image, Language     string
 		Type, Width, Height int
+		Score               float64
 	} `json:"artworks"`
 	Seasons []struct {
 		ID     int64  `json:"id"`
@@ -104,12 +105,12 @@ func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *i
 		}
 	}
 	if v.Image != "" {
-		r.Images = append(r.Images, episodic.Image{Provider: "tvdb", ProviderID: "primary", URL: tvdbArtworkURL(v.Image), Class: "poster"})
+		r.Images = append(r.Images, episodic.Image{Provider: "tvdb", ProviderID: "primary", URL: tvdbArtworkURL(v.Image), Class: "poster", Language: v.OriginalLanguage})
 	}
 	for _, x := range v.Artworks[:min(len(v.Artworks), 50)] {
 		class := map[int]string{1: "banner", 2: "poster", 3: "backdrop", 6: "poster", 7: "backdrop", 13: "banner", 14: "poster", 15: "backdrop", 25: "logo"}[x.Type]
 		if class != "" {
-			r.Images = append(r.Images, episodic.Image{Provider: "tvdb", ProviderID: strconv.FormatInt(x.ID, 10), URL: tvdbArtworkURL(x.Image), Class: class, Width: x.Width, Height: x.Height})
+			r.Images = append(r.Images, episodic.Image{Provider: "tvdb", ProviderID: strconv.FormatInt(x.ID, 10), URL: tvdbArtworkURL(x.Image), Class: class, Language: x.Language, Width: x.Width, Height: x.Height, ProviderScore: x.Score})
 		}
 	}
 	for _, x := range v.Seasons {

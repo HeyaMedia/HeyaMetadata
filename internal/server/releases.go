@@ -13,6 +13,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
+	"github.com/HeyaMedia/HeyaMetadata/internal/releases"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -105,6 +106,17 @@ func registerReleases(api huma.API, runtime *platform.Runtime) {
 		return func(ctx context.Context, input *musicEntityInput) (*entityOutput, error) {
 			if runtime == nil {
 				return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
+			}
+			if kind == "release" {
+				document, _, err := releases.NewService(runtime).Detail(ctx, input.ID)
+				if err == releases.ErrNotFound {
+					return nil, huma.Error404NotFound("release not found")
+				}
+				if err != nil {
+					return nil, err
+				}
+				_ = accessstats.Track(ctx, runtime.Redis, input.ID)
+				return &entityOutput{Body: document}, nil
 			}
 			var body []byte
 			if err := runtime.DB.QueryRow(ctx, `SELECT d.document FROM api_documents d JOIN entities e ON e.id=d.entity_id WHERE d.entity_id=$1 AND d.document_kind='detail' AND e.kind=$2`, input.ID, kind).Scan(&body); err == pgx.ErrNoRows {

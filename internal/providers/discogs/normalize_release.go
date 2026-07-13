@@ -22,8 +22,9 @@ func NormalizeRelease(body []byte, observationID string, observedAt time.Time) (
 			Name, ANV, Join string
 		}
 		Labels []struct {
-			ID          int64
-			Name, CatNo string `json:"catno"`
+			ID    int64
+			Name  string
+			CatNo string `json:"catno"`
 		}
 		Formats []struct {
 			Name string

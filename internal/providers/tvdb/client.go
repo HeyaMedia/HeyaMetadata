@@ -112,6 +112,31 @@ func (c *Client) CollectSeries(ctx context.Context, identifier providers.Identif
 	return []providers.Payload{payload}, nil
 }
 
+func PersonCapability() providers.Capability {
+	return providers.Capability{
+		Provider: "tvdb", EntityKind: "person",
+		RawRetention:        providers.RetentionPolicy{Class: "provider_raw_48h", Duration: 48 * time.Hour, ObjectPrefix: "ephemeral/48h"},
+		ResponseCache:       providers.ResponseCachePolicy{ReuseDuration: 24 * time.Hour, NegativeDuration: time.Hour, RedisBodyDuration: time.Hour, MaxRedisBodyBytes: 2 * 1024 * 1024},
+		AcceptedIdentifiers: []providers.Identifier{{Provider: "tvdb", Namespace: "person"}},
+		Provides:            []providers.Scope{providers.ScopeIdentity, providers.ScopeTitles, providers.ScopeDescriptions, providers.ScopeCredits, providers.ScopeArtwork},
+	}
+}
+
+func (c *Client) CollectPerson(ctx context.Context, identifier providers.Identifier) ([]providers.Payload, error) {
+	if identifier.Provider != "tvdb" || identifier.Namespace != "person" {
+		return nil, fmt.Errorf("TVDB person collector cannot accept %s.%s", identifier.Provider, identifier.Namespace)
+	}
+	id, err := strconv.ParseInt(identifier.Value, 10, 64)
+	if err != nil || id < 1 {
+		return nil, fmt.Errorf("invalid TVDB person ID %q", identifier.Value)
+	}
+	payload, err := c.get(ctx, "/people/"+identifier.Value+"/extended?meta=translations", providers.Payload{Provider: "tvdb", ProviderNamespace: "person", ProviderRecordID: identifier.Value, RequestKey: "people/" + identifier.Value + "/extended?meta=translations"}, nil)
+	if err != nil {
+		return nil, err
+	}
+	return []providers.Payload{payload}, nil
+}
+
 func (c *Client) get(ctx context.Context, endpoint string, payload providers.Payload, classify func(*providers.Payload)) (providers.Payload, error) {
 	requestURL := strings.TrimRight(c.config.BaseURL, "/") + endpoint
 	request, err := http.NewRequest(http.MethodGet, requestURL, nil)

@@ -43,6 +43,12 @@ The proxy sends `/api` and `/api/*` to Go and everything else to Nuxt. It stays
 running while Air replaces the backend. In the `mprocs` UI, press `r` on the
 proxy pane when changing the proxy implementation itself.
 
+The Nuxt app is the Metadata Observatory: a development workbench for local
+search, upstream discovery, candidate resolution, River progress, localized
+presentation, artwork, provenance, ratings, external IDs, raw canonical JSON,
+provider refreshes, and in-memory request-scoped credentials. See
+[`docs/metadata-observatory.md`](./docs/metadata-observatory.md).
+
 The `dev-web` target raises the child process file-descriptor limit to avoid
 Nuxt/Vite watcher failures on macOS shells that still default to 256 files.
 
@@ -79,10 +85,14 @@ make infra-status
 make migrate-status
 make worker         # run the River worker without Air
 make smoke          # verify River + Postgres + Redis + S3 end to end
+make generate-api   # refresh api/openapi.yaml and the generated Go SDK
+make acceptance     # verify the complete cross-domain public contract
+make check-generated # fail if the checked-in contract or SDK has drifted
 make movie-ingest TMDB_ID=603
 make artist-ingest MUSICBRAINZ_ID=b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d
 make release-group-ingest MUSICBRAINZ_ID=9162580e-5df4-32de-80cc-f45a8d8a9b1d
 make release-ingest MUSICBRAINZ_ID=044d87f2-9fda-475a-b041-47df9443a3f5
+make musical-work-ingest OPENOPUS_ID=16406
 make retention-sweep
 make infra-down
 ```
@@ -114,7 +124,21 @@ Books use separate work, edition, and author identities:
 ```bash
 go run ./cmd/heya-metadata discover book --query 'The Hobbit' \
   --author 'J. R. R. Tolkien' --year 1937
-go run ./cmd/heya-metadata book ingest --openlibrary OL27482W --wait 3m
+go run ./cmd/heya-metadata book ingest --openlibrary OL27482W \
+  --edition OL33891772M --wait 3m
+```
+
+The optional edition key forces one client-selected edition through the bounded
+work catalog without crawling every edition of a popular work.
+
+Composed musical works are separate from recordings, performances, and
+releases. Open Opus is the first canonical spine:
+
+```bash
+go run ./cmd/heya-metadata discover musical-work \
+  --query 'Symphony no. 5' --composer 'Ludwig van Beethoven' \
+  --catalogue 'op. 67'
+go run ./cmd/heya-metadata musical-work ingest --openopus 16406 --wait 90s
 ```
 
 LRCLIB's slower external-source fan-out is an internal scheduled job on a
@@ -190,7 +214,8 @@ route. `POST /api/v2/discoveries` is the durable smart-search surface for
 unknown identities. Identical normalized requests share a high-priority River
 job and six-hour result, and candidates include confidence, evidence,
 ambiguity, existing canonical IDs, and a ready-to-submit resolution body.
-Movie, Artist, Release Group, Recording, TV Show, Anime, and Book Work have provider-backed discovery.
+Movie, Artist, Release Group, Recording, Musical Work, TV Show, Anime, and Book
+Work have provider-backed discovery.
 TV and Anime retain separate canonical kinds, jobs, tables, and API families.
 The complete consuming-server state machine, including both asynchronous poll
 boundaries, is documented in
@@ -244,9 +269,10 @@ atomically installs the next one, so only the running and newly built versions
 can coexist briefly.
 
 Go's compiler cache is not a collection of complete application builds, so Air
-cannot retain exactly its last two entries. Development uses an isolated
-`.cache/go-build` instead. After every successful Air build it is cleared if it
-exceeds `GO_CACHE_MAX_MB`, which defaults to 512 MiB:
+cannot retain exactly its last two entries. Air uses the isolated
+`.cache/go-build-air` cache; normal CLI/tests use `.cache/go-build`, so pruning
+after an Air build cannot invalidate a concurrent test or SDK generation. The
+Air cache is cleared if it exceeds `GO_CACHE_MAX_MB`, which defaults to 512 MiB:
 
 ```bash
 make dev-cache-status
@@ -284,6 +310,9 @@ go run ./cmd/heya-metadata release-group ingest --musicbrainz 9162580e-5df4-32de
 go run ./cmd/heya-metadata retention sweep
 go test ./...
 ```
+
+The checked-in OpenAPI contract, generated Go client, and contract acceptance
+workflow are documented in [`docs/api-contract.md`](./docs/api-contract.md).
 
 Configuration is read from process environment variables after `.env.local`
 and `.env` are loaded; process variables always win. See

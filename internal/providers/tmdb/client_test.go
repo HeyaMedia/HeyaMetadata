@@ -60,3 +60,29 @@ func TestMovieSearchUsesStructuredParametersAndSafeCacheIdentity(t *testing.T) {
 		t.Fatalf("unsafe or unexpected search payload: %+v", payload)
 	}
 }
+
+func TestCollectPersonRequestsBoundedEnrichmentScopes(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/person/6384" {
+			t.Errorf("unexpected path %s", request.URL.Path)
+		}
+		if got := request.URL.Query().Get("append_to_response"); got != appendedPersonScopes {
+			t.Errorf("append_to_response = %q", got)
+		}
+		if got := request.URL.Query().Get("include_image_language"); got != "en,en,null" {
+			t.Errorf("include_image_language = %q", got)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"id":6384,"name":"Keanu Reeves"}`))
+	}))
+	defer server.Close()
+	client := NewCached(config.TMDBConfig{BaseURL: server.URL, Language: "en-US"}, nil, "key")
+	payloads, err := client.CollectPerson(context.Background(), providers.Identifier{Provider: "tmdb", Namespace: "person", Value: "6384"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payloads) != 1 || payloads[0].ProviderNamespace != "person" || strings.Contains(payloads[0].RequestKey, "key") {
+		t.Fatalf("unexpected payload: %+v", payloads)
+	}
+}

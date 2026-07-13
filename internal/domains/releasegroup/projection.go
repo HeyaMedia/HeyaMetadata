@@ -81,7 +81,8 @@ type EditionSource struct {
 }
 type ProjectedTrack struct {
 	Track
-	Provider string `json:"provider"`
+	Provider          string `json:"provider"`
+	RecordingEntityID string `json:"recording_entity_id,omitempty"`
 }
 type DetailData struct {
 	Titles         []Title            `json:"titles"`

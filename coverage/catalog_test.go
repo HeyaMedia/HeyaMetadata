@@ -89,3 +89,14 @@ func TestBooksAndTVCatalogsAreValid(t *testing.T) {
 		t.Fatalf("TV coverage entries: %d", len(tv.Entries))
 	}
 }
+
+func TestPeopleCatalogIsValid(t *testing.T) {
+	t.Parallel()
+	catalog, err := People()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Entries) < 6 {
+		t.Fatalf("people coverage entries: %d", len(catalog.Entries))
+	}
+}
