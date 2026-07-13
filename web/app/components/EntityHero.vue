@@ -43,6 +43,11 @@ const primaryImage = computed(() => {
   )
 })
 
+// Cinematic treatment: a scrimmed backdrop behind the hero and a logo image in
+// place of the title when the providers supply them (mostly movie/tv/anime).
+const backdropId = computed(() => props.images?.selections?.backdrop || props.images?.selections?.banner)
+const logoId = computed(() => props.images?.selections?.logo || props.images?.selections?.clearlogo)
+
 const metaChips = computed(() => {
   const chips: string[] = []
   const data = props.entity.data ?? {}
@@ -114,8 +119,12 @@ async function copyId() {
 </script>
 
 <template>
-  <section class="hero">
-    <div class="hero__glow" aria-hidden="true" />
+  <section class="hero" :class="{ 'has-backdrop': backdropId }">
+    <div v-if="backdropId" class="hero__backdrop" aria-hidden="true">
+      <MetadataImage :image-id="backdropId" variant="hero" decorative />
+      <span class="hero__backdrop-scrim" />
+    </div>
+    <div v-else class="hero__glow" aria-hidden="true" />
     <div class="hero__art" :class="`hero__art--${shape}`">
       <MetadataImage :image-id="primaryImage" :alt="title" variant="hero" />
     </div>
@@ -125,7 +134,10 @@ async function copyId() {
         <span>{{ kindText }}</span>
         <template v-if="freshness"><i aria-hidden="true" />{{ freshness }}</template>
       </p>
-      <h1 class="editorial hero__title">{{ title }}</h1>
+      <h1 v-if="logoId" class="hero__logo">
+        <MetadataImage :image-id="logoId" :alt="title" variant="hero" />
+      </h1>
+      <h1 v-else class="editorial hero__title">{{ title }}</h1>
       <p v-if="originalTitle" class="hero__original">{{ originalTitle }}</p>
 
       <p v-if="description" class="hero__description" :class="{ 'is-clamped': longDescription && !expanded }">
@@ -168,6 +180,7 @@ async function copyId() {
   align-items: start;
   padding-top: clamp(1.5rem, 3vw, 2.5rem);
 }
+.hero.has-backdrop { padding-top: clamp(2rem, 5vw, 3.5rem); }
 .hero__glow {
   position: absolute;
   z-index: -1;
@@ -179,6 +192,30 @@ async function copyId() {
   background: rgba(138, 121, 60, 0.09);
   filter: blur(80px);
 }
+.hero__backdrop {
+  position: absolute;
+  z-index: 0;
+  inset: -1.25rem 0 auto 0;
+  height: calc(100% + 2.5rem);
+  overflow: hidden;
+  border-radius: var(--radius);
+}
+.hero__backdrop :deep(.metadata-image) { width: 100%; height: 100%; }
+.hero__backdrop-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to top, var(--bg) 2%, rgba(11, 14, 16, 0.6) 55%, rgba(11, 14, 16, 0.32) 100%),
+    linear-gradient(90deg, var(--bg) 0%, rgba(11, 14, 16, 0.2) 46%, rgba(11, 14, 16, 0.05) 100%);
+}
+.hero__art, .hero__body { position: relative; z-index: 1; }
+.hero__logo {
+  width: min(30rem, 100%);
+  height: clamp(3.25rem, 7vw, 5rem);
+  margin: 0.35rem 0 0.5rem;
+}
+.hero__logo :deep(.metadata-image) { width: 100%; height: 100%; background: transparent; }
+.hero__logo :deep(img) { object-fit: contain; object-position: left center; }
 .hero__art {
   width: 100%;
   overflow: hidden;

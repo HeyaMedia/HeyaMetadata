@@ -56,9 +56,19 @@ const collection = computed(() => {
         <p v-if="collection.overview" class="collection-overview">{{ collection.overview }}</p>
       </OverviewPanel>
 
+      <AltTitles :titles="data.titles" :exclude="entity.presentation?.title || entity.display?.title" />
       <LinksList :links="data.links" />
       <RatingsPanel :ratings="data.ratings" />
+      <StudiosStrip :studios="data.studios" />
     </div>
+
+    <MemberRail
+      v-if="collection"
+      :collection-id="collection.provider_id"
+      :exclude-id="entity.id"
+      :title="collection.name"
+      kicker="Part of the collection"
+    />
 
     <VideoGallery :videos="data.videos" />
     <CastSection :entity-id="entity.id" />

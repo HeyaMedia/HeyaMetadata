@@ -36,6 +36,7 @@ const facts = computed<Fact[]>(() => {
       </OverviewPanel>
 
       <ExternalIdsPanel :external-ids="entity.external_ids" />
+      <AltTitles :titles="data.titles" :exclude="entity.presentation?.title || entity.display?.title" />
       <RatingsPanel :ratings="data.ratings" />
 
     </div>
