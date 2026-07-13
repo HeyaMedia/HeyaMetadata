@@ -1,20 +1,17 @@
 <script setup lang="ts">
 import type { PersonCredit } from '~/utils/types'
 
-// Filmography grid shared by the canonical person page and the provider-scoped
-// resolver. Groups by cast/crew, sorts by year. Only entries with a canonical
-// entity_id are clickable (via entityPath); unresolved provider entries stay
-// visible but non-interactive. Large groups collapse to a preview.
+// Filmography, grouped into acting and crew, each shown as a MediaShelf (rail +
+// pan + expand). Only entries with a canonical entity_id are clickable (via
+// entityPath); unresolved provider entries stay visible but non-interactive.
+// Canonical credits sort first so the resolved titles aren't buried under
+// hundreds of unresolved provider entries.
 const props = defineProps<{ credits?: PersonCredit[] }>()
-
-const PREVIEW = 36
 
 const groups = computed(() => {
   const credits = props.credits ?? []
   const cast = credits.filter(c => (c.credit_type ?? 'cast') === 'cast')
   const crew = credits.filter(c => (c.credit_type ?? 'cast') !== 'cast')
-  // Canonical (clickable) credits first, then by year — otherwise the handful of
-  // resolved titles get buried under hundreds of unresolved provider entries.
   const rank = (c: PersonCredit) => (c.entity_id ? 0 : 1)
   const order = (a: PersonCredit, b: PersonCredit) => rank(a) - rank(b) || (b.year ?? 0) - (a.year ?? 0)
   return [
@@ -23,34 +20,31 @@ const groups = computed(() => {
   ].filter(group => group.items.length)
 })
 
-// Per-group expansion state.
-const expanded = reactive<Record<string, boolean>>({})
-function shown(group: { key: string; items: PersonCredit[] }) {
-  return expanded[group.key] ? group.items : group.items.slice(0, PREVIEW)
-}
-
 function roleOf(credit: PersonCredit) {
   return formatValue(credit.character) || titleCase(credit.job) || titleCase(credit.department)
 }
 function synth(credit: PersonCredit) {
   return { id: credit.entity_id, kind: credit.kind, display: { title: credit.title, year: credit.year, image_id: credit.image_id } }
 }
+function creditKey(credit: PersonCredit, index: number) {
+  return credit.entity_id || credit.provider_target_id || index
+}
 const linkTag = resolveComponent('NuxtLink')
 </script>
 
 <template>
-  <section v-for="group in groups" :key="group.key" class="filmography">
-    <header class="section-head">
-      <div><span class="section-label">Filmography</span><h2>{{ group.title }} <small>{{ group.items.length }}</small></h2></div>
-      <button v-if="group.items.length > PREVIEW" type="button" class="btn--link" @click="expanded[group.key] = !expanded[group.key]">
-        {{ expanded[group.key] ? 'Show less' : `Show all ${group.items.length}` }}
-      </button>
-    </header>
-    <div class="media-grid is-poster">
+  <MediaShelf
+    v-for="group in groups"
+    :key="group.key"
+    :title="group.title"
+    kicker="Filmography"
+    :items="group.items"
+    shape="poster"
+    :item-key="creditKey"
+  >
+    <template #default="{ item: credit }">
       <component
         :is="credit.entity_id ? linkTag : 'div'"
-        v-for="(credit, index) in shown(group)"
-        :key="`${credit.entity_id || credit.provider_target_id || index}`"
         :to="credit.entity_id ? entityPath(synth(credit)) : undefined"
         class="film"
         :class="{ 'is-ghost': !credit.entity_id }"
@@ -63,12 +57,11 @@ const linkTag = resolveComponent('NuxtLink')
           <span v-if="!credit.entity_id" class="film__status">Not ingested</span>
         </span>
       </component>
-    </div>
-  </section>
+    </template>
+  </MediaShelf>
 </template>
 
 <style scoped>
-.filmography { margin-top: clamp(1.75rem, 3vw, 2.5rem); }
 .film {
   display: flex;
   flex-direction: column;

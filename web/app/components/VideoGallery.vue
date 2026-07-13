@@ -1,15 +1,12 @@
 <script setup lang="ts">
-// Trailers & clips from movie/tv `data.videos`. YouTube-hosted entries get a
-// thumbnail + link. External thumbnails load directly (this is a same-origin dev
-// app, not a CSP-restricted artifact).
-const props = withDefaults(defineProps<{ videos?: any[]; limit?: number }>(), { videos: () => [], limit: 12 })
+// Trailers & clips from movie/tv `data.videos`, as a MediaShelf. YouTube-hosted
+// entries get a thumbnail + link (external thumbnails load directly — this is a
+// same-origin dev app, not a CSP-restricted artifact).
+const props = withDefaults(defineProps<{ videos?: any[] }>(), { videos: () => [] })
 
-interface Video { key: string; name: string; type: string; url: string; thumb: string; official: boolean }
-
-const videos = computed<Video[]>(() =>
+const videos = computed(() =>
   (props.videos ?? [])
     .filter(video => /youtube/i.test(video.host ?? '') && video.key)
-    .slice(0, props.limit)
     .map(video => ({
       key: video.key,
       name: formatValue(video.name) || 'Video',
@@ -22,12 +19,9 @@ const videos = computed<Video[]>(() =>
 </script>
 
 <template>
-  <section v-if="videos.length" class="videos">
-    <header class="section-head">
-      <div><span class="section-label">Watch</span><h2>Trailers &amp; clips</h2></div>
-    </header>
-    <div class="rail-track is-landscape">
-      <a v-for="video in videos" :key="video.key" :href="video.url" target="_blank" rel="noopener noreferrer" class="video">
+  <MediaShelf title="Trailers & clips" kicker="Watch" :items="videos" shape="landscape" :item-key="v => v.key">
+    <template #default="{ item: video }">
+      <a :href="video.url" target="_blank" rel="noopener noreferrer" class="video">
         <span class="video__thumb">
           <img :src="video.thumb" :alt="video.name" loading="lazy">
           <span class="video__play" aria-hidden="true">▶</span>
@@ -37,14 +31,11 @@ const videos = computed<Video[]>(() =>
           <strong>{{ video.name }}</strong>
         </span>
       </a>
-    </div>
-  </section>
+    </template>
+  </MediaShelf>
 </template>
 
 <style scoped>
-.videos { margin-top: 2.5rem; }
-.section-head { margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--line); }
-.section-head h2 { margin: 0.3rem 0 0; font-size: 1.2rem; font-weight: 500; }
 .video {
   display: flex;
   flex-direction: column;
@@ -67,7 +58,7 @@ const videos = computed<Video[]>(() =>
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.7);
   opacity: 0.9;
 }
-.video__body { display: flex; flex-direction: column; padding: 0.6rem 0.7rem 0.75rem; }
+.video__body { display: flex; flex-direction: column; padding: 0.55rem 0.65rem 0.7rem; }
 .video__body small { color: var(--gold); font-family: var(--font-mono); font-size: 0.56rem; text-transform: uppercase; }
 .video__body strong { margin-top: 0.25rem; overflow: hidden; font-size: 0.78rem; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 </style>
