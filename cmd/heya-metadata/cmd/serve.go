@@ -46,9 +46,17 @@ func newServeCommand() *cobra.Command {
 			defer runtime.Close()
 
 			application := server.NewWithRuntime(buildinfo.Version, runtime)
+			handler := application.Handler()
+			if cfg.WebRoot != "" {
+				handler, err = server.WithWebUI(handler, cfg.WebRoot)
+				if err != nil {
+					return fmt.Errorf("configure web UI: %w", err)
+				}
+				slog.Info("web UI enabled", "root", cfg.WebRoot)
+			}
 			httpServer := &http.Server{
 				Addr:              cfg.Address(),
-				Handler:           application.Handler(),
+				Handler:           handler,
 				ReadHeaderTimeout: 10 * time.Second,
 				ReadTimeout:       30 * time.Second,
 				IdleTimeout:       2 * time.Minute,

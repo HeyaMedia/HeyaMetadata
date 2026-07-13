@@ -86,3 +86,33 @@ func TestCollectPersonRequestsBoundedEnrichmentScopes(t *testing.T) {
 		t.Fatalf("unexpected payload: %+v", payloads)
 	}
 }
+
+func TestCollectTVRequestsSeasonArtworkWithLanguageFallbacks(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/tv/1399":
+			_, _ = writer.Write([]byte(`{"id":1399,"seasons":[{"season_number":0},{"season_number":2}]}`))
+		case "/tv/1399/season/2":
+			if got := request.URL.Query().Get("append_to_response"); got != "images" {
+				t.Errorf("season append_to_response = %q", got)
+			}
+			if got := request.URL.Query().Get("include_image_language"); got != "da,en,null" {
+				t.Errorf("season include_image_language = %q", got)
+			}
+			_, _ = writer.Write([]byte(`{"id":3625,"season_number":2,"images":{"posters":[]}}`))
+		default:
+			t.Errorf("unexpected path %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client := NewCached(config.TMDBConfig{BaseURL: server.URL, Language: "da-DK"}, nil, "key")
+	payloads, err := client.CollectTV(context.Background(), providers.Identifier{Provider: "tmdb", Namespace: "tv", Value: "1399"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payloads) != 2 || payloads[1].ProviderNamespace != "tv_season" {
+		t.Fatalf("payloads: %+v", payloads)
+	}
+}

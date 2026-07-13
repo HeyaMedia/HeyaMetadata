@@ -8,6 +8,8 @@ const (
 	MusicBrainzNormalizerVersion = "musicbrainz-release-group/v1"
 	WikidataNormalizerVersion    = "wikidata-release-group/v1"
 	DiscogsNormalizerVersion     = "discogs-master/v1"
+	CoverArtNormalizerVersion    = "cover-art-archive-release-group/v1"
+	FanartNormalizerVersion      = "fanart-music-release-group/v1"
 	AppleNormalizerVersion       = "apple-album/v1"
 	DeezerNormalizerVersion      = "deezer-album/v1"
 	LastFMNormalizerVersion      = "lastfm-album/v1"
@@ -81,11 +83,13 @@ type Link struct {
 	URL  string `json:"url"`
 }
 type Image struct {
-	ProviderImageID string `json:"provider_image_id"`
-	SourceURL       string `json:"source_url"`
-	Class           string `json:"class"`
-	Width           int    `json:"width,omitempty"`
-	Height          int    `json:"height,omitempty"`
+	ProviderImageID string  `json:"provider_image_id"`
+	SourceURL       string  `json:"source_url"`
+	Class           string  `json:"class"`
+	Language        string  `json:"language,omitempty"`
+	Width           int     `json:"width,omitempty"`
+	Height          int     `json:"height,omitempty"`
+	ProviderScore   float64 `json:"provider_score,omitempty"`
 }
 type Metric struct {
 	Name     string  `json:"name"`

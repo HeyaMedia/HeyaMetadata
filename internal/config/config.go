@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Host        string
 	Port        int
+	WebRoot     string
 	LogLevel    string
 	LogFormat   string
 	DatabaseURL string
@@ -67,9 +68,16 @@ type ProvidersConfig struct {
 	LRCLIB      LRCLIBConfig
 	OpenLibrary OpenLibraryConfig
 	GoogleBooks GoogleBooksConfig
+	CoverArt    CoverArtArchiveConfig
 	AcoustID    AcoustIDConfig
 	Kitsu       KitsuConfig
 	MyAnimeList MyAnimeListConfig
+}
+
+type CoverArtArchiveConfig struct {
+	BaseURL           string
+	RequestsPerSecond float64
+	UserAgent         string
 }
 
 type KitsuConfig struct {
@@ -285,6 +293,7 @@ func Load() (Config, error) {
 	config := Config{
 		Host:        env("HEYA_METADATA_HOST", "0.0.0.0"),
 		Port:        port,
+		WebRoot:     env("HEYA_METADATA_WEB_ROOT", ""),
 		LogLevel:    env("HEYA_METADATA_LOG_LEVEL", "info"),
 		LogFormat:   env("HEYA_METADATA_LOG_FORMAT", "text"),
 		DatabaseURL: env("HEYA_METADATA_DATABASE_URL", "postgres://heya_metadata:heya_metadata_dev@127.0.0.1:5441/heya_metadata?sslmode=disable"),
@@ -319,6 +328,10 @@ func Load() (Config, error) {
 			BaseURL: env("HEYA_METADATA_FANART_BASE_URL", "https://webservice.fanart.tv/v3.2"),
 		}, MusicBrainz: MusicBrainzConfig{
 			BaseURL:           env("HEYA_METADATA_MUSICBRAINZ_BASE_URL", "https://musicbrainz.org/ws/2"),
+			RequestsPerSecond: musicBrainzRate,
+			UserAgent:         env("HEYA_METADATA_MUSICBRAINZ_USER_AGENT", "HeyaMetadata/dev (https://github.com/HeyaMedia/HeyaMetadata)"),
+		}, CoverArt: CoverArtArchiveConfig{
+			BaseURL:           env("HEYA_METADATA_COVER_ART_ARCHIVE_BASE_URL", "https://coverartarchive.org"),
 			RequestsPerSecond: musicBrainzRate,
 			UserAgent:         env("HEYA_METADATA_MUSICBRAINZ_USER_AGENT", "HeyaMetadata/dev (https://github.com/HeyaMedia/HeyaMetadata)"),
 		}, Apple: AppleConfig{
@@ -449,6 +462,13 @@ func (c Config) Validate() error {
 	}
 	if c.Providers.MusicBrainz.RequestsPerSecond <= 0 || c.Providers.MusicBrainz.RequestsPerSecond > 1000 {
 		return fmt.Errorf("HEYA_METADATA_MUSICBRAINZ_REQUESTS_PER_SECOND must be greater than 0 and at most 1000")
+	}
+	coverArtURL, err := url.Parse(c.Providers.CoverArt.BaseURL)
+	if err != nil || coverArtURL.Scheme != "https" || coverArtURL.Host == "" {
+		return fmt.Errorf("HEYA_METADATA_COVER_ART_ARCHIVE_BASE_URL must be an absolute HTTPS URL")
+	}
+	if c.Providers.CoverArt.RequestsPerSecond <= 0 || c.Providers.CoverArt.RequestsPerSecond > 1000 {
+		return fmt.Errorf("Cover Art Archive requests per second must be greater than 0 and at most 1000")
 	}
 	for name, rawURL := range map[string]string{
 		"HEYA_METADATA_APPLE_BASE_URL":       c.Providers.Apple.BaseURL,

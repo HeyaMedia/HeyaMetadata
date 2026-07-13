@@ -109,7 +109,44 @@ func (c *Client) CollectSeries(ctx context.Context, identifier providers.Identif
 	if err != nil {
 		return nil, err
 	}
-	return []providers.Payload{payload}, nil
+	payloads := []providers.Payload{payload}
+	if payload.StatusCode != http.StatusOK {
+		return payloads, nil
+	}
+	var result struct {
+		Data struct {
+			Seasons []struct {
+				ID     int64 `json:"id"`
+				Number int   `json:"number"`
+				Type   struct {
+					ID   int    `json:"id"`
+					Name string `json:"name"`
+				} `json:"type"`
+			} `json:"seasons"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(payload.Body, &result); err != nil {
+		return payloads, fmt.Errorf("decode TVDB series seasons: %w", err)
+	}
+	seenNumbers := map[int]bool{}
+	for _, season := range result.Data.Seasons {
+		if season.ID < 1 || seenNumbers[season.Number] || (season.Type.ID != 0 && season.Type.ID != 1) {
+			continue
+		}
+		seenNumbers[season.Number] = true
+		seasonID := strconv.FormatInt(season.ID, 10)
+		seasonPayload, collectErr := c.get(ctx, "/seasons/"+seasonID+"/extended", providers.Payload{
+			Provider: "tvdb", ProviderNamespace: "season", ProviderRecordID: seasonID,
+			RequestKey: "seasons/" + seasonID + "/extended",
+		}, nil)
+		if collectErr != nil {
+			// The series document remains valuable when a single season is
+			// temporarily unavailable; the next refresh can fill the gap.
+			continue
+		}
+		payloads = append(payloads, seasonPayload)
+	}
+	return payloads, nil
 }
 
 func PersonCapability() providers.Capability {

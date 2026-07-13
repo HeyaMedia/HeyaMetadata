@@ -180,7 +180,7 @@ func remoteCandidate(remote remoteID) (moviedomain.IdentityCandidate, bool) {
 }
 
 func movieArtworkClass(artworkType int) string {
-	return map[int]string{13: "banner", 14: "poster", 15: "backdrop", 25: "logo"}[artworkType]
+	return ArtworkClass(artworkType)
 }
 
 func artworkURL(value string) string {

@@ -16,8 +16,10 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/apple"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/coverartarchive"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/deezer"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/discogs"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/fanart"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/wikidata"
 	"github.com/jackc/pgx/v5"
@@ -82,8 +84,36 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int6
 	completed := map[string]bool{"musicbrainz": true}
 	records := []rgdomain.NormalizedRecordV1{spine}
 	failures := map[string]error{}
+	if len(spine.ArtistCredits) > 0 && spine.ArtistCredits[0].ArtistProvider == "musicbrainz" && (credentials.APIKey("fanart") != "" || s.runtime.Config.Providers.Fanart.APIKey != "") {
+		artistMBID := spine.ArtistCredits[0].ArtistID
+		fanartBase := fanart.New(s.runtime.Config.Providers.Fanart)
+		fanartResolver, resolverErr := providercache.New(s.runtime, rgdomain.FanartNormalizerVersion, fanartBase.Capability().RawRetention, fanartBase.Capability().ResponseCache, jobID)
+		if resolverErr != nil {
+			return Result{}, resolverErr
+		}
+		fanartPayloads, collectErr := fanart.NewCached(s.runtime.Config.Providers.Fanart, fanartResolver, credentials.APIKey("fanart")).Collect(ctx, providers.Identifier{Provider: "musicbrainz", Namespace: "artist", Value: artistMBID})
+		if collectErr != nil {
+			failures["fanart"] = collectErr
+		} else {
+			observations, recordErr := s.recordPayloads(ctx, fanartPayloads, rgdomain.FanartNormalizerVersion, fanartBase.Capability(), jobID)
+			if recordErr != nil {
+				failures["fanart"] = recordErr
+			} else if len(observations) > 0 && observations[0].Payload.StatusCode == http.StatusOK {
+				normalized, normalizeErr := fanart.NormalizeMusicReleaseGroup(observations[0].Payload.Body, mbid, observations[0].ID, observations[0].Payload.ObservedAt)
+				if normalizeErr != nil {
+					failures["fanart"] = normalizeErr
+				} else if len(normalized.Images) > 0 {
+					records = append(records, normalized)
+				}
+			}
+		}
+	}
 	collectors := []providers.Collector{}
 	for _, build := range []func() (providers.Collector, error){func() (providers.Collector, error) {
+		c := coverartarchive.New(s.runtime.Config.Providers.CoverArt)
+		r, e := providercache.New(s.runtime, rgdomain.CoverArtNormalizerVersion, c.Capability().RawRetention, c.Capability().ResponseCache, jobID)
+		return coverartarchive.NewCached(s.runtime.Config.Providers.CoverArt, r), e
+	}, func() (providers.Collector, error) {
 		c := wikidata.New(s.runtime.Config.Providers.Wikidata)
 		r, e := providercache.New(s.runtime, rgdomain.WikidataNormalizerVersion, c.Capability().RawRetention, c.Capability().ResponseCache, jobID)
 		return wikidata.NewCached(s.runtime.Config.Providers.Wikidata, r), e
@@ -130,6 +160,10 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int6
 				completed[provider] = true
 				continue
 			}
+			if provider == "coverartarchive" && observations[0].Payload.StatusCode == http.StatusNotFound {
+				completed[provider] = true
+				continue
+			}
 			if observations[0].Payload.StatusCode != http.StatusOK {
 				failures[provider] = &providers.StatusError{Provider: provider, StatusCode: observations[0].Payload.StatusCode}
 				completed[provider] = true
@@ -137,6 +171,8 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int6
 			}
 			var normalized rgdomain.NormalizedRecordV1
 			switch provider {
+			case "coverartarchive":
+				normalized, e = coverartarchive.NormalizeReleaseGroup(observations[0].Payload.Body, mbid, observations[0].ID, observations[0].Payload.ObservedAt)
 			case "wikidata":
 				normalized, e = wikidata.NormalizeReleaseGroup(observations[0].Payload.Body, step.Identifier.Value, observations[0].ID, observations[0].Payload.ObservedAt)
 			case "discogs":
@@ -198,6 +234,8 @@ func identifiersFromReleaseGroup(record rgdomain.NormalizedRecordV1) []providers
 }
 func releaseGroupNormalizerVersion(provider string) string {
 	switch provider {
+	case "coverartarchive":
+		return rgdomain.CoverArtNormalizerVersion
 	case "wikidata":
 		return rgdomain.WikidataNormalizerVersion
 	case "discogs":
@@ -342,7 +380,7 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 				providerID = hex.EncodeToString(sum[:8])
 			}
 			var imageID string
-			if err := tx.QueryRow(ctx, `INSERT INTO image_candidates (entity_id,provider,provider_image_id,class,source_url,width,height,source_observation_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (entity_id,provider,provider_image_id,class) DO UPDATE SET source_url=EXCLUDED.source_url,width=EXCLUDED.width,height=EXCLUDED.height,source_observation_id=EXCLUDED.source_observation_id RETURNING id`, entityID, input.Record.ProviderRecord.Provider, providerID, image.Class, image.SourceURL, image.Width, image.Height, input.Record.ProviderRecord.PrimaryObservationID).Scan(&imageID); err != nil {
+			if err := tx.QueryRow(ctx, `INSERT INTO image_candidates (entity_id,provider,provider_image_id,class,source_url,language,width,height,provider_score,source_observation_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (entity_id,provider,provider_image_id,class) DO UPDATE SET source_url=EXCLUDED.source_url,language=EXCLUDED.language,width=EXCLUDED.width,height=EXCLUDED.height,provider_score=EXCLUDED.provider_score,source_observation_id=EXCLUDED.source_observation_id RETURNING id`, entityID, input.Record.ProviderRecord.Provider, providerID, image.Class, image.SourceURL, image.Language, image.Width, image.Height, image.ProviderScore, input.Record.ProviderRecord.PrimaryObservationID).Scan(&imageID); err != nil {
 				return Result{}, err
 			}
 			imageIDs[rgdomain.ImageKey(input.Record.ProviderRecord.Provider, image)] = imageID

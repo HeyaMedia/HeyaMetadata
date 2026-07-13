@@ -3,18 +3,69 @@ package tvshows
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/episodic"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
 )
 
-const tvdbSeriesNormalizerVersion = "tvdb-series/v3"
+const tvdbSeriesNormalizerVersion = "tvdb-series/v4"
 
 type tvdbEnvelope struct {
 	Data tvdbSeries `json:"data"`
 }
+
+type tvdbCompany struct {
+	ID            int64 `json:"id"`
+	Name, Country string
+	CompanyType   struct {
+		Name string `json:"companyTypeName"`
+	} `json:"companyType"`
+}
+
+type tvdbCompanies struct {
+	Studio, Production, Distributor, SpecialEffects, Network []tvdbCompany
+}
+
+func (companies *tvdbCompanies) UnmarshalJSON(body []byte) error {
+	var grouped struct {
+		Studio, Production, Distributor, SpecialEffects, Network []tvdbCompany
+	}
+	if len(body) > 0 && body[0] == '{' {
+		if err := json.Unmarshal(body, &grouped); err != nil {
+			return err
+		}
+		companies.Studio = grouped.Studio
+		companies.Production = grouped.Production
+		companies.Distributor = grouped.Distributor
+		companies.SpecialEffects = grouped.SpecialEffects
+		companies.Network = grouped.Network
+		return nil
+	}
+	var values []tvdbCompany
+	if err := json.Unmarshal(body, &values); err != nil {
+		return err
+	}
+	for _, company := range values {
+		switch normalizeType(company.CompanyType.Name) {
+		case "network":
+			companies.Network = append(companies.Network, company)
+		case "studio":
+			companies.Studio = append(companies.Studio, company)
+		case "distributor":
+			companies.Distributor = append(companies.Distributor, company)
+		case "special_effects":
+			companies.SpecialEffects = append(companies.SpecialEffects, company)
+		default:
+			companies.Production = append(companies.Production, company)
+		}
+	}
+	return nil
+}
+
 type tvdbSeries struct {
 	ID                                                                    int64 `json:"id"`
 	Name, FirstAired, LastAired, Image, OriginalCountry, OriginalLanguage string
@@ -27,12 +78,7 @@ type tvdbSeries struct {
 		ID   int64  `json:"id"`
 		Name string `json:"name"`
 	}
-	Companies struct {
-		Studio, Production, Distributor, SpecialEffects []struct {
-			ID            int64 `json:"id"`
-			Name, Country string
-		}
-	} `json:"companies"`
+	Companies      tvdbCompanies `json:"companies"`
 	ContentRatings []struct {
 		Name        string `json:"name"`
 		Country     string `json:"country"`
@@ -67,6 +113,7 @@ type tvdbSeries struct {
 		Name   string `json:"name"`
 		Image  string `json:"image"`
 		Type   struct {
+			ID   int    `json:"id"`
 			Name string `json:"name"`
 		} `json:"type"`
 	} `json:"seasons"`
@@ -99,7 +146,7 @@ type tvdbSeries struct {
 	Score float64 `json:"score"`
 }
 
-func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *int, episodeOffset int) (episodic.NormalizedRecord, error) {
+func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *int, episodeOffset int, seasonPayloads ...providers.Payload) (episodic.NormalizedRecord, error) {
 	var wrapper tvdbEnvelope
 	if err := json.Unmarshal(payload.Body, &wrapper); err != nil {
 		return episodic.NormalizedRecord{}, err
@@ -151,10 +198,7 @@ func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *i
 		r.Studios = append(r.Studios, x.Name)
 		r.Organizations = append(r.Organizations, episodic.Organization{Name: x.Name, Type: "studio", ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "company", Value: strconv.FormatInt(x.ID, 10)}}})
 	}
-	appendCompanies := func(values []struct {
-		ID            int64 `json:"id"`
-		Name, Country string
-	}, kind string) {
+	appendCompanies := func(values []tvdbCompany, kind string) {
 		for _, company := range values {
 			if strings.TrimSpace(company.Name) == "" {
 				continue
@@ -170,6 +214,16 @@ func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *i
 	appendCompanies(v.Companies.Production, "production_company")
 	appendCompanies(v.Companies.Distributor, "distributor")
 	appendCompanies(v.Companies.SpecialEffects, "special_effects")
+	for _, company := range v.Companies.Network {
+		if strings.TrimSpace(company.Name) == "" {
+			continue
+		}
+		network := episodic.Network{Name: company.Name, Country: company.Country, Type: "network"}
+		if company.ID > 0 {
+			network.ExternalIDs = []episodic.ExternalID{{Provider: "tvdb", Namespace: "company", Value: strconv.FormatInt(company.ID, 10)}}
+		}
+		r.Networks = append(r.Networks, network)
+	}
 	for _, rating := range v.ContentRatings {
 		if strings.TrimSpace(rating.Name) != "" {
 			r.Certifications = append(r.Certifications, episodic.Certification{System: "tvdb", Country: rating.Country, Rating: rating.Name, Description: rating.ContentType})
@@ -190,13 +244,16 @@ func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *i
 	if v.Image != "" {
 		r.Images = append(r.Images, episodic.Image{Provider: "tvdb", ProviderID: "primary", URL: tvdbArtworkURL(v.Image), Class: "poster", Language: v.OriginalLanguage})
 	}
-	for _, x := range v.Artworks[:min(len(v.Artworks), 50)] {
-		class := map[int]string{1: "banner", 2: "poster", 3: "backdrop", 6: "poster", 7: "backdrop", 13: "banner", 14: "poster", 15: "backdrop", 25: "logo"}[x.Type]
+	for _, x := range v.Artworks {
+		class := tvdb.ArtworkClass(x.Type)
 		if class != "" {
 			r.Images = append(r.Images, episodic.Image{Provider: "tvdb", ProviderID: strconv.FormatInt(x.ID, 10), URL: tvdbArtworkURL(x.Image), Class: class, Language: x.Language, Width: x.Width, Height: x.Height, ProviderScore: x.Score})
 		}
 	}
 	for _, x := range v.Seasons {
+		if x.Type.ID != 0 && x.Type.ID != 1 {
+			continue
+		}
 		if seasonFilter == nil || x.Number == *seasonFilter {
 			providerID := strconv.FormatInt(x.ID, 10)
 			season := episodic.Season{ProviderID: providerID, Number: x.Number, Name: x.Name, Status: normalizeType(x.Type.Name), ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "season", Value: providerID}}}
@@ -208,6 +265,9 @@ func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *i
 			}
 			r.Seasons = append(r.Seasons, season)
 		}
+	}
+	for _, seasonPayload := range seasonPayloads {
+		appendTVDBSeasonArtwork(&r, seasonPayload, seasonFilter)
 	}
 	for _, x := range v.Episodes {
 		if seasonFilter != nil && x.SeasonNumber != *seasonFilter {
@@ -246,6 +306,52 @@ func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *i
 	r.EpisodeCount = len(r.Episodes)
 	r.SeasonCount = len(r.Seasons)
 	return r, nil
+}
+
+func appendTVDBSeasonArtwork(record *episodic.NormalizedRecord, payload providers.Payload, seasonFilter *int) {
+	if payload.StatusCode != 0 && payload.StatusCode != http.StatusOK {
+		return
+	}
+	var wrapper struct {
+		Data struct {
+			Number  int `json:"number"`
+			Artwork []struct {
+				ID                  int64 `json:"id"`
+				Image, Language     string
+				Type, Width, Height int
+				Score               float64
+			} `json:"artwork"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(payload.Body, &wrapper) != nil || (seasonFilter != nil && wrapper.Data.Number != *seasonFilter) {
+		return
+	}
+	for i := range record.Seasons {
+		if record.Seasons[i].Number != wrapper.Data.Number {
+			continue
+		}
+		for _, artwork := range wrapper.Data.Artwork {
+			class := tvdb.ArtworkClass(artwork.Type)
+			url := tvdbArtworkURL(artwork.Image)
+			if class == "" || artwork.ID < 1 || url == "" {
+				continue
+			}
+			candidate := episodic.Image{Provider: "tvdb", ProviderID: strconv.FormatInt(artwork.ID, 10), URL: url, Class: class, Language: artwork.Language, Width: artwork.Width, Height: artwork.Height, ProviderScore: artwork.Score}
+			if !containsTVDBImage(record.Seasons[i].Images, candidate) {
+				record.Seasons[i].Images = append(record.Seasons[i].Images, candidate)
+			}
+		}
+		return
+	}
+}
+
+func containsTVDBImage(values []episodic.Image, candidate episodic.Image) bool {
+	for _, value := range values {
+		if value.Provider == candidate.Provider && value.URL == candidate.URL {
+			return true
+		}
+	}
+	return false
 }
 
 func tvdbArtworkURL(value string) string {

@@ -11,7 +11,15 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 )
 
-const tmdbTVNormalizerVersion = "tmdb-tv-show/v4"
+const tmdbTVNormalizerVersion = "tmdb-tv-show/v5"
+
+type tmdbImage struct {
+	FilePath    string  `json:"file_path"`
+	ISO6391     string  `json:"iso_639_1"`
+	Width       int     `json:"width"`
+	Height      int     `json:"height"`
+	VoteAverage float64 `json:"vote_average"`
+}
 
 type tmdbTV struct {
 	ID               int64   `json:"id"`
@@ -72,13 +80,7 @@ type tmdbTV struct {
 		} `json:"results"`
 	} `json:"alternative_titles"`
 	Images struct {
-		Posters, Backdrops, Logos []struct {
-			FilePath    string  `json:"file_path"`
-			ISO6391     string  `json:"iso_639_1"`
-			Width       int     `json:"width"`
-			Height      int     `json:"height"`
-			VoteAverage float64 `json:"vote_average"`
-		}
+		Posters, Backdrops, Logos []tmdbImage
 	} `json:"images"`
 	AggregateCredits struct {
 		Cast []struct {
@@ -153,7 +155,10 @@ type tmdbSeason struct {
 	Overview     string `json:"overview"`
 	PosterPath   string `json:"poster_path"`
 	SeasonNumber int    `json:"season_number"`
-	Episodes     []struct {
+	Images       struct {
+		Posters []tmdbImage `json:"posters"`
+	} `json:"images"`
+	Episodes []struct {
 		ID            int64   `json:"id"`
 		Name          string  `json:"name"`
 		Overview      string  `json:"overview"`
@@ -301,13 +306,13 @@ func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, e
 	}
 	addTMDBImage("poster", value.PosterPath, "poster", "", 0, 0, 0)
 	addTMDBImage("backdrop", value.BackdropPath, "backdrop", "", 0, 0, 0)
-	for _, item := range value.Images.Posters[:min(len(value.Images.Posters), 25)] {
+	for _, item := range value.Images.Posters {
 		addTMDBImage(item.FilePath, item.FilePath, "poster", item.ISO6391, item.Width, item.Height, item.VoteAverage)
 	}
-	for _, item := range value.Images.Backdrops[:min(len(value.Images.Backdrops), 25)] {
+	for _, item := range value.Images.Backdrops {
 		addTMDBImage(item.FilePath, item.FilePath, "backdrop", item.ISO6391, item.Width, item.Height, item.VoteAverage)
 	}
-	for _, item := range value.Images.Logos[:min(len(value.Images.Logos), 25)] {
+	for _, item := range value.Images.Logos {
 		addTMDBImage(item.FilePath, item.FilePath, "logo", item.ISO6391, item.Width, item.Height, item.VoteAverage)
 	}
 	for _, payload := range payloads[1:] {
@@ -327,7 +332,19 @@ func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, e
 			}
 			if season.PosterPath != "" {
 				providerID := strconv.FormatInt(season.ID, 10)
-				r.Seasons[i].Images = append(r.Seasons[i].Images, episodic.Image{Provider: "tmdb", ProviderID: "season:" + providerID + ":poster", URL: "https://image.tmdb.org/t/p/original" + season.PosterPath, Class: "poster"})
+				candidate := episodic.Image{Provider: "tmdb", ProviderID: "season:" + providerID + ":poster", URL: "https://image.tmdb.org/t/p/original" + season.PosterPath, Class: "poster"}
+				if !containsTMDBSeasonImage(r.Seasons[i].Images, candidate) {
+					r.Seasons[i].Images = append(r.Seasons[i].Images, candidate)
+				}
+			}
+			for _, image := range season.Images.Posters {
+				if image.FilePath == "" {
+					continue
+				}
+				candidate := episodic.Image{Provider: "tmdb", ProviderID: "season:" + strconv.FormatInt(season.ID, 10) + ":" + image.FilePath, URL: "https://image.tmdb.org/t/p/original" + image.FilePath, Class: "poster", Language: image.ISO6391, Width: image.Width, Height: image.Height, ProviderScore: image.VoteAverage}
+				if !containsTMDBSeasonImage(r.Seasons[i].Images, candidate) {
+					r.Seasons[i].Images = append(r.Seasons[i].Images, candidate)
+				}
 			}
 		}
 		for _, episode := range season.Episodes {
@@ -349,6 +366,15 @@ func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, e
 		}
 	}
 	return r, nil
+}
+
+func containsTMDBSeasonImage(values []episodic.Image, candidate episodic.Image) bool {
+	for _, value := range values {
+		if value.Provider == candidate.Provider && value.URL == candidate.URL {
+			return true
+		}
+	}
+	return false
 }
 func tmdbProfileURL(path string) string {
 	if path == "" {

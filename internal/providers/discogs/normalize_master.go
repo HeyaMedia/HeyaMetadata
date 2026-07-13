@@ -84,7 +84,7 @@ func NormalizeMaster(body []byte, observationID string, observedAt time.Time) (r
 			sourceURL = strings.TrimSpace(image.URI)
 		}
 		if sourceURL != "" {
-			record.Images = append(record.Images, rgdomain.Image{ProviderImageID: strconv.Itoa(i), SourceURL: sourceURL, Class: strings.ToLower(image.Type), Width: image.Width, Height: image.Height})
+			record.Images = append(record.Images, rgdomain.Image{ProviderImageID: strconv.Itoa(i), SourceURL: sourceURL, Class: "cover", Width: image.Width, Height: image.Height})
 		}
 	}
 	if source.MainRelease > 0 {

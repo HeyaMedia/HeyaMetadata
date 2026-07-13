@@ -50,11 +50,13 @@ type ProjectedMetric struct {
 	Provider string `json:"provider"`
 }
 type ProjectedImage struct {
-	ID       string `json:"id"`
-	Class    string `json:"class"`
-	Width    int    `json:"width,omitempty"`
-	Height   int    `json:"height,omitempty"`
-	Provider string `json:"provider"`
+	ID            string  `json:"id"`
+	Class         string  `json:"class"`
+	Language      string  `json:"language,omitempty"`
+	Width         int     `json:"width,omitempty"`
+	Height        int     `json:"height,omitempty"`
+	ProviderScore float64 `json:"provider_score,omitempty"`
+	Provider      string  `json:"provider"`
 }
 type ProjectedEdition struct {
 	Provider   string          `json:"provider"`
@@ -226,7 +228,7 @@ func Combine(entityID, slug string, version int64, records []RecordInput, imageI
 			key := ImageKey(provider, value)
 			if !seen["image:"+key] {
 				seen["image:"+key] = true
-				projected := ProjectedImage{ID: imageIDs[key], Class: value.Class, Width: value.Width, Height: value.Height, Provider: provider}
+				projected := ProjectedImage{ID: imageIDs[key], Class: value.Class, Language: value.Language, Width: value.Width, Height: value.Height, ProviderScore: value.ProviderScore, Provider: provider}
 				detail.Data.Images = append(detail.Data.Images, projected)
 				if detail.Display.ImageID == "" && projected.ID != "" {
 					detail.Display.ImageID = projected.ID

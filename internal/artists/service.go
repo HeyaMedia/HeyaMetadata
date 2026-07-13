@@ -25,6 +25,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/apple"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/deezer"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/discogs"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/fanart"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/lastfm"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/wikidata"
@@ -105,6 +106,11 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 			c := lastfm.New(s.runtime.Config.Providers.LastFM)
 			r, e := providercache.New(s.runtime, artistdomain.LastFMNormalizerVersion, c.Capability().RawRetention, c.Capability().ResponseCache, riverJobID)
 			return lastfm.NewCached(s.runtime.Config.Providers.LastFM, r, credentials.APIKey("lastfm")), e
+		},
+		func() (providers.Collector, error) {
+			c := fanart.New(s.runtime.Config.Providers.Fanart)
+			r, e := providercache.New(s.runtime, artistdomain.FanartNormalizerVersion, c.Capability().RawRetention, c.Capability().ResponseCache, riverJobID)
+			return fanart.NewCached(s.runtime.Config.Providers.Fanart, r, credentials.APIKey("fanart")), e
 		},
 		func() (providers.Collector, error) {
 			c := wikidata.New(s.runtime.Config.Providers.Wikidata)
@@ -189,6 +195,8 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 					slog.Warn("artist top tracks provider failed", "provider", "lastfm", "mbid", mbid, "error", topErr)
 				}
 			}
+		case "fanart":
+			normalized, recordErr = fanart.NormalizeMusicArtist(recorded[0].Payload.Body, recorded[0].ID, recorded[0].Payload.ObservedAt)
 		case "wikidata":
 			normalized, recordErr = wikidata.NormalizeArtist(recorded[0].Payload.Body, step.Identifier.Value, recorded[0].ID, recorded[0].Payload.ObservedAt)
 		}
@@ -242,6 +250,8 @@ func artistNormalizerVersion(provider string) string {
 		return artistdomain.DiscogsNormalizerVersion
 	case "lastfm":
 		return artistdomain.LastFMNormalizerVersion
+	case "fanart":
+		return artistdomain.FanartNormalizerVersion
 	case "wikidata":
 		return artistdomain.WikidataNormalizerVersion
 	}
@@ -394,7 +404,7 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 				providerImageID = hex.EncodeToString(digest[:8])
 			}
 			var imageID string
-			err := tx.QueryRow(ctx, `INSERT INTO image_candidates (entity_id,provider,provider_image_id,class,source_url,width,height,source_observation_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (entity_id,provider,provider_image_id,class) DO UPDATE SET source_url=EXCLUDED.source_url,width=EXCLUDED.width,height=EXCLUDED.height,source_observation_id=EXCLUDED.source_observation_id RETURNING id`, entityID, input.Record.ProviderRecord.Provider, providerImageID, image.Class, image.SourceURL, image.Width, image.Height, input.Record.ProviderRecord.PrimaryObservationID).Scan(&imageID)
+			err := tx.QueryRow(ctx, `INSERT INTO image_candidates (entity_id,provider,provider_image_id,class,source_url,language,width,height,provider_score,source_observation_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (entity_id,provider,provider_image_id,class) DO UPDATE SET source_url=EXCLUDED.source_url,language=EXCLUDED.language,width=EXCLUDED.width,height=EXCLUDED.height,provider_score=EXCLUDED.provider_score,source_observation_id=EXCLUDED.source_observation_id RETURNING id`, entityID, input.Record.ProviderRecord.Provider, providerImageID, image.Class, image.SourceURL, image.Language, image.Width, image.Height, image.ProviderScore, input.Record.ProviderRecord.PrimaryObservationID).Scan(&imageID)
 			if err != nil {
 				return Result{}, err
 			}

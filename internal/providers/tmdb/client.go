@@ -70,7 +70,11 @@ func (c *Client) CollectTV(ctx context.Context, identifier providers.Identifier)
 		if season.SeasonNumber == 0 {
 			continue
 		}
-		payload, err := c.get(ctx, fmt.Sprintf("tv/%d/season/%d", id, season.SeasonNumber), url.Values{"language": {c.config.Language}}, providers.Payload{
+		payload, err := c.get(ctx, fmt.Sprintf("tv/%d/season/%d", id, season.SeasonNumber), url.Values{
+			"append_to_response":     {"images"},
+			"include_image_language": {languageFromLocale(c.config.Language) + ",en,null"},
+			"language":               {c.config.Language},
+		}, providers.Payload{
 			Provider: "tmdb", ProviderNamespace: "tv_season", ProviderRecordID: fmt.Sprintf("%d:%d", id, season.SeasonNumber), RequestKey: fmt.Sprintf("tv/%d/season/%d?language=%s", id, season.SeasonNumber, c.config.Language),
 		})
 		if err != nil {

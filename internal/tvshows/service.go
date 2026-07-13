@@ -15,12 +15,13 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/fanart"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tmdb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvmaze"
 )
 
-var definition = episodic.Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-tv-show/v2", MergeVersion: "tv-show-combiner/v3"}
+var definition = episodic.Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-tv-show/v3", MergeVersion: "tv-show-combiner/v4"}
 var htmlTags = regexp.MustCompile(`<[^>]+>`)
 
 type Service struct{ runtime *platform.Runtime }
@@ -72,7 +73,7 @@ func (s *Service) IngestTVMazeWithCredentials(ctx context.Context, id string, jo
 		}
 		payloads, collectErr := tvdb.NewCached(s.runtime.Config.Providers.TVDB, cache, credentials.APIKey("tvdb"), s.runtime.Redis).CollectSeries(ctx, providers.Identifier{Provider: "tvdb", Namespace: "series", Value: tvdbID})
 		if collectErr == nil && len(payloads) > 0 && payloads[0].StatusCode == http.StatusOK {
-			if supplemental, normalizeErr := normalizeTVDBSeries(payloads[0], "tv_show", nil, 0); normalizeErr == nil {
+			if supplemental, normalizeErr := normalizeTVDBSeries(payloads[0], "tv_show", nil, 0, payloads[1:]...); normalizeErr == nil {
 				records = append(records, supplemental)
 			}
 		}
@@ -94,6 +95,20 @@ func (s *Service) IngestTVMazeWithCredentials(ctx context.Context, id string, jo
 						records = append(records, supplemental)
 					}
 				}
+			}
+		}
+	}
+
+	if tvdbID := externalID(record, "tvdb", "series"); tvdbID != "" && (credentials.APIKey("fanart") != "" || s.runtime.Config.Providers.Fanart.APIKey != "") {
+		base := fanart.New(s.runtime.Config.Providers.Fanart)
+		cache, cacheErr := providercache.New(s.runtime, fanart.TVNormalizerVersion, base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+		if cacheErr != nil {
+			return result, cacheErr
+		}
+		payloads, collectErr := fanart.NewCached(s.runtime.Config.Providers.Fanart, cache, credentials.APIKey("fanart")).Collect(ctx, providers.Identifier{Provider: "tvdb", Namespace: "series", Value: tvdbID})
+		if collectErr == nil && len(payloads) > 0 && payloads[0].StatusCode == http.StatusOK {
+			if supplemental, normalizeErr := fanart.NormalizeTV(payloads[0].Body, payloads[0].ObservationID, payloads[0].ObservedAt, "tv_show"); normalizeErr == nil {
+				records = append(records, supplemental)
 			}
 		}
 	}
@@ -292,14 +307,25 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 	if value.Image.Original != "" {
 		record.Images = append(record.Images, episodic.Image{Provider: "tvmaze", ProviderID: "show-original", URL: value.Image.Original, Class: "poster"})
 	}
-	for _, image := range value.Embedded.Images[:min(len(value.Embedded.Images), 50)] {
+	for _, image := range value.Embedded.Images {
 		for resolution, item := range image.Resolutions {
 			if item.URL != "" {
-				record.Images = append(record.Images, episodic.Image{Provider: "tvmaze", ProviderID: fmt.Sprintf("%d-%s", image.ID, resolution), URL: item.URL, Class: normalizeType(image.Type), Width: item.Width, Height: item.Height})
+				record.Images = append(record.Images, episodic.Image{Provider: "tvmaze", ProviderID: fmt.Sprintf("%d-%s", image.ID, resolution), URL: item.URL, Class: tvMazeImageClass(image.Type), Width: item.Width, Height: item.Height})
 			}
 		}
 	}
 	return record, nil
+}
+
+func tvMazeImageClass(value string) string {
+	switch normalizeType(value) {
+	case "background":
+		return "backdrop"
+	case "typography":
+		return "logo"
+	default:
+		return normalizeType(value)
+	}
 }
 func toNetwork(value *network, kind string) episodic.Network {
 	country := ""

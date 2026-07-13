@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "nuxt dev --host 127.0.0.1 --port 3032",
     "build": "nuxt build",
+    "generate": "nuxt generate",
     "preview": "nuxt preview --host 127.0.0.1 --port 3032",
     "postinstall": "nuxt prepare",
     "test": "vitest run",

@@ -654,8 +654,11 @@ The response contains:
   provider, materialization state, and selection reason.
 
 Use `selections[class]`; do not reproduce server ranking or take the first
-provider image. Classes include poster, backdrop, logo, banner, cover, and
-profile where the domain supplies them.
+provider image. Common classes include `poster`, `backdrop`, `logo`,
+`clearlogo`, `banner`, `cover`, `back_cover`, `profile`, `thumb`, `clearart`,
+`characterart`, `icon`, `cinemagraph`, `disc`, `booklet`, `spine`, and `obi`.
+The set is intentionally extensible; clients should render unfamiliar classes
+in a generic artwork group instead of discarding them.
 
 Read image bytes through HeyaMetadata:
 

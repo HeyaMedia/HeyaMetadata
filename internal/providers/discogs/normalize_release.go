@@ -30,6 +30,13 @@ func NormalizeRelease(body []byte, observationID string, observedAt time.Time) (
 			Name string
 			Qty  string
 		}
+		Images []struct {
+			Type        string `json:"type"`
+			ResourceURL string `json:"resource_url"`
+			URI         string `json:"uri"`
+			Width       int    `json:"width"`
+			Height      int    `json:"height"`
+		} `json:"images"`
 		Tracklist []struct {
 			Position string `json:"position"`
 			Title    string `json:"title"`
@@ -70,5 +77,19 @@ func NormalizeRelease(body []byte, observationID string, observedAt time.Time) (
 		r.Tracks = append(r.Tracks, rgdomain.Track{Position: t.Position, Number: number, Title: t.Title, DurationMS: parseDiscogsDuration(t.Duration)})
 	}
 	r.Editions[0].TrackCount = len(r.Tracks)
+	for i, image := range s.Images {
+		sourceURL := strings.TrimSpace(image.ResourceURL)
+		if sourceURL == "" {
+			sourceURL = strings.TrimSpace(image.URI)
+		}
+		if sourceURL == "" {
+			continue
+		}
+		candidate := rgdomain.Image{ProviderImageID: strconv.Itoa(i), SourceURL: sourceURL, Class: "cover", Width: image.Width, Height: image.Height}
+		r.Images = append(r.Images, candidate)
+		if i == 0 {
+			r.Editions[0].Image = &candidate
+		}
+	}
 	return r, nil
 }

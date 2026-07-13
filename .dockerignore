@@ -1,0 +1,14 @@
+.git
+.github
+.cache
+.dev
+bin
+heya-metadata
+.env
+.env.*
+!.env.example
+*.log
+web/node_modules
+web/.nuxt
+web/.output
+HANDOFF.md

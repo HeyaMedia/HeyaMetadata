@@ -141,12 +141,19 @@ record participate in conflict detection and are attached as durable claims.
 
 ## Fanart.tv refinement
 
-Fanart.tv v3.2 is the dedicated supplemental movie-artwork collector. It runs
-from the canonical `tmdb.movie` identifier and preserves posters, backgrounds,
-logos, banners, clear art, thumbnails, and disc art with provider image IDs,
-languages, dimensions, likes, and source provenance. The provider's `00`
-language sentinel becomes an unspecified language, and legacy HTTP asset URLs
-are upgraded to HTTPS.
+Fanart.tv v3.2 is a supplemental artwork collector for movies, conventional TV,
+anime, artists, and MusicBrainz release groups. Movies run from `tmdb.movie`;
+TV and anime use explicit `tvdb.series` evidence; music uses a MusicBrainz
+artist MBID. It preserves provider-native semantic classes rather than reducing
+everything to a generic image: posters, backgrounds, logos, banners, clear art,
+thumbnails, character art, disc art, artist portraits, album covers, and music
+disc art all remain distinct. TV season posters, banners, and thumbs are owned
+by the canonical season. Music album artwork is matched only by Fanart's
+release-group MBID—never by a title guess.
+
+Provider image IDs, languages, dimensions, likes, and source provenance remain
+attached. The provider's `00` language sentinel becomes an unspecified
+language, and legacy HTTP asset URLs are upgraded to HTTPS.
 
 The configured `HEYA_METADATA_FANART_API_KEY` is the application/project key.
 Callers may additionally send their personal key as
@@ -157,10 +164,24 @@ metadata, River job, or logs. Successful responses are reusable for 24 hours,
 empty successful envelopes for one hour, and raw evidence expires after 48
 hours.
 
-Fanart.tv precedes TVDB in follow-up planning so its artwork scope is collected
-while TVDB remains available for credits and its other scopes. The combiner
-does not choose one provider globally: all artwork candidates receive opaque
-IDs and retain provider provenance for later ranking.
+The combiner does not choose one provider globally: every artwork candidate
+receives an opaque ID and retains provider provenance for language-aware later
+ranking.
+
+## Cover Art Archive refinement
+
+MusicBrainz entity responses do not directly provide image candidates. The
+Cover Art Archive is therefore modeled as its own provider, queried by an
+explicit `musicbrainz.release_group` MBID. Its ordered image index preserves
+all supplied types, including front cover, back cover, booklet, medium/disc,
+spine, obi, tray, sticker, and provider-defined rarer types. One source image
+may legitimately produce multiple typed candidates when the archive assigns
+multiple types. A missing archive entry is a normal negative result, not a
+failed MusicBrainz entity ingestion.
+
+Cover Art Archive URLs and observations use the same immutable evidence and
+lazy materialization pipeline as every other image provider. Its response cache
+never outlives the 48-hour raw evidence blob.
 
 ## MusicBrainz source collection
 
@@ -181,10 +202,8 @@ reusable for 12 hours, volatile search/browse pages for six hours, missing
 records for one hour, and raw evidence expires after 48 hours. Malformed or
 identity-mismatched HTTP 200 responses are recorded but never reused.
 
-This phase deliberately archives typed provider source evidence without a
-canonical artist/album/edition/track projection. The recording versus release
-track and release-group versus release boundaries must be written down before
-those entity kinds enter identity resolution and merge.
+Cover artwork is deliberately sourced from the separately attributed Cover Art
+Archive rather than pretending the MusicBrainz JSON endpoint emitted images.
 
 ## Streaming and community music sources
 

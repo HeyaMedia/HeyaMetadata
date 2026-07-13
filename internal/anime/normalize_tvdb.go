@@ -8,11 +8,12 @@ import (
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/episodic"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
 )
 
 // This intentionally keeps only the mapped TVDB season. A TVDB series often
 // represents an entire franchise while one AniDB AID represents one cour.
-func normalizeTVDBAnime(payload providers.Payload, season, offset int) (episodic.NormalizedRecord, error) {
+func normalizeTVDBAnime(payload providers.Payload, season, offset int, seasonPayloads ...providers.Payload) (episodic.NormalizedRecord, error) {
 	var wrapper struct {
 		Data struct {
 			ID                            int64 `json:"id"`
@@ -58,8 +59,8 @@ func normalizeTVDBAnime(payload providers.Payload, season, offset int) (episodic
 	if v.Image != "" {
 		r.Images = append(r.Images, episodic.Image{Provider: "tvdb", ProviderID: "primary", URL: animeTVDBURL(v.Image), Class: "poster", Language: v.OriginalLanguage})
 	}
-	for _, x := range v.Artworks[:min(len(v.Artworks), 50)] {
-		class := map[int]string{1: "banner", 2: "poster", 3: "backdrop", 6: "poster", 7: "backdrop", 13: "banner", 14: "poster", 15: "backdrop", 25: "logo"}[x.Type]
+	for _, x := range v.Artworks {
+		class := tvdb.ArtworkClass(x.Type)
 		if class != "" {
 			r.Images = append(r.Images, episodic.Image{Provider: "tvdb", ProviderID: strconv.FormatInt(x.ID, 10), URL: animeTVDBURL(x.Image), Class: class, Language: x.Language, Width: x.Width, Height: x.Height, ProviderScore: x.Score})
 		}
@@ -82,6 +83,9 @@ func normalizeTVDBAnime(payload providers.Payload, season, offset int) (episodic
 	}
 	if len(r.Seasons) == 0 {
 		r.Seasons = []episodic.Season{{Number: 1, Name: "Season 1", Titles: []episodic.Title{{Value: "Season 1", Language: "en", Type: "display"}}}}
+	}
+	for _, seasonPayload := range seasonPayloads {
+		appendTVDBAnimeSeasonArtwork(&r, seasonPayload, season)
 	}
 	for _, x := range v.Episodes {
 		if x.SeasonNumber != season || x.Number <= offset {
@@ -114,6 +118,41 @@ func normalizeTVDBAnime(payload providers.Payload, season, offset int) (episodic
 	r.EpisodeCount = len(r.Episodes)
 	r.SeasonCount = len(r.Seasons)
 	return r, nil
+}
+
+func appendTVDBAnimeSeasonArtwork(record *episodic.NormalizedRecord, payload providers.Payload, sourceSeason int) {
+	var wrapper struct {
+		Data struct {
+			Number  int `json:"number"`
+			Artwork []struct {
+				ID                  int64 `json:"id"`
+				Image, Language     string
+				Type, Width, Height int
+				Score               float64
+			} `json:"artwork"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(payload.Body, &wrapper) != nil || wrapper.Data.Number != sourceSeason || len(record.Seasons) == 0 {
+		return
+	}
+	for _, artwork := range wrapper.Data.Artwork {
+		class := tvdb.ArtworkClass(artwork.Type)
+		url := animeTVDBURL(artwork.Image)
+		if class == "" || artwork.ID < 1 || url == "" {
+			continue
+		}
+		candidate := episodic.Image{Provider: "tvdb", ProviderID: strconv.FormatInt(artwork.ID, 10), URL: url, Class: class, Language: artwork.Language, Width: artwork.Width, Height: artwork.Height, ProviderScore: artwork.Score}
+		duplicate := false
+		for _, existing := range record.Seasons[0].Images {
+			if existing.Provider == candidate.Provider && existing.URL == candidate.URL {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			record.Seasons[0].Images = append(record.Seasons[0].Images, candidate)
+		}
+	}
 }
 func animeTVDBURL(value string) string {
 	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {

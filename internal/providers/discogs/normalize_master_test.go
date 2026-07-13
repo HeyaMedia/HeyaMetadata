@@ -14,7 +14,7 @@ func TestNormalizeMasterPreservesRepresentativeTracklistAndEdition(t *testing.T)
 	if record.ProviderRecord.Value != "24047" || record.ArtistCredits[0].ArtistID != "82730" || record.Editions[0].ProviderID != "2607424" {
 		t.Fatalf("record: %+v", record)
 	}
-	if len(record.Tracks) != 2 || record.Tracks[0].DurationMS != 260000 || record.Images[0].Class != "primary" {
+	if len(record.Tracks) != 2 || record.Tracks[0].DurationMS != 260000 || record.Images[0].Class != "cover" {
 		t.Fatalf("tracks/images: %+v / %+v", record.Tracks, record.Images)
 	}
 }

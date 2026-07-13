@@ -84,7 +84,7 @@ func NormalizeArtist(body []byte, observationID string, observedAt time.Time) (a
 		if url == "" {
 			continue
 		}
-		record.Images = append(record.Images, artistdomain.Image{ProviderImageID: strconv.Itoa(i), SourceURL: url, Class: strings.ToLower(strings.TrimSpace(image.Type)), Width: image.Width, Height: image.Height})
+		record.Images = append(record.Images, artistdomain.Image{ProviderImageID: strconv.Itoa(i), SourceURL: url, Class: "profile", Width: image.Width, Height: image.Height})
 	}
 	if quality := strings.TrimSpace(source.DataQuality); quality != "" {
 		record.Annotations = append(record.Annotations, artistdomain.Text{Value: quality, Type: "data_quality"})

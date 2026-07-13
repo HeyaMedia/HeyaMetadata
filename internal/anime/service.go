@@ -16,12 +16,13 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/anidb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/animelists"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/fanart"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
 )
 
 const tvdbAnimeNormalizerVersion = "tvdb-anime-series/v3"
 
-var definition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v2", MergeVersion: "anime-combiner/v3"}
+var definition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v2", MergeVersion: "anime-combiner/v4"}
 
 type Service struct{ runtime *platform.Runtime }
 
@@ -90,7 +91,29 @@ func (s *Service) IngestAniDBWithCredentials(ctx context.Context, id string, job
 			}
 			payloads, collectErr := tvdb.NewCached(s.runtime.Config.Providers.TVDB, tvdbCache, credentials.APIKey("tvdb"), s.runtime.Redis).CollectSeries(ctx, providers.Identifier{Provider: "tvdb", Namespace: "series", Value: strconv.Itoa(mapping.TVDBID)})
 			if collectErr == nil && len(payloads) > 0 && payloads[0].StatusCode == http.StatusOK {
-				if supplemental, normalizeErr := normalizeTVDBAnime(payloads[0], *mapping.Season.TVDB, mapping.EpisodeOffset.TVDB); normalizeErr == nil {
+				if supplemental, normalizeErr := normalizeTVDBAnime(payloads[0], *mapping.Season.TVDB, mapping.EpisodeOffset.TVDB, payloads[1:]...); normalizeErr == nil {
+					records = append(records, supplemental)
+				}
+			}
+		}
+		if mapping.TVDBID > 0 && mapping.Season.TVDB != nil && (credentials.APIKey("fanart") != "" || s.runtime.Config.Providers.Fanart.APIKey != "") {
+			fanartBase := fanart.New(s.runtime.Config.Providers.Fanart)
+			fanartCache, cacheErr := providercache.New(s.runtime, fanart.TVNormalizerVersion, fanartBase.Capability().RawRetention, fanartBase.Capability().ResponseCache, jobID)
+			if cacheErr != nil {
+				return result, cacheErr
+			}
+			payloads, collectErr := fanart.NewCached(s.runtime.Config.Providers.Fanart, fanartCache, credentials.APIKey("fanart")).Collect(ctx, providers.Identifier{Provider: "tvdb", Namespace: "series", Value: strconv.Itoa(mapping.TVDBID)})
+			if collectErr == nil && len(payloads) > 0 && payloads[0].StatusCode == http.StatusOK {
+				if supplemental, normalizeErr := fanart.NormalizeTV(payloads[0].Body, payloads[0].ObservationID, payloads[0].ObservedAt, "anime"); normalizeErr == nil {
+					supplemental.Images = nil
+					mappedSeasons := make([]episodic.Season, 0, 1)
+					for _, season := range supplemental.Seasons {
+						if season.Number == *mapping.Season.TVDB {
+							season.Number = 1
+							mappedSeasons = append(mappedSeasons, season)
+						}
+					}
+					supplemental.Seasons = mappedSeasons
 					records = append(records, supplemental)
 				}
 			}

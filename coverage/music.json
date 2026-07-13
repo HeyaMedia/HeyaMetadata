@@ -114,6 +114,13 @@
       "references": [{"name": "Abbey Road", "external_ids": {"musicbrainz": "9162580e-5df4-32de-80cc-f45a8d8a9b1d"}, "expected_providers": ["system"]}]
     },
     {
+      "id": "music.release_group.images", "kind": "release_group", "category": "fact",
+      "description": "Front covers, back covers, booklets, media/disc scans, spines, obi strips, trays, stickers, and other typed Cover Art Archive images retain opaque IDs and provider provenance.",
+      "providers": ["coverartarchive", "discogs", "apple", "deezer", "fanart"],
+      "projection": {"document": "detail", "path": "data.images"},
+      "references": [{"name": "Abbey Road", "external_ids": {"musicbrainz": "9162580e-5df4-32de-80cc-f45a8d8a9b1d"}, "expected_providers": ["coverartarchive"]}]
+    },
+    {
       "id": "music.release.boundary", "kind": "release", "category": "capability",
       "description": "Country/date/label/barcode/catalog-number/format editions remain distinct beneath a release group.",
       "providers": ["system", "musicbrainz", "discogs", "apple", "deezer"],
