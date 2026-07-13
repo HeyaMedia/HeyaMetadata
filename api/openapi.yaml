@@ -2464,6 +2464,12 @@ paths:
             maximum: 100
             minimum: 1
             type: integer
+        - description: Preferred presentation languages for compact titles and names
+          in: header
+          name: Accept-Language
+          schema:
+            description: Preferred presentation languages for compact titles and names
+            type: string
       responses:
         "200":
           content:
@@ -2471,6 +2477,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/BrowseOutputBody"
           description: OK
+          headers:
+            Vary:
+              schema:
+                type: string
         default:
           content:
             application/problem+json:
@@ -3465,6 +3475,12 @@ paths:
             maximum: 100
             minimum: 1
             type: integer
+        - description: Preferred presentation languages for compact titles and names
+          in: header
+          name: Accept-Language
+          schema:
+            description: Preferred presentation languages for compact titles and names
+            type: string
       responses:
         "200":
           content:
@@ -3472,6 +3488,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/BrowseOutputBody"
           description: OK
+          headers:
+            Vary:
+              schema:
+                type: string
         default:
           content:
             application/problem+json:
@@ -4056,6 +4076,12 @@ paths:
           name: status
           schema:
             type: string
+        - description: Preferred presentation languages for compact titles and names
+          in: header
+          name: Accept-Language
+          schema:
+            description: Preferred presentation languages for compact titles and names
+            type: string
       responses:
         "200":
           content:
@@ -4063,6 +4089,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/SearchOutputBody"
           description: OK
+          headers:
+            Vary:
+              schema:
+                type: string
         default:
           content:
             application/problem+json:

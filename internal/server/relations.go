@@ -83,6 +83,13 @@ func listEntityRelations(ctx context.Context, runtime *platform.Runtime, input *
 	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM entity_relations WHERE source_entity_id=$1 AND state='accepted' AND ($2='' OR relation_type=$2)`, input.ID, relationType).Scan(&out.Body.Total); err != nil {
 		return nil, err
 	}
+	orderBy := `r.position NULLS LAST,
+		         NULLIF(r.metadata->>'first_release_date','') NULLS LAST,
+		         lower(COALESCE(r.metadata->>'title',r.provider_value)),r.id`
+	if relationType == "discography" {
+		orderBy = `NULLIF(r.metadata->>'first_release_date','') DESC NULLS LAST,
+		           lower(COALESCE(r.metadata->>'title',r.provider_value)),r.id`
+	}
 	rows, err := runtime.DB.Query(ctx, `
 		SELECT r.id::text,r.relation_type,r.source_kind,r.target_kind,
 		       COALESCE(r.target_entity_id::text,''),r.provider,r.namespace,
@@ -92,9 +99,7 @@ func listEntityRelations(ctx context.Context, runtime *platform.Runtime, input *
 		LEFT JOIN search_entities se ON se.entity_id=r.target_entity_id
 		WHERE r.source_entity_id=$1 AND r.state='accepted'
 		  AND ($2='' OR r.relation_type=$2)
-		ORDER BY r.position NULLS LAST,
-		         NULLIF(r.metadata->>'first_release_date','') NULLS LAST,
-		         lower(COALESCE(r.metadata->>'title',r.provider_value)),r.id
+		ORDER BY `+orderBy+`
 		OFFSET $3 LIMIT $4`, input.ID, relationType, offset, limit)
 	if err != nil {
 		return nil, err

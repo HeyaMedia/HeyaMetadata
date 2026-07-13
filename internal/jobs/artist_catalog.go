@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -69,6 +70,14 @@ func (w *ArtistCatalogSyncWorker) Work(ctx context.Context, job *river.Job[Artis
 		}
 		return fmt.Errorf("sync artist catalog: %w", err)
 	}
+	slog.InfoContext(ctx, "artist catalog reconciled",
+		"artist_entity_id", job.Args.ArtistEntityID,
+		"musicbrainz_id", job.Args.MusicBrainzID,
+		"candidates", result.Candidates,
+		"gated_candidates", result.Gated,
+		"clusters", result.Clusters,
+		"public_clusters", result.PublicClusters,
+	)
 
 	client := river.ClientFromContext[pgx.Tx](ctx)
 	for _, group := range result.ReleaseGroups {

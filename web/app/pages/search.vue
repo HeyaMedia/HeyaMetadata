@@ -7,16 +7,18 @@ import type { DiscoveryCandidate } from '~/utils/types'
 // are explicit, side-effecting actions kept in memory — never auto-run from a URL.
 const route = useRoute()
 const api = useHeyaApi()
+const { signature } = useLocale()
 
 const q = computed(() => ((route.query.q as string) || '').trim())
 const kind = computed(() => (route.query.kind as string) || '')
 const kindConfig = computed(() => kindMeta(kind.value))
 const canDiscover = computed(() => !!kindConfig.value?.discoverable)
+const localeSignature = computed(signature)
 
 const { data: searchData, pending } = await useAsyncData(
   'search',
   () => (q.value ? api.search(q.value, kind.value, 30) : Promise.resolve({ results: [] })),
-  { watch: [q, kind], default: () => ({ results: [] }) },
+  { watch: [q, kind, localeSignature], default: () => ({ results: [] }) },
 )
 const results = computed(() => searchData.value?.results ?? [])
 

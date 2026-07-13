@@ -15,6 +15,7 @@ const props = withDefaults(defineProps<{
 
 const LIMIT = 24
 const api = useHeyaApi()
+const { signature } = useLocale()
 const route = useRoute()
 
 const effectiveKind = computed(() => (props.lockKind ? props.kind : ((route.query.kind as string) || '')))
@@ -22,6 +23,7 @@ const sort = computed(() => (route.query.sort as string) || 'updated')
 const offset = computed(() => Math.max(0, Number.parseInt(route.query.offset as string) || 0))
 const q = computed(() => (props.lockKind ? '' : ((route.query.q as string) || '')))
 const localQuery = ref(q.value)
+const localeSignature = computed(signature)
 watch(q, value => { localQuery.value = value })
 
 const gridShape = computed<CardShape>(() => (props.lockKind && props.kind ? cardShape(props.kind) : 'poster'))
@@ -29,7 +31,7 @@ const gridShape = computed<CardShape>(() => (props.lockKind && props.kind ? card
 const { data, pending, error } = await useAsyncData(
   `browse:${props.lockKind ? props.kind : 'all'}`,
   () => api.browse({ kind: effectiveKind.value, sort: sort.value, offset: offset.value, limit: LIMIT, q: q.value }),
-  { watch: [effectiveKind, sort, offset, q], default: () => ({ results: [], total: 0, offset: 0, limit: LIMIT }) },
+  { watch: [effectiveKind, sort, offset, q, localeSignature], default: () => ({ results: [], total: 0, offset: 0, limit: LIMIT }) },
 )
 
 const results = computed(() => data.value?.results ?? [])

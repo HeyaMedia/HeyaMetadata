@@ -25,7 +25,7 @@ title type, and provenance. Add a separate entry when a fact has distinct
 identity, lifecycle, provider, or API behavior.
 
 The current live baseline is movie 37/37, TV 4/4, books 8/8, people 9/9, and
-music 21/22. Music deliberately remains red for a live AcoustID-backed
+music 22/23. Music deliberately remains red for a live AcoustID-backed
 fingerprint-resolution proof; that entry is an executable roadmap requirement
 and must not be weakened merely to make the total green. Canonical musical
 works are live through the Open Opus Symphony No. 5 canary.

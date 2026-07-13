@@ -9,19 +9,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/images"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/danielgtaylor/huma/v2"
 )
 
 type browseInput struct {
-	Query       string `query:"q" maxLength:"200" doc:"Optional local title/name query"`
-	Kind        string `query:"kind" maxLength:"50" doc:"Optional exact canonical kind"`
-	Sort        string `query:"sort" enum:"updated,title,year,popular" default:"updated"`
-	Offset      int    `query:"offset" minimum:"0" default:"0"`
-	Limit       int    `query:"limit" minimum:"1" maximum:"100" default:"24"`
-	primaryOnly bool
+	Query          string `query:"q" maxLength:"200" doc:"Optional local title/name query"`
+	Kind           string `query:"kind" maxLength:"50" doc:"Optional exact canonical kind"`
+	Sort           string `query:"sort" enum:"updated,title,year,popular" default:"updated"`
+	Offset         int    `query:"offset" minimum:"0" default:"0"`
+	Limit          int    `query:"limit" minimum:"1" maximum:"100" default:"24"`
+	AcceptLanguage string `header:"Accept-Language" doc:"Preferred presentation languages for compact titles and names"`
+	primaryOnly    bool
 }
 type browseOutput struct {
+	Vary string `header:"Vary"`
 	Body struct {
 		Results []json.RawMessage `json:"results"`
 		Total   int64             `json:"total"`
@@ -30,8 +33,9 @@ type browseOutput struct {
 	}
 }
 type latestInput struct {
-	Kind  string `query:"kind" maxLength:"50" doc:"Optional exact canonical kind"`
-	Limit int    `query:"limit" minimum:"1" maximum:"100" default:"24"`
+	Kind           string `query:"kind" maxLength:"50" doc:"Optional exact canonical kind"`
+	Limit          int    `query:"limit" minimum:"1" maximum:"100" default:"24"`
+	AcceptLanguage string `header:"Accept-Language" doc:"Preferred presentation languages for compact titles and names"`
 }
 type statsOutput struct {
 	Body struct {
@@ -83,7 +87,7 @@ func registerLibrary(api huma.API, runtime *platform.Runtime) {
 		if runtime == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
-		return browseLibrary(ctx, runtime, &browseInput{Kind: input.Kind, Sort: "updated", Limit: input.Limit, primaryOnly: input.Kind == ""})
+		return browseLibrary(ctx, runtime, &browseInput{Kind: input.Kind, Sort: "updated", Limit: input.Limit, AcceptLanguage: input.AcceptLanguage, primaryOnly: input.Kind == ""})
 	})
 	huma.Register(api, huma.Operation{OperationID: "library-stats", Method: http.MethodGet, Path: "/api/v2/stats", Summary: "Canonical library coverage statistics", Tags: []string{"Library"}}, func(ctx context.Context, _ *struct{}) (*statsOutput, error) {
 		if runtime == nil {
@@ -145,6 +149,7 @@ func browseLibrary(ctx context.Context, runtime *platform.Runtime, input *browse
 		where += ` AND se.kind NOT IN ('person','author')`
 	}
 	out := &browseOutput{}
+	out.Vary = "Accept-Language"
 	out.Body.Offset = offset
 	out.Body.Limit = limit
 	out.Body.Results = []json.RawMessage{}
@@ -163,7 +168,15 @@ func browseLibrary(ctx context.Context, runtime *platform.Runtime, input *browse
 		}
 		out.Body.Results = append(out.Body.Results, json.RawMessage(body))
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	preferences := images.LanguagePreferences("", "", input.AcceptLanguage)
+	out.Body.Results, err = localizeSummaries(ctx, runtime, out.Body.Results, preferences)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func libraryStats(ctx context.Context, runtime *platform.Runtime) (*statsOutput, error) {

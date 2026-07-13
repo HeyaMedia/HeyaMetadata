@@ -1177,6 +1177,9 @@ type BrowseLibraryParams struct {
 	Sort   *BrowseLibraryParamsSort `form:"sort,omitempty" json:"sort,omitempty"`
 	Offset *int64                   `form:"offset,omitempty" json:"offset,omitempty"`
 	Limit  *int64                   `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// AcceptLanguage Preferred presentation languages for compact titles and names
+	AcceptLanguage *string `json:"Accept-Language,omitempty"`
 }
 
 // BrowseLibraryParamsSort defines parameters for BrowseLibrary.
@@ -1368,6 +1371,9 @@ type LatestLibraryParams struct {
 	// Kind Optional exact canonical kind
 	Kind  *string `form:"kind,omitempty" json:"kind,omitempty"`
 	Limit *int64  `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// AcceptLanguage Preferred presentation languages for compact titles and names
+	AcceptLanguage *string `json:"Accept-Language,omitempty"`
 }
 
 // DiscoverMangaParams defines parameters for DiscoverManga.
@@ -1489,6 +1495,9 @@ type SearchEntitiesParams struct {
 	Country  *string                   `form:"country,omitempty" json:"country,omitempty"`
 	Language *string                   `form:"language,omitempty" json:"language,omitempty"`
 	Status   *string                   `form:"status,omitempty" json:"status,omitempty"`
+
+	// AcceptLanguage Preferred presentation languages for compact titles and names
+	AcceptLanguage *string `json:"Accept-Language,omitempty"`
 }
 
 // SearchEntitiesParamsKind defines parameters for SearchEntities.
@@ -3127,6 +3136,21 @@ func NewBrowseLibraryRequest(server string, params *BrowseLibraryParams) (*http.
 		return nil, err
 	}
 
+	if params != nil {
+
+		if params.AcceptLanguage != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Accept-Language", *params.AcceptLanguage, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Accept-Language", headerParam0)
+		}
+
+	}
+
 	return req, nil
 }
 
@@ -4666,6 +4690,21 @@ func NewLatestLibraryRequest(server string, params *LatestLibraryParams) (*http.
 		return nil, err
 	}
 
+	if params != nil {
+
+		if params.AcceptLanguage != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Accept-Language", *params.AcceptLanguage, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Accept-Language", headerParam0)
+		}
+
+	}
+
 	return req, nil
 }
 
@@ -5612,6 +5651,21 @@ func NewSearchEntitiesRequest(server string, params *SearchEntitiesParams) (*htt
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+
+		if params.AcceptLanguage != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Accept-Language", *params.AcceptLanguage, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Accept-Language", headerParam0)
+		}
+
 	}
 
 	return req, nil

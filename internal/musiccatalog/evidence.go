@@ -30,7 +30,7 @@ type detailEvidence struct {
 func enrichClustersWithDetailEvidence(ctx context.Context, runtime *platform.Runtime, clusters []cluster, jobID int64) []cluster {
 	hasCandidate := false
 	for _, group := range clusters {
-		if !anchoredCluster(group) {
+		if !canonicalSpineCluster(group) {
 			hasCandidate = true
 			break
 		}
@@ -64,7 +64,7 @@ func enrichClustersWithDetailEvidence(ctx context.Context, runtime *platform.Run
 	}
 	result := make([]cluster, 0, len(clusters))
 	for _, group := range clusters {
-		if anchoredCluster(group) {
+		if canonicalSpineCluster(group) {
 			result = append(result, group)
 			continue
 		}
@@ -73,7 +73,7 @@ func enrichClustersWithDetailEvidence(ctx context.Context, runtime *platform.Run
 		confidence := 0.0
 		ambiguous := false
 		for anchorIndex := range result {
-			if !anchoredCluster(result[anchorIndex]) {
+			if !canonicalSpineCluster(result[anchorIndex]) {
 				continue
 			}
 			anchorReason, anchorConfidence, ok := clustersStronglyMatch(group, result[anchorIndex], load)

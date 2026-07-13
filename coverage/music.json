@@ -80,10 +80,17 @@
     },
     {
       "id": "music.artist.discography.mixed", "kind": "artist", "category": "relationship",
-      "description": "Artist discographies cluster release-group evidence across scripts and storefront editions; MusicBrainz or validated Discogs evidence anchors public results, storefront-only agreement remains quarantined unless barcode, ISRC, ordered-track, or bounded Chromaprint coverage connects it to an anchor, and Last.fm can corroborate but never create a release.",
+      "description": "Artist discographies cluster release-group evidence across scripts and storefront editions. MusicBrainz is the initial spine; independently anchored, plausibly sized Apple and Deezer artist pages may add fresh digital-only releases, fused same-name pages are reduced to anchored evidence, Discogs issues require corroboration, issued-release track overlap can deduplicate upstream regional release groups in presentation, and Last.fm can corroborate but never create a release.",
       "providers": ["musicbrainz", "discogs", "apple", "deezer", "lastfm"],
       "projection": {"document": "relations", "path": "discography"},
       "references": [{"name": "ano", "external_ids": {"musicbrainz": "ebb4513e-4aab-4ac9-a949-14e77bb7b836"}, "expected_providers": ["musicbrainz", "discogs", "apple"]}]
+    },
+    {
+      "id": "music.artist.discography.storefront_freshness", "kind": "artist", "category": "relationship",
+      "description": "A current digital-only release from a MusicBrainz-anchored, plausible storefront artist catalog becomes a canonical, provenance-bearing release group even before MusicBrainz lists it.",
+      "providers": ["deezer", "musicbrainz"],
+      "projection": {"document": "relations", "path": "discography"},
+      "references": [{"name": "ATARASHII GAKKO! — Oi AG!", "external_ids": {"musicbrainz": "12a43a61-e31a-4cac-92a6-c95ce9cdfe3c"}, "expected_providers": ["deezer"]}]
     },
     {
       "id": "music.artist.similar", "kind": "artist", "category": "relationship",

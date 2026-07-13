@@ -6,6 +6,8 @@ import type { CollectionCard, EntitySummary, LibraryStats } from '~/utils/types'
 // independently (its own latest?kind= call) so a burst of one domain can never
 // crowd out the others. Shelves prefer root entities.
 const api = useHeyaApi()
+const { signature } = useLocale()
+const localeSignature = computed(signature)
 
 interface Shelf {
   key: string
@@ -36,7 +38,10 @@ const { data, pending } = await useAsyncData('home', async () => {
   const byKey: Record<string, EntitySummary[]> = {}
   SHELVES.forEach((shelf, index) => { byKey[shelf.key] = shelves[index] })
   return { byKey, collections: collectionData as CollectionCard[], stats: stats as LibraryStats }
-}, { default: () => ({ byKey: {}, collections: [] as CollectionCard[], stats: {} as LibraryStats }) })
+}, {
+  watch: [localeSignature],
+  default: () => ({ byKey: {}, collections: [] as CollectionCard[], stats: {} as LibraryStats }),
+})
 
 const visibleShelves = computed(() => SHELVES.filter(shelf => (data.value?.byKey[shelf.key]?.length ?? 0) > 0))
 const stats = computed(() => data.value?.stats ?? {})

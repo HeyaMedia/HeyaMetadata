@@ -22,7 +22,8 @@ type CatalogSource struct {
 }
 
 // PromoteCatalogCluster creates or updates a canonical release group that has
-// no MusicBrainz spine. Callers must require independent provider agreement.
+// no MusicBrainz spine. Callers must require independent provider agreement or
+// a single storefront catalog whose artist identity and page shape were gated.
 func (s *Service) PromoteCatalogCluster(ctx context.Context, artistEntityID string, sources []CatalogSource) (Result, error) {
 	records := make([]rgdomain.NormalizedRecordV1, 0, len(sources))
 	for _, source := range sources {
@@ -60,8 +61,17 @@ func (s *Service) PromoteCatalogCluster(ctx context.Context, artistEntityID stri
 		}
 		records = append(records, record)
 	}
-	if len(records) < 2 {
-		return Result{}, fmt.Errorf("provider-only release group promotion requires two normalized catalog sources")
+	if len(records) == 0 {
+		return Result{}, fmt.Errorf("provider-only release group promotion requires normalized catalog evidence")
+	}
+	evidence := "identity_gated_artist_catalog"
+	if len(records) > 1 {
+		evidence = "independent_catalog_consensus"
+	}
+	for i := range records {
+		for j := range records[i].IdentityCandidates {
+			records[i].IdentityCandidates[j].Evidence = evidence
+		}
 	}
 	ids := make([]string, 0, len(records))
 	for _, record := range records {

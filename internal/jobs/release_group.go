@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	rgdomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/releasegroup"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
@@ -56,7 +57,7 @@ func (w *ReleaseGroupIngestWorker) Work(ctx context.Context, job *river.Job[Rele
 	if err != nil {
 		return river.JobCancel(err)
 	}
-	_, err = w.service.IngestMusicBrainz(ctx, job.Args.MusicBrainzID, job.ID, credentials)
+	result, err := w.service.IngestMusicBrainz(ctx, job.Args.MusicBrainzID, job.ID, credentials)
 	if err != nil {
 		var status *providers.StatusError
 		if errors.As(err, &status) {
@@ -69,6 +70,25 @@ func (w *ReleaseGroupIngestWorker) Work(ctx context.Context, job *river.Job[Rele
 		}
 		return fmt.Errorf("ingest release group: %w", err)
 	}
+	client := river.ClientFromContext[pgx.Tx](ctx)
+	for _, releaseID := range musicBrainzReleaseIDs(result.Detail.Data.Editions) {
+		if _, err := client.Insert(ctx, ReleaseIngestArgs{MusicBrainzID: releaseID, Reason: "release_group_edition"}, &river.InsertOpts{Queue: BackgroundQueue, Priority: PriorityScheduled}); err != nil {
+			return fmt.Errorf("enqueue issued release %s: %w", releaseID, err)
+		}
+	}
 	_ = providercredentials.Delete(context.WithoutCancel(ctx), w.runtime.Redis, job.Args.CredentialRef)
 	return nil
+}
+
+func musicBrainzReleaseIDs(editions []rgdomain.ProjectedEdition) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(editions))
+	for _, edition := range editions {
+		if edition.Provider != "musicbrainz" || edition.Namespace != "release" || edition.ProviderID == "" || seen[edition.ProviderID] {
+			continue
+		}
+		seen[edition.ProviderID] = true
+		result = append(result, edition.ProviderID)
+	}
+	return result
 }

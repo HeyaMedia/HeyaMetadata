@@ -204,8 +204,40 @@ func verifyEntrySemantics(entryID string, value any) (bool, string) {
 		if !found {
 			return false, "edition has no Open Library or ISBN identifier"
 		}
+	case "music.artist.discography.storefront_freshness":
+		if !arrayHasRelationTitleAndProvider(value, "Oi AG!", "deezer") {
+			return false, "discography has no canonical Oi AG! relation backed by Deezer"
+		}
 	}
 	return true, ""
+}
+
+func arrayHasRelationTitleAndProvider(value any, title, provider string) bool {
+	items, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		relation, ok := item.(map[string]any)
+		if !ok || emptyValue(relation["target_entity_id"]) {
+			continue
+		}
+		metadata, ok := relation["metadata"].(map[string]any)
+		if !ok || !strings.EqualFold(fmt.Sprint(metadata["title"]), title) {
+			continue
+		}
+		sources, ok := metadata["sources"].([]any)
+		if !ok {
+			continue
+		}
+		for _, source := range sources {
+			object, ok := source.(map[string]any)
+			if ok && strings.EqualFold(fmt.Sprint(object["provider"]), provider) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func arrayHasFieldValue(value any, field, expected string) bool {

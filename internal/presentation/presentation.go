@@ -17,6 +17,9 @@ type Text struct {
 	Country  string `json:"country,omitempty"`
 	Type     string `json:"type,omitempty"`
 	Primary  bool   `json:"primary,omitempty"`
+	// Quality is request-local ranking evidence used by compact projections.
+	// It is deliberately not part of the public presentation document.
+	Quality int `json:"-"`
 }
 
 type View struct {
@@ -119,6 +122,9 @@ func SelectText(candidates []Text, preferences []string, country string) Text {
 		}
 		if ranked[i].countryRank != ranked[j].countryRank {
 			return ranked[i].countryRank < ranked[j].countryRank
+		}
+		if ranked[i].Quality != ranked[j].Quality {
+			return ranked[i].Quality > ranked[j].Quality
 		}
 		if ranked[i].primaryRank != ranked[j].primaryRank {
 			return ranked[i].primaryRank < ranked[j].primaryRank

@@ -21,8 +21,10 @@ export function useLocale() {
 
   /** Accept-Language header for read requests. */
   function headers(): Record<string, string> {
-    const language = locale.language.trim()
-    return language ? { 'Accept-Language': language } : {}
+    const languages = [locale.language, ...locale.fallbackLanguages.split(',')]
+      .map(value => value.trim())
+      .filter((value, index, values) => value && values.indexOf(value) === index)
+    return languages.length ? { 'Accept-Language': languages.join(', ') } : {}
   }
 
   /** Stable string signature for cache keys / watchers. */

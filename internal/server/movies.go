@@ -15,6 +15,7 @@ import (
 	animeservice "github.com/HeyaMedia/HeyaMetadata/internal/anime"
 	"github.com/HeyaMedia/HeyaMetadata/internal/artists"
 	"github.com/HeyaMedia/HeyaMetadata/internal/books"
+	"github.com/HeyaMedia/HeyaMetadata/internal/images"
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/manga"
 	"github.com/HeyaMedia/HeyaMetadata/internal/movies"
@@ -118,16 +119,18 @@ type jobResource struct {
 type jobOutput struct{ Body jobResource }
 
 type searchInput struct {
-	Query    string `query:"q" minLength:"1"`
-	Kind     string `query:"kind" enum:"movie,artist,release_group,release,recording,musical_work,tv_show,anime,book_work,book_edition,manga,manga_volume,manga_edition,comic_volume,comic_edition,author,person" doc:"Optional canonical domain filter"`
-	Limit    int    `query:"limit" minimum:"1" maximum:"100" default:"20"`
-	Year     int    `query:"year" minimum:"1800" maximum:"2200"`
-	Genre    string `query:"genre"`
-	Country  string `query:"country"`
-	Language string `query:"language"`
-	Status   string `query:"status"`
+	Query          string `query:"q" minLength:"1"`
+	Kind           string `query:"kind" enum:"movie,artist,release_group,release,recording,musical_work,tv_show,anime,book_work,book_edition,manga,manga_volume,manga_edition,comic_volume,comic_edition,author,person" doc:"Optional canonical domain filter"`
+	Limit          int    `query:"limit" minimum:"1" maximum:"100" default:"20"`
+	Year           int    `query:"year" minimum:"1800" maximum:"2200"`
+	Genre          string `query:"genre"`
+	Country        string `query:"country"`
+	Language       string `query:"language"`
+	Status         string `query:"status"`
+	AcceptLanguage string `header:"Accept-Language" doc:"Preferred presentation languages for compact titles and names"`
 }
 type searchOutput struct {
+	Vary string `header:"Vary"`
 	Body struct {
 		Results []json.RawMessage `json:"results"`
 	}
@@ -895,7 +898,11 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if err != nil {
 			return nil, fmt.Errorf("search entities: %w", err)
 		}
-		output := &searchOutput{}
+		results, err = localizeSummaries(ctx, runtime, results, images.LanguagePreferences("", "", input.AcceptLanguage))
+		if err != nil {
+			return nil, fmt.Errorf("present search entities: %w", err)
+		}
+		output := &searchOutput{Vary: "Accept-Language"}
 		output.Body.Results = results
 		return output, nil
 	})

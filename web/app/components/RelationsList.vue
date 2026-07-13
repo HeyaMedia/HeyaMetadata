@@ -13,7 +13,7 @@ const props = withDefaults(defineProps<{
 const api = useHeyaApi()
 const { data } = useAsyncData(
   `relations:${props.type}:${props.entityId}`,
-  () => api.entityRelations(props.entityId, { type: props.type, limit: 100 }).then(r => r.relations ?? []).catch(() => [] as Relation[]),
+  () => api.allEntityRelations(props.entityId, props.type).then(r => r.relations ?? []).catch(() => [] as Relation[]),
   { watch: [() => props.entityId, () => props.type], default: () => [] as Relation[] },
 )
 

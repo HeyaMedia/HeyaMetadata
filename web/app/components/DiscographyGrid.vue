@@ -8,10 +8,12 @@ import type { Relation } from '~/utils/types'
 const props = defineProps<{ entityId: string }>()
 
 const api = useHeyaApi()
+const { signature } = useLocale()
+const localeSignature = computed(signature)
 const { data, pending } = useAsyncData(
   `discography:${props.entityId}`,
-  () => api.entityRelations(props.entityId, { type: 'discography', limit: 100 }).then(r => r.relations ?? []).catch(() => [] as Relation[]),
-  { watch: [() => props.entityId], default: () => [] as Relation[] },
+  () => api.allEntityRelations(props.entityId, 'discography').then(r => r.relations ?? []).catch(() => [] as Relation[]),
+  { watch: [() => props.entityId, localeSignature], default: () => [] as Relation[] },
 )
 
 interface Entry { title: string; kind: string; date: string; year: string; to?: string }
@@ -28,7 +30,7 @@ const entries = computed<Entry[]>(() => {
     const key = relation.target_entity_id || `${title}:${source.date ?? ''}`
     if (seen.has(key)) continue
     seen.add(key)
-    const date = formatValue(source.date)
+    const date = formatValue(relation.metadata?.first_release_date ?? source.date)
     out.push({ title, kind: titleCase(source.kind) || 'Release', date, year: date.slice(0, 4), to })
   }
   return out.sort((a, b) => (b.date || '').localeCompare(a.date || ''))

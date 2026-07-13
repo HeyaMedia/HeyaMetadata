@@ -74,6 +74,10 @@ func Romanize(value string) string {
 		} else {
 			out = kana.KanaToRomaji(value)
 		}
+		// gojp/kana represents standalone small vowels as xa/xi/xu/xe/xo.
+		// In stylized spellings they commonly extend the preceding syllable
+		// (うっせぇわ -> usseewa), so the comparison form drops that marker.
+		out = strings.NewReplacer("xa", "a", "xi", "i", "xu", "u", "xe", "e", "xo", "o").Replace(out)
 	}
 	return unidecode.Unidecode(out)
 }

@@ -5,6 +5,8 @@ import type { EntitySummary } from '~/utils/types'
 // Music spans several kinds, so this is a curated landing rather than a single
 // locked browse. Each section is fetched independently.
 const api = useHeyaApi()
+const { signature } = useLocale()
+const localeSignature = computed(signature)
 
 interface Section { key: string; kind: string; title: string; shape: CardShape }
 const SECTIONS: Section[] = [
@@ -20,7 +22,7 @@ const { data, pending } = await useAsyncData('music', async () => {
   const byKey: Record<string, EntitySummary[]> = {}
   SECTIONS.forEach((section, index) => { byKey[section.key] = lists[index] })
   return byKey
-}, { default: () => ({}) })
+}, { watch: [localeSignature], default: () => ({}) })
 </script>
 
 <template>

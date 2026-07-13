@@ -110,10 +110,26 @@ export function useHeyaApi() {
 
   function entityRelations(id: string, options: { type?: string; limit?: number; offset?: number } = {}): Promise<RelationsResponse> {
     const params = new URLSearchParams()
-    if (options.type) params.set('relation_type', options.type)
+    if (options.type) params.set('type', options.type)
     params.set('limit', String(options.limit ?? 100))
     params.set('offset', String(options.offset ?? 0))
     return request(`${BASE}/entities/${id}/relations?${params}`)
+  }
+
+  async function allEntityRelations(id: string, type?: string): Promise<RelationsResponse> {
+    const limit = 100
+    const relations: RelationsResponse['relations'] = []
+    let offset = 0
+    let total = 0
+    do {
+      const page = await entityRelations(id, { type, limit, offset })
+      const items = page.relations ?? []
+      relations.push(...items)
+      total = page.total ?? relations.length
+      offset += items.length
+      if (!items.length) break
+    } while (offset < total)
+    return { relations, total, offset: 0, limit: relations.length }
   }
 
   function recordingFingerprints(id: string): Promise<{ recording_id: string; items: any[] }> {
@@ -209,6 +225,7 @@ export function useHeyaApi() {
     entityImages,
     entityCredits,
     entityRelations,
+    allEntityRelations,
     recordingFingerprints,
     recordingLyrics,
     person,

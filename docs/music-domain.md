@@ -95,6 +95,46 @@ Normalized records preserve every source claim. Combination is deterministic:
 - no provider-global score is presented as a universal rating;
 - user overrides may select presentation winners without deleting source facts.
 
+### Artist catalog reconciliation
+
+An artist discography is rebuilt from retained provider evidence; it is not a
+union of every result returned for the artist name. MusicBrainz release groups
+form the initial spine. Every selected Discogs, Apple, Deezer, and Last.fm
+artist catalog must overlap that spine uniquely, so an Apple page cannot make a
+same-name Deezer page appear trustworthy merely because those two storefronts
+overlap each other.
+
+Apple and Deezer pages with MusicBrainz overlap and a plausible catalog size
+may contribute digital-only releases that have not reached MusicBrainz yet. A
+single release from such a page can be promoted with explicit
+`identity_gated_artist_catalog` provenance and lower confidence than
+multi-provider consensus. A disproportionately large fused page is reduced to
+releases independently matching the MusicBrainz spine; its other records remain
+in the expiring raw provider observation but never enter the public catalog.
+Discogs masters/issues need an existing independently ingested target or another
+authoritative catalog provider. Last.fm may add popularity evidence and aliases
+to a cluster, but never creates or promotes one.
+
+Catalog-created entities cannot prove themselves canonical on a later refresh.
+An existing provider claim counts as independent only when the target also has
+a normalized record produced outside the `catalog-cluster-*` promotion path.
+Ambiguous matches remain candidates, and separate provider records never merge
+solely because their titles sort next to each other.
+
+Every ingested MusicBrainz release group schedules its issued MusicBrainz
+releases on the single-worker background queue. Once their ordered tracks are
+available, two same-artist, same-title/type/year release groups may collapse in
+the public discography only when issued editions share a substantial one-to-one
+set of normalized track titles with near-identical durations. Both release-group
+MBIDs and canonical targets remain in relation provenance; this is presentation
+deduplication, not a destructive canonical-entity merge.
+
+The executable storefront-freshness canary is ATARASHII GAKKO!'s `Oi AG!`:
+Deezer listed the July 2026 single before the other configured spines, and the
+public relation must retain a canonical target plus Deezer provenance. Ado's
+`Love me forever!` exercises the same freshness path across MusicBrainz, iTunes,
+and Deezer.
+
 ### Cross-script release presentation deduplication
 
 Provider catalog objects remain separate evidence, but the public edition list

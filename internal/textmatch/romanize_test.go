@@ -26,6 +26,9 @@ func TestReleaseKeysCollapseScriptAndCommercialEditionButNotRemix(t *testing.T) 
 	if !EquivalentRelease("北京", 2024, "Bei Jing", 2024) {
 		t.Fatal("direct Han transliteration did not produce a comparison key")
 	}
+	if !EquivalentRelease("うっせぇわ", 2020, "Usseewa", 2020) {
+		t.Fatalf("stylized kana transliteration did not match: %q", Romanize("うっせぇわ"))
+	}
 }
 
 func TestReleaseKeysNormalizeUnicodeComposition(t *testing.T) {

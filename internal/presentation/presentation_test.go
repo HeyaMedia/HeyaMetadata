@@ -43,3 +43,14 @@ func TestSelectTextPrefersNeutralBeforeWrongLanguage(t *testing.T) {
 		t.Fatalf("selected %+v", selected)
 	}
 }
+
+func TestSelectTextUsesSourceQualityWithinRequestedLanguage(t *testing.T) {
+	t.Parallel()
+	selected := SelectText([]Text{
+		{Value: "ATARASHII GAKKO!", Language: "ja", Type: "alias", Quality: 50},
+		{Value: "新しい学校のリーダーズ", Language: "ja", Type: "label", Quality: 80},
+	}, []string{"ja"}, "")
+	if selected.Value != "新しい学校のリーダーズ" {
+		t.Fatalf("selected %+v", selected)
+	}
+}

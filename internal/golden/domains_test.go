@@ -39,3 +39,26 @@ func TestCapabilityOperationsExistInRouter(t *testing.T) {
 		}
 	}
 }
+
+func TestStorefrontFreshnessRequiresCanonicalTargetAndProviderSource(t *testing.T) {
+	t.Parallel()
+	relations := []any{
+		map[string]any{
+			"target_entity_id": "release-group-id",
+			"metadata": map[string]any{
+				"title":   "Oi AG!",
+				"sources": []any{map[string]any{"provider": "deezer"}},
+			},
+		},
+	}
+	if !arrayHasRelationTitleAndProvider(relations, "Oi AG!", "deezer") {
+		t.Fatal("canonical storefront-backed release was not recognized")
+	}
+	if arrayHasRelationTitleAndProvider(relations, "Oi AG!", "apple") {
+		t.Fatal("missing provider provenance was accepted")
+	}
+	delete(relations[0].(map[string]any), "target_entity_id")
+	if arrayHasRelationTitleAndProvider(relations, "Oi AG!", "deezer") {
+		t.Fatal("provider-only text without a canonical target was accepted")
+	}
+}
