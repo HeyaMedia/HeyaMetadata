@@ -13,8 +13,22 @@ const ep = computed<any>(() => data.value?.data ?? {})
 const show = computed(() => data.value?.show)
 const title = computed(() => preferredText(ep.value.titles) || formatValue(ep.value.name) || 'Episode')
 
+// Resolve the canonical season resource once for display numbering. Provider
+// `aired` schemes can disagree (or flatten cours), while season_id is Heya's
+// authoritative parent link.
+const seasonId = computed(() => ep.value.season_id as string | undefined)
+const { data: seasonResource } = await useAsyncData(
+  `episode-season-${id.value}`,
+  () => seasonId.value ? api.season(seasonId.value) : Promise.resolve(null),
+  { watch: [seasonId] },
+)
+const canonicalSeason = computed<number | null>(() => {
+  const number = Number(seasonResource.value?.data?.number)
+  return Number.isFinite(number) ? number : null
+})
+
 const numbers = computed<any[]>(() => (Array.isArray(ep.value.numbers) ? ep.value.numbers : []))
-const aired = computed(() => numbers.value.find(n => n?.scheme === 'aired') ?? numbers.value.find(n => n?.season != null) ?? numbers.value[0] ?? {})
+const aired = computed(() => canonicalEpisodeNumber(ep.value, canonicalSeason.value) ?? {})
 const absolute = computed(() => numbers.value.find(n => n?.scheme === 'absolute')?.number)
 
 const synopsis = computed(() => {

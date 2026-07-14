@@ -1,25 +1,20 @@
 <script setup lang="ts">
 // Season → episode browser for tv/anime, rendered from the show document's
-// embedded `seasons`/`episodes` (no episodic endpoint exists yet — see backend
-// wishlist). The active season lives in the URL (?season=N) so back/forward and
-// reload restore it; individual episodes expand inline to a per-episode view.
+// embedded `seasons`/`episodes`. The active season lives in the URL (?season=N)
+// so back/forward and reload restore it; individual episodes expand inline.
 const props = defineProps<{ seasons?: any[]; episodes?: any[] }>()
 
 const route = useRoute()
 
 interface Episode { id?: string; season: number | null; number: number | null; title: string; air: string; runtime: string; summary: string; schemes: any[] }
 
-function pickNumber(ep: any) {
-  const numbers: any[] = Array.isArray(ep.numbers) ? ep.numbers : []
-  return numbers.find(n => n?.season != null) ?? numbers[0] ?? {}
-}
-
 const allEpisodes = computed<Episode[]>(() =>
   (props.episodes ?? []).map(ep => {
-    const primary = pickNumber(ep)
+    const season = canonicalEpisodeSeason(ep, props.seasons)
+    const primary = canonicalEpisodeNumber(ep, season) ?? {}
     return {
       id: ep.id,
-      season: primary.season ?? null,
+      season,
       number: primary.number ?? null,
       title: preferredText(ep.titles) || (primary.number != null ? `Episode ${primary.number}` : 'Episode'),
       air: formatValue(ep.air_date),
@@ -94,7 +89,7 @@ function toggle(key: string) { openKey.value = openKey.value === key ? null : ke
     </div>
 
     <ul class="episode-list">
-      <li v-for="(ep, index) in shownEpisodes" :key="index" class="episode" :class="{ 'is-open': openKey === `${ep.season}-${ep.number}-${index}` }">
+      <li v-for="(ep, index) in shownEpisodes" :key="ep.id || `${ep.season}-${ep.number}-${index}`" class="episode" :class="{ 'is-open': openKey === `${ep.season}-${ep.number}-${index}` }">
         <button type="button" class="episode__row" @click="toggle(`${ep.season}-${ep.number}-${index}`)">
           <span class="episode__num">{{ ep.number != null ? String(ep.number).padStart(2, '0') : '—' }}</span>
           <span class="episode__title">{{ ep.title }}</span>

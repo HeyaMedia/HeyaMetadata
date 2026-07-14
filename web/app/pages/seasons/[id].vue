@@ -35,8 +35,7 @@ const provenance = computed<Record<string, unknown[]>>(() => {
 })
 
 function epNumber(ep: any) {
-  const numbers: any[] = Array.isArray(ep.numbers) ? ep.numbers : []
-  return (numbers.find(n => n?.scheme === 'aired') ?? numbers.find(n => n?.season != null) ?? numbers[0] ?? {}).number
+  return canonicalEpisodeNumber(ep, Number(season.value.number))?.number
 }
 function epTitle(ep: any) {
   return preferredText(ep.titles) || (epNumber(ep) != null ? `Episode ${epNumber(ep)}` : 'Episode')
