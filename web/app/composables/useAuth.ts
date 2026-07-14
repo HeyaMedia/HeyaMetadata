@@ -96,6 +96,7 @@ export function useAuth() {
     user,
     ready,
     isAuthenticated: computed(() => !!user.value),
+    isAdmin: computed(() => user.value?.role === 'admin'),
     hydrate,
     fetchMe,
     login,

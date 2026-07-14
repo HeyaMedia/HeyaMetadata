@@ -51,7 +51,7 @@ type ProjectedCompany struct {
 }
 
 type ProjectedCredit struct {
-	PersonEntityID   string `json:"person_entity_id,omitempty"`
+	PersonEntityID   string `json:"person_entity_id" format:"uuid"`
 	Provider         string `json:"provider"`
 	ProviderPersonID string `json:"provider_person_id"`
 	DisplayName      string `json:"display_name"`
@@ -64,14 +64,18 @@ type ProjectedCredit struct {
 }
 
 type ProjectedCollectionMember struct {
-	ProviderID string `json:"provider_id"`
-	Title      string `json:"title"`
-	Year       int    `json:"year,omitempty"`
-	ImageID    string `json:"image_id,omitempty"`
-	Order      int    `json:"order"`
+	EntityID        string `json:"entity_id,omitempty" format:"uuid"`
+	ProviderID      string `json:"provider_id"`
+	Title           string `json:"title"`
+	Year            int    `json:"year,omitempty"`
+	ImageID         string `json:"image_id,omitempty"`
+	Order           int    `json:"order"`
+	ResolutionState string `json:"resolution_state" enum:"materialized,unresolved"`
 }
 
 type ProjectedCollection struct {
+	ID         string                      `json:"id" format:"uuid"`
+	Provider   string                      `json:"provider"`
 	ProviderID string                      `json:"provider_id"`
 	Name       string                      `json:"name"`
 	Overview   string                      `json:"overview,omitempty"`
@@ -80,13 +84,14 @@ type ProjectedCollection struct {
 }
 
 type ProjectedRecommendation struct {
-	EntityID         string  `json:"entity_id,omitempty"`
+	EntityID         string  `json:"entity_id,omitempty" format:"uuid"`
 	Provider         string  `json:"provider,omitempty"`
 	ProviderTargetID string  `json:"provider_target_id"`
 	Title            string  `json:"title"`
 	Year             int     `json:"year,omitempty"`
 	ImageID          string  `json:"image_id,omitempty"`
 	ProviderScore    float64 `json:"provider_score,omitempty"`
+	ResolutionState  string  `json:"resolution_state" enum:"materialized,unresolved"`
 }
 
 type DetailData struct {
@@ -109,7 +114,7 @@ type DetailData struct {
 type DetailDocument struct {
 	SchemaVersion     int                     `json:"schema_version"`
 	ProjectionVersion int64                   `json:"projection_version"`
-	ID                string                  `json:"id"`
+	ID                string                  `json:"id" format:"uuid"`
 	Kind              string                  `json:"kind"`
 	Slug              string                  `json:"slug"`
 	Display           Display                 `json:"display"`
@@ -122,7 +127,7 @@ type DetailDocument struct {
 type SummaryDocument struct {
 	SchemaVersion     int     `json:"schema_version"`
 	ProjectionVersion int64   `json:"projection_version"`
-	ID                string  `json:"id"`
+	ID                string  `json:"id" format:"uuid"`
 	Kind              string  `json:"kind"`
 	Slug              string  `json:"slug"`
 	Display           Display `json:"display"`
@@ -315,7 +320,7 @@ func Combine(entityID, slug string, projectionVersion int64, records []RecordInp
 			}
 		}
 		if record.Collection != nil {
-			collection := &ProjectedCollection{ProviderID: record.Collection.ProviderID, Name: record.Collection.Name, Overview: record.Collection.Overview}
+			collection := &ProjectedCollection{Provider: record.ProviderRecord.Provider, ProviderID: record.Collection.ProviderID, Name: record.Collection.Name, Overview: record.Collection.Overview}
 			for _, image := range record.Collection.Images {
 				key := AuxiliaryImageKey(record.ProviderRecord.Provider, "collection_"+image.Class, record.Collection.ProviderID, image.SourceURL)
 				collection.Images = append(collection.Images, ProjectedImage{ID: imageIDs[key], Class: image.Class, Language: image.Language, Width: image.Width, Height: image.Height, Provider: record.ProviderRecord.Provider, ProviderScore: image.ProviderScore})

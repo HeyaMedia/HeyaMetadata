@@ -11,7 +11,12 @@ func TestNormalizeArtistExtractsAuthorityIDsLanguagesAndLifecycle(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(record.Names) != 3 || len(record.IdentityCandidates) != 3 || record.Lifecycle.Dates[0].Value != "1960" || len(record.Images) != 1 || record.Relationships[0].TargetID != "Q24826" {
+	if len(record.Names) != 2 || len(record.IdentityCandidates) != 1 || record.Lifecycle.Dates[0].Value != "1960" || len(record.Images) != 1 || record.Relationships[0].TargetID != "Q24826" {
 		t.Fatalf("record: %+v", record)
+	}
+	for _, name := range record.Names {
+		if name.Value == "Beatles" {
+			t.Fatalf("unscoped Wikidata alias leaked into artist names: %+v", record.Names)
+		}
 	}
 }

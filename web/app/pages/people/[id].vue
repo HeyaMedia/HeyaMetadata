@@ -11,6 +11,14 @@ const id = computed(() => route.params.id as string)
 
 const { data, pending, error, refresh } = await useAsyncData('person-doc', () => api.person(id.value), { watch: [id] })
 
+// Canonical filmography comes from the paginated /persons/{id}/credits endpoint
+// rather than the person document's embedded preview.
+const { data: filmography } = await useAsyncData(
+  'person-credits',
+  () => api.allPersonCredits(id.value).catch(() => null),
+  { watch: [id] },
+)
+
 let polls = 0
 watch(id, () => { polls = 0 })
 watch(data, doc => {
@@ -27,7 +35,8 @@ watch(data, doc => {
 const info = computed<any>(() => data.value?.data ?? {})
 const name = computed(() => formatValue(data.value?.display?.title) || 'Person')
 const image = computed(() => data.value?.display?.image_id)
-const credits = computed(() => info.value.credits ?? [])
+const credits = computed(() => filmography.value?.credits ?? info.value.credits ?? [])
+const creditTotal = computed(() => filmography.value?.total ?? info.value.credit_total ?? credits.value.length)
 const aliases = computed(() => (info.value.names ?? []).filter((n: string) => formatValue(n) && formatValue(n) !== name.value))
 const knownFor = computed(() => formatValue(info.value.known_for_department))
 const enriching = computed(() => data.value?.freshness?.state === 'stale')
@@ -78,7 +87,7 @@ const homepage = computed(() => formatValue(info.value.homepage))
             <template v-if="enriching"><i aria-hidden="true" /><em>enriching…</em></template>
           </p>
           <h1 class="editorial person-hero__name">{{ name }}</h1>
-          <p class="person-hero__count">{{ info.credit_total ?? credits.length }} credited titles · combined across providers</p>
+          <p class="person-hero__count">{{ creditTotal }} credited titles · combined across providers</p>
           <p v-if="aliases.length" class="person-hero__aliases">Also credited as {{ aliases.join(', ') }}</p>
         </div>
       </header>

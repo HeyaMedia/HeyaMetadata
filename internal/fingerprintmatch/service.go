@@ -23,14 +23,15 @@ type Request struct {
 	DurationMS          int64
 }
 type MatchCandidate struct {
-	RecordingID   string           `json:"recording_id,omitempty"`
-	MusicBrainzID string           `json:"musicbrainz_id,omitempty"`
-	Title         string           `json:"title,omitempty"`
-	Artists       []string         `json:"artists,omitempty"`
-	Confidence    float64          `json:"confidence"`
-	Match         string           `json:"match"`
-	Sources       []MatchSource    `json:"sources"`
-	Resolution    *MatchResolution `json:"resolution,omitempty"`
+	EntityID        string        `json:"entity_id,omitempty" format:"uuid"`
+	CandidateRef    string        `json:"candidate_ref,omitempty" format:"uuid"`
+	MusicBrainzID   string        `json:"-"`
+	Title           string        `json:"title,omitempty"`
+	Artists         []string      `json:"artists,omitempty"`
+	Confidence      float64       `json:"confidence"`
+	Match           string        `json:"match"`
+	Sources         []MatchSource `json:"sources"`
+	ResolutionState string        `json:"resolution_state" enum:"materialized,unresolved"`
 }
 type MatchSource struct {
 	Provider string  `json:"provider"`
@@ -40,7 +41,7 @@ type MatchSource struct {
 	Offset   int     `json:"offset,omitempty"`
 	AcoustID string  `json:"acoustid,omitempty"`
 }
-type MatchResolution struct {
+type CandidateResolution struct {
 	Kind      string `json:"kind"`
 	Provider  string `json:"provider"`
 	Namespace string `json:"namespace"`
@@ -156,7 +157,7 @@ func (s *Service) MatchRun(ctx context.Context, id string, credentials providerc
 			key := entity
 			c := byKey[key]
 			if c == nil {
-				c = &MatchCandidate{RecordingID: entity, MusicBrainzID: mbid, Title: title}
+				c = &MatchCandidate{EntityID: entity, MusicBrainzID: mbid, Title: title}
 				byKey[key] = c
 			}
 			c.Sources = append(c.Sources, MatchSource{Provider: "local_chromaprint", Score: score, BitError: matched.BitError, Overlap: matched.Overlap, Offset: matched.Offset})
@@ -184,10 +185,7 @@ func (s *Service) MatchRun(ctx context.Context, id string, credentials providerc
 					}
 					c := byKey[mapKey]
 					if c == nil {
-						c = &MatchCandidate{RecordingID: entity, MusicBrainzID: mbid, Title: recording.Title, Resolution: &MatchResolution{Kind: "recording", Provider: "musicbrainz", Namespace: "recording", Value: mbid}}
-						if entity != "" {
-							c.Resolution = nil
-						}
+						c = &MatchCandidate{EntityID: entity, MusicBrainzID: mbid, Title: recording.Title}
 						for _, artist := range recording.Artists {
 							c.Artists = append(c.Artists, artist.Name)
 						}
@@ -215,6 +213,24 @@ func (s *Service) MatchRun(ctx context.Context, id string, credentials providerc
 	if len(result.Candidates) > 20 {
 		result.Candidates = result.Candidates[:20]
 	}
+	var expiresAt time.Time
+	if err := s.runtime.DB.QueryRow(ctx, `SELECT expires_at FROM fingerprint_match_runs WHERE id=$1`, id).Scan(&expiresAt); err != nil {
+		return result, err
+	}
+	for index := range result.Candidates {
+		candidate := &result.Candidates[index]
+		candidate.ResolutionState = "materialized"
+		if candidate.EntityID != "" {
+			continue
+		}
+		candidate.ResolutionState = "unresolved"
+		if candidate.MusicBrainzID == "" {
+			continue
+		}
+		if err := s.runtime.DB.QueryRow(ctx, `INSERT INTO fingerprint_match_candidate_refs(fingerprint_match_run_id,resolution_kind,resolution_provider,resolution_namespace,resolution_value,expires_at)VALUES($1,'recording','musicbrainz','recording',$2,$3)ON CONFLICT(fingerprint_match_run_id,resolution_kind,resolution_provider,resolution_namespace,resolution_value)DO UPDATE SET expires_at=EXCLUDED.expires_at,updated_at=now() RETURNING candidate_ref::text`, id, candidate.MusicBrainzID, expiresAt).Scan(&candidate.CandidateRef); err != nil {
+			return result, err
+		}
+	}
 	result.Recommendation = "no_match"
 	if len(result.Candidates) > 0 {
 		result.Recommendation = result.Candidates[0].Match + "_match"
@@ -224,6 +240,12 @@ func (s *Service) MatchRun(ctx context.Context, id string, credentials providerc
 		return result, err
 	}
 	return result, nil
+}
+
+func ResolveCandidate(ctx context.Context, runtime *platform.Runtime, candidateRef string) (CandidateResolution, error) {
+	var result CandidateResolution
+	err := runtime.DB.QueryRow(ctx, `SELECT resolution_kind,resolution_provider,resolution_namespace,resolution_value FROM fingerprint_match_candidate_refs WHERE candidate_ref=$1 AND expires_at>now()`, candidateRef).Scan(&result.Kind, &result.Provider, &result.Namespace, &result.Value)
+	return result, err
 }
 func Cleanup(ctx context.Context, r *platform.Runtime) error {
 	_, err := r.DB.Exec(ctx, `DELETE FROM fingerprint_match_runs WHERE expires_at<=now()`)

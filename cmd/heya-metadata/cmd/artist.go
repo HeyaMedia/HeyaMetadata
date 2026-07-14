@@ -56,11 +56,21 @@ func newArtistCatalogAuditCommand() *cobra.Command {
 	return command
 }
 func newArtistIngestCommand() *cobra.Command {
-	var mbid string
+	var mbid, appleID, deezerID string
 	var wait time.Duration
 	command := &cobra.Command{Use: "ingest", Short: "Ingest and combine an artist through the durable provider pipeline", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		if mbid == "" {
-			return fmt.Errorf("--musicbrainz is required")
+		provider, providerID := "", ""
+		for _, value := range []struct{ provider, id string }{{"musicbrainz", mbid}, {"apple", appleID}, {"deezer", deezerID}} {
+			if value.id == "" {
+				continue
+			}
+			if provider != "" {
+				return fmt.Errorf("exactly one of --musicbrainz, --apple, or --deezer is required")
+			}
+			provider, providerID = value.provider, value.id
+		}
+		if provider == "" {
+			return fmt.Errorf("exactly one of --musicbrainz, --apple, or --deezer is required")
 		}
 		runtime, err := platform.Open(cmd.Context(), cfg)
 		if err != nil {
@@ -77,21 +87,22 @@ func newArtistIngestCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		inserted, err := jobs.InsertArtist(cmd.Context(), runtime, client, jobs.ArtistIngestArgs{MusicBrainzID: mbid, Reason: "cli"}, jobs.PriorityInteractive)
+		inserted, err := jobs.InsertArtist(cmd.Context(), runtime, client, jobs.ArtistIngestArgs{Provider: provider, ProviderID: providerID, Reason: "cli"}, jobs.PriorityInteractive)
 		if err != nil {
-			return fmt.Errorf("enqueue MusicBrainz artist ingestion: %w", err)
+			return fmt.Errorf("enqueue %s artist ingestion: %w", provider, err)
 		}
 		if wait <= 0 {
-			return outputArtistQueued(inserted.Job.ID, mbid)
+			return outputArtistQueued(inserted.Job.ID, provider, providerID)
 		}
-		return waitForArtist(cmd, runtime, inserted.Job.ID, mbid, wait)
+		return waitForArtist(cmd, runtime, inserted.Job.ID, provider, providerID, wait)
 	}}
 	command.Flags().StringVar(&mbid, "musicbrainz", "", "MusicBrainz artist MBID")
+	command.Flags().StringVar(&appleID, "apple", "", "Apple/iTunes artist ID")
+	command.Flags().StringVar(&deezerID, "deezer", "", "Deezer artist ID")
 	command.Flags().DurationVar(&wait, "wait", 60*time.Second, "Wait for completion (0 disables waiting)")
-	_ = command.MarkFlagRequired("musicbrainz")
 	return command
 }
-func waitForArtist(cmd *cobra.Command, runtime *platform.Runtime, jobID int64, mbid string, wait time.Duration) error {
+func waitForArtist(cmd *cobra.Command, runtime *platform.Runtime, jobID int64, provider, providerID string, wait time.Duration) error {
 	deadline := time.NewTimer(wait)
 	defer deadline.Stop()
 	ticker := time.NewTicker(150 * time.Millisecond)
@@ -104,9 +115,9 @@ func waitForArtist(cmd *cobra.Command, runtime *platform.Runtime, jobID int64, m
 			switch state {
 			case "completed":
 				if ui.JSONMode {
-					return ui.OutputJSON(map[string]any{"job_id": jobID, "state": state, "entity_id": entityID, "musicbrainz_id": mbid})
+					return ui.OutputJSON(map[string]any{"job_id": jobID, "state": state, "entity_id": entityID, "provider": provider, "provider_id": providerID})
 				}
-				ui.Success("MusicBrainz artist %s ingested", mbid)
+				ui.Success("%s artist %s ingested", provider, providerID)
 				ui.Info("Entity", *entityID)
 				ui.Info("Job", fmt.Sprintf("%d", jobID))
 				return nil
@@ -130,10 +141,10 @@ func waitForArtist(cmd *cobra.Command, runtime *platform.Runtime, jobID int64, m
 		}
 	}
 }
-func outputArtistQueued(jobID int64, mbid string) error {
+func outputArtistQueued(jobID int64, provider, providerID string) error {
 	if ui.JSONMode {
-		return ui.OutputJSON(map[string]any{"job_id": jobID, "state": "queued", "musicbrainz_id": mbid})
+		return ui.OutputJSON(map[string]any{"job_id": jobID, "state": "queued", "provider": provider, "provider_id": providerID})
 	}
-	ui.Success("Queued MusicBrainz artist %s as job %d", mbid, jobID)
+	ui.Success("Queued %s artist %s as job %d", provider, providerID, jobID)
 	return nil
 }

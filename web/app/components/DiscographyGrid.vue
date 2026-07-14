@@ -26,7 +26,9 @@ const entries = computed<Entry[]>(() => {
     const source = relation.metadata?.sources?.[0] ?? {}
     const title = formatValue(relation.metadata?.title ?? source.title)
     if (!title) continue
-    const to = relation.target_entity_id ? entityPath({ id: relation.target_entity_id, kind: relation.target_kind }) : undefined
+    const to = relation.target_entity_id && relation.resolution_state !== 'unresolved'
+      ? entityPath({ id: relation.target_entity_id, kind: relation.target_kind })
+      : undefined
     const key = relation.target_entity_id || `${title}:${source.date ?? ''}`
     if (seen.has(key)) continue
     seen.add(key)

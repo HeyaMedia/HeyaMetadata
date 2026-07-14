@@ -18,6 +18,45 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AdminJobActionInputBodyAction.
+const (
+	ClearCompleted AdminJobActionInputBodyAction = "clear_completed"
+	ClearQueue     AdminJobActionInputBodyAction = "clear_queue"
+	RescueStuck    AdminJobActionInputBodyAction = "rescue_stuck"
+)
+
+// Valid indicates whether the value is a known member of the AdminJobActionInputBodyAction enum.
+func (e AdminJobActionInputBodyAction) Valid() bool {
+	switch e {
+	case ClearCompleted:
+		return true
+	case ClearQueue:
+		return true
+	case RescueStuck:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CollectionMemberResolutionState.
+const (
+	CollectionMemberResolutionStateMaterialized CollectionMemberResolutionState = "materialized"
+	CollectionMemberResolutionStateUnresolved   CollectionMemberResolutionState = "unresolved"
+)
+
+// Valid indicates whether the value is a known member of the CollectionMemberResolutionState enum.
+func (e CollectionMemberResolutionState) Valid() bool {
+	switch e {
+	case CollectionMemberResolutionStateMaterialized:
+		return true
+	case CollectionMemberResolutionStateUnresolved:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DependencyHealthStatus.
 const (
 	DependencyHealthStatusOk          DependencyHealthStatus = "ok"
@@ -60,6 +99,42 @@ func (e DiscoveryResourceState) Valid() bool {
 	}
 }
 
+// Defines values for EntityCreditCreditType.
+const (
+	EntityCreditCreditTypeCast EntityCreditCreditType = "cast"
+	EntityCreditCreditTypeCrew EntityCreditCreditType = "crew"
+)
+
+// Valid indicates whether the value is a known member of the EntityCreditCreditType enum.
+func (e EntityCreditCreditType) Valid() bool {
+	switch e {
+	case EntityCreditCreditTypeCast:
+		return true
+	case EntityCreditCreditTypeCrew:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EntityRelationResolutionState.
+const (
+	EntityRelationResolutionStateMaterialized EntityRelationResolutionState = "materialized"
+	EntityRelationResolutionStateUnresolved   EntityRelationResolutionState = "unresolved"
+)
+
+// Valid indicates whether the value is a known member of the EntityRelationResolutionState enum.
+func (e EntityRelationResolutionState) Valid() bool {
+	switch e {
+	case EntityRelationResolutionStateMaterialized:
+		return true
+	case EntityRelationResolutionStateUnresolved:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FingerprintMatchCreateInputBodyEncoding.
 const (
 	Acoustid               FingerprintMatchCreateInputBodyEncoding = "acoustid"
@@ -75,6 +150,69 @@ func (e FingerprintMatchCreateInputBodyEncoding) Valid() bool {
 	case Base64Uint32le:
 		return true
 	case Base64Uint32leAcoustid:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IdentifierEvidenceOutcome.
+const (
+	Conflict      IdentifierEvidenceOutcome = "conflict"
+	Corroborating IdentifierEvidenceOutcome = "corroborating"
+	Resolved      IdentifierEvidenceOutcome = "resolved"
+	Unsupported   IdentifierEvidenceOutcome = "unsupported"
+	Unused        IdentifierEvidenceOutcome = "unused"
+)
+
+// Valid indicates whether the value is a known member of the IdentifierEvidenceOutcome enum.
+func (e IdentifierEvidenceOutcome) Valid() bool {
+	switch e {
+	case Conflict:
+		return true
+	case Corroborating:
+		return true
+	case Resolved:
+		return true
+	case Unsupported:
+		return true
+	case Unused:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MatchCandidateResolutionState.
+const (
+	MatchCandidateResolutionStateMaterialized MatchCandidateResolutionState = "materialized"
+	MatchCandidateResolutionStateUnresolved   MatchCandidateResolutionState = "unresolved"
+)
+
+// Valid indicates whether the value is a known member of the MatchCandidateResolutionState enum.
+func (e MatchCandidateResolutionState) Valid() bool {
+	switch e {
+	case MatchCandidateResolutionStateMaterialized:
+		return true
+	case MatchCandidateResolutionStateUnresolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonCreditResolutionState.
+const (
+	PersonCreditResolutionStateMaterialized PersonCreditResolutionState = "materialized"
+	PersonCreditResolutionStateUnresolved   PersonCreditResolutionState = "unresolved"
+)
+
+// Valid indicates whether the value is a known member of the PersonCreditResolutionState enum.
+func (e PersonCreditResolutionState) Valid() bool {
+	switch e {
+	case PersonCreditResolutionStateMaterialized:
+		return true
+	case PersonCreditResolutionStateUnresolved:
 		return true
 	default:
 		return false
@@ -99,6 +237,24 @@ func (e ReadinessStatus) Valid() bool {
 	}
 }
 
+// Defines values for RecordingLyricsScope.
+const (
+	RecordingLyricsScopeMusicalWork RecordingLyricsScope = "musical_work"
+	RecordingLyricsScopeRecording   RecordingLyricsScope = "recording"
+)
+
+// Valid indicates whether the value is a known member of the RecordingLyricsScope enum.
+func (e RecordingLyricsScope) Valid() bool {
+	switch e {
+	case RecordingLyricsScopeMusicalWork:
+		return true
+	case RecordingLyricsScopeRecording:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ResolutionBodyState.
 const (
 	ResolutionBodyStateAccepted  ResolutionBodyState = "accepted"
@@ -117,63 +273,36 @@ func (e ResolutionBodyState) Valid() bool {
 	}
 }
 
-// Defines values for ResolutionInputBodyKind.
+// Defines values for ResultStatus.
 const (
-	ResolutionInputBodyKindAnime        ResolutionInputBodyKind = "anime"
-	ResolutionInputBodyKindArtist       ResolutionInputBodyKind = "artist"
-	ResolutionInputBodyKindAuthor       ResolutionInputBodyKind = "author"
-	ResolutionInputBodyKindBookEdition  ResolutionInputBodyKind = "book_edition"
-	ResolutionInputBodyKindBookWork     ResolutionInputBodyKind = "book_work"
-	ResolutionInputBodyKindComicEdition ResolutionInputBodyKind = "comic_edition"
-	ResolutionInputBodyKindComicVolume  ResolutionInputBodyKind = "comic_volume"
-	ResolutionInputBodyKindManga        ResolutionInputBodyKind = "manga"
-	ResolutionInputBodyKindMangaEdition ResolutionInputBodyKind = "manga_edition"
-	ResolutionInputBodyKindMangaVolume  ResolutionInputBodyKind = "manga_volume"
-	ResolutionInputBodyKindMovie        ResolutionInputBodyKind = "movie"
-	ResolutionInputBodyKindMusicalWork  ResolutionInputBodyKind = "musical_work"
-	ResolutionInputBodyKindPerson       ResolutionInputBodyKind = "person"
-	ResolutionInputBodyKindRecording    ResolutionInputBodyKind = "recording"
-	ResolutionInputBodyKindRelease      ResolutionInputBodyKind = "release"
-	ResolutionInputBodyKindReleaseGroup ResolutionInputBodyKind = "release_group"
-	ResolutionInputBodyKindTvShow       ResolutionInputBodyKind = "tv_show"
+	Completed      ResultStatus = "completed"
+	NeedsSelection ResultStatus = "needs_selection"
 )
 
-// Valid indicates whether the value is a known member of the ResolutionInputBodyKind enum.
-func (e ResolutionInputBodyKind) Valid() bool {
+// Valid indicates whether the value is a known member of the ResultStatus enum.
+func (e ResultStatus) Valid() bool {
 	switch e {
-	case ResolutionInputBodyKindAnime:
+	case Completed:
 		return true
-	case ResolutionInputBodyKindArtist:
+	case NeedsSelection:
 		return true
-	case ResolutionInputBodyKindAuthor:
+	default:
+		return false
+	}
+}
+
+// Defines values for TopTrackResolutionState.
+const (
+	Materialized TopTrackResolutionState = "materialized"
+	Unresolved   TopTrackResolutionState = "unresolved"
+)
+
+// Valid indicates whether the value is a known member of the TopTrackResolutionState enum.
+func (e TopTrackResolutionState) Valid() bool {
+	switch e {
+	case Materialized:
 		return true
-	case ResolutionInputBodyKindBookEdition:
-		return true
-	case ResolutionInputBodyKindBookWork:
-		return true
-	case ResolutionInputBodyKindComicEdition:
-		return true
-	case ResolutionInputBodyKindComicVolume:
-		return true
-	case ResolutionInputBodyKindManga:
-		return true
-	case ResolutionInputBodyKindMangaEdition:
-		return true
-	case ResolutionInputBodyKindMangaVolume:
-		return true
-	case ResolutionInputBodyKindMovie:
-		return true
-	case ResolutionInputBodyKindMusicalWork:
-		return true
-	case ResolutionInputBodyKindPerson:
-		return true
-	case ResolutionInputBodyKindRecording:
-		return true
-	case ResolutionInputBodyKindRelease:
-		return true
-	case ResolutionInputBodyKindReleaseGroup:
-		return true
-	case ResolutionInputBodyKindTvShow:
+	case Unresolved:
 		return true
 	default:
 		return false
@@ -230,16 +359,16 @@ func (e BrowseLibraryParamsSort) Valid() bool {
 
 // Defines values for EntityCreditsParamsCreditType.
 const (
-	Cast EntityCreditsParamsCreditType = "cast"
-	Crew EntityCreditsParamsCreditType = "crew"
+	EntityCreditsParamsCreditTypeCast EntityCreditsParamsCreditType = "cast"
+	EntityCreditsParamsCreditTypeCrew EntityCreditsParamsCreditType = "crew"
 )
 
 // Valid indicates whether the value is a known member of the EntityCreditsParamsCreditType enum.
 func (e EntityCreditsParamsCreditType) Valid() bool {
 	switch e {
-	case Cast:
+	case EntityCreditsParamsCreditTypeCast:
 		return true
-	case Crew:
+	case EntityCreditsParamsCreditTypeCrew:
 		return true
 	default:
 		return false
@@ -338,6 +467,52 @@ type APIKey struct {
 	Scopes     *[]string          `json:"scopes"`
 }
 
+// AdminJob defines model for AdminJob.
+type AdminJob struct {
+	Args        interface{} `json:"args,omitempty"`
+	Attempt     int64       `json:"attempt"`
+	AttemptedAt *time.Time  `json:"attempted_at,omitempty"`
+	CreatedAt   time.Time   `json:"created_at"`
+	Error       *string     `json:"error,omitempty"`
+	FinalizedAt *time.Time  `json:"finalized_at,omitempty"`
+	Id          int64       `json:"id"`
+	Kind        string      `json:"kind"`
+	MaxAttempts int64       `json:"max_attempts"`
+	Priority    int64       `json:"priority"`
+	Queue       string      `json:"queue"`
+	ScheduledAt time.Time   `json:"scheduled_at"`
+	State       string      `json:"state"`
+}
+
+// AdminJobActionInputBody defines model for AdminJobActionInputBody.
+type AdminJobActionInputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema *string `json:"$schema,omitempty"`
+
+	// Action clear_completed removes finished history; clear_queue drops waiting jobs; rescue_stuck requeues jobs stuck running
+	Action AdminJobActionInputBodyAction `json:"action"`
+}
+
+// AdminJobActionInputBodyAction clear_completed removes finished history; clear_queue drops waiting jobs; rescue_stuck requeues jobs stuck running
+type AdminJobActionInputBodyAction string
+
+// AdminJobActionOutputBody defines model for AdminJobActionOutputBody.
+type AdminJobActionOutputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema   *string `json:"$schema,omitempty"`
+	Action   string  `json:"action"`
+	Affected int64   `json:"affected"`
+}
+
+// AdminJobsBody defines model for AdminJobsBody.
+type AdminJobsBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema  *string          `json:"$schema,omitempty"`
+	Jobs    *[]AdminJob      `json:"jobs"`
+	Summary *[]JobStateCount `json:"summary"`
+	Total   int64            `json:"total"`
+}
+
 // ApiKeyCreateInputBody defines model for ApiKeyCreateInputBody.
 type ApiKeyCreateInputBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -363,7 +538,6 @@ type ApiKeyListOutputBody struct {
 
 // ArtistDisplay defines model for ArtistDisplay.
 type ArtistDisplay struct {
-	Id   *string `json:"id,omitempty"`
 	Join *string `json:"join,omitempty"`
 	Name string  `json:"name"`
 }
@@ -409,18 +583,15 @@ type BrowseOutputBody struct {
 
 // Candidate defines model for Candidate.
 type Candidate struct {
-	Confidence       float64        `json:"confidence"`
-	Display          Display        `json:"display"`
-	Evidence         *[]Evidence    `json:"evidence"`
-	ExistingEntityId *string        `json:"existing_entity_id,omitempty"`
-	Identity         ExternalID     `json:"identity"`
-	Match            string         `json:"match"`
-	MatchedEpisodes  *[]EpisodeHint `json:"matched_episodes,omitempty"`
-	MatchedReleases  *[]ReleaseHint `json:"matched_releases,omitempty"`
-	MatchedTracks    *[]string      `json:"matched_tracks,omitempty"`
-	ProviderScore    *int64         `json:"provider_score,omitempty"`
-	Rank             int64          `json:"rank"`
-	Resolution       Resolution     `json:"resolution"`
+	CandidateRef    openapi_types.UUID `json:"candidate_ref"`
+	Confidence      float64            `json:"confidence"`
+	Display         Display            `json:"display"`
+	Evidence        *[]Evidence        `json:"evidence"`
+	Match           string             `json:"match"`
+	MatchedEpisodes *[]EpisodeHint     `json:"matched_episodes,omitempty"`
+	MatchedReleases *[]ReleaseHint     `json:"matched_releases,omitempty"`
+	MatchedTracks   *[]string          `json:"matched_tracks,omitempty"`
+	Rank            int64              `json:"rank"`
 }
 
 // Challenge defines model for Challenge.
@@ -436,14 +607,14 @@ type Challenge struct {
 
 // ChangeEntry defines model for ChangeEntry.
 type ChangeEntry struct {
-	ChangeType        string    `json:"change_type"`
-	ChangedScopes     *[]string `json:"changed_scopes"`
-	CreatedAt         string    `json:"created_at"`
-	EntityId          string    `json:"entity_id"`
-	EntityKind        string    `json:"entity_kind"`
-	ProjectionVersion int64     `json:"projection_version"`
-	Sequence          int64     `json:"sequence"`
-	Slug              string    `json:"slug"`
+	ChangeType        string             `json:"change_type"`
+	ChangedScopes     *[]string          `json:"changed_scopes"`
+	CreatedAt         string             `json:"created_at"`
+	EntityId          openapi_types.UUID `json:"entity_id"`
+	EntityKind        string             `json:"entity_kind"`
+	ProjectionVersion int64              `json:"projection_version"`
+	Sequence          int64              `json:"sequence"`
+	Slug              string             `json:"slug"`
 }
 
 // ChangesOutputBody defines model for ChangesOutputBody.
@@ -458,6 +629,7 @@ type ChangesOutputBody struct {
 type CollectionCard struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema     *string             `json:"$schema,omitempty"`
+	Id         openapi_types.UUID  `json:"id"`
 	ImageId    *string             `json:"image_id,omitempty"`
 	Members    *[]CollectionMember `json:"members"`
 	Name       string              `json:"name"`
@@ -468,13 +640,17 @@ type CollectionCard struct {
 
 // CollectionMember defines model for CollectionMember.
 type CollectionMember struct {
-	EntityId   *string `json:"entity_id,omitempty"`
-	ImageId    *string `json:"image_id,omitempty"`
-	Order      int64   `json:"order"`
-	ProviderId string  `json:"provider_id"`
-	Title      string  `json:"title"`
-	Year       *int64  `json:"year,omitempty"`
+	EntityId        *openapi_types.UUID             `json:"entity_id,omitempty"`
+	ImageId         *string                         `json:"image_id,omitempty"`
+	Order           int64                           `json:"order"`
+	ProviderId      string                          `json:"provider_id"`
+	ResolutionState CollectionMemberResolutionState `json:"resolution_state"`
+	Title           string                          `json:"title"`
+	Year            *int64                          `json:"year,omitempty"`
 }
+
+// CollectionMemberResolutionState defines model for CollectionMember.ResolutionState.
+type CollectionMemberResolutionState string
 
 // CollectionsOutputBody defines model for CollectionsOutputBody.
 type CollectionsOutputBody struct {
@@ -500,10 +676,11 @@ type CreatedAPIKey struct {
 // DedicatedDiscoveryRequest defines model for DedicatedDiscoveryRequest.
 type DedicatedDiscoveryRequest struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema *string `json:"$schema,omitempty"`
-	Hints  *Hints  `json:"hints,omitempty"`
-	Limit  *int64  `json:"limit,omitempty"`
-	Query  string  `json:"query"`
+	Schema      *string       `json:"$schema,omitempty"`
+	Hints       *Hints        `json:"hints,omitempty"`
+	Identifiers *[]Identifier `json:"identifiers,omitempty"`
+	Limit       *int64        `json:"limit,omitempty"`
+	Query       *string       `json:"query,omitempty"`
 }
 
 // DependencyHealth defines model for DependencyHealth.
@@ -520,7 +697,7 @@ type DiscoveryResource struct {
 	Schema    *string                `json:"$schema,omitempty"`
 	Error     *string                `json:"error,omitempty"`
 	ExpiresAt time.Time              `json:"expires_at"`
-	Id        string                 `json:"id"`
+	Id        openapi_types.UUID     `json:"id"`
 	Job       *JobResource           `json:"job,omitempty"`
 	Result    *Result                `json:"result,omitempty"`
 	State     DiscoveryResourceState `json:"state"`
@@ -566,6 +743,37 @@ type Display struct {
 	Year           *int64           `json:"year,omitempty"`
 }
 
+// EntityCredit defines model for EntityCredit.
+type EntityCredit struct {
+	Character      *string                `json:"character,omitempty"`
+	CreditType     EntityCreditCreditType `json:"credit_type"`
+	Department     *string                `json:"department,omitempty"`
+	DisplayName    string                 `json:"display_name"`
+	Job            *string                `json:"job,omitempty"`
+	Order          *int64                 `json:"order,omitempty"`
+	PersonEntityId openapi_types.UUID     `json:"person_entity_id"`
+	ProfileImageId *openapi_types.UUID    `json:"profile_image_id,omitempty"`
+
+	// Provider Passive provenance; never use for identity or follow-up routing
+	Provider string `json:"provider"`
+
+	// ProviderPersonId Passive provenance; use person_entity_id for all control flow
+	ProviderPersonId string `json:"provider_person_id"`
+}
+
+// EntityCreditCreditType defines model for EntityCredit.CreditType.
+type EntityCreditCreditType string
+
+// EntityCreditsOutputBody defines model for EntityCreditsOutputBody.
+type EntityCreditsOutputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema  *string         `json:"$schema,omitempty"`
+	Limit   int64           `json:"limit"`
+	Offset  int64           `json:"offset"`
+	Results *[]EntityCredit `json:"results"`
+	Total   int64           `json:"total"`
+}
+
 // EntityImageCandidate defines model for EntityImageCandidate.
 type EntityImageCandidate struct {
 	Class                string   `json:"class"`
@@ -602,19 +810,23 @@ type EntityMetadataOutputBody struct {
 
 // EntityRelation defines model for EntityRelation.
 type EntityRelation struct {
-	Id             string      `json:"id"`
-	LastObservedAt time.Time   `json:"last_observed_at"`
-	Metadata       interface{} `json:"metadata"`
-	Namespace      string      `json:"namespace"`
-	Position       *int64      `json:"position,omitempty"`
-	Provider       string      `json:"provider"`
-	ProviderValue  string      `json:"provider_value"`
-	RelationType   string      `json:"relation_type"`
-	SourceKind     string      `json:"source_kind"`
-	Target         interface{} `json:"target,omitempty"`
-	TargetEntityId *string     `json:"target_entity_id,omitempty"`
-	TargetKind     string      `json:"target_kind"`
+	Id              openapi_types.UUID            `json:"id"`
+	LastObservedAt  time.Time                     `json:"last_observed_at"`
+	Metadata        interface{}                   `json:"metadata"`
+	Namespace       string                        `json:"namespace"`
+	Position        *int64                        `json:"position,omitempty"`
+	Provider        string                        `json:"provider"`
+	ProviderValue   string                        `json:"provider_value"`
+	RelationType    string                        `json:"relation_type"`
+	ResolutionState EntityRelationResolutionState `json:"resolution_state"`
+	SourceKind      string                        `json:"source_kind"`
+	Target          interface{}                   `json:"target,omitempty"`
+	TargetEntityId  *openapi_types.UUID           `json:"target_entity_id,omitempty"`
+	TargetKind      string                        `json:"target_kind"`
 }
+
+// EntityRelationResolutionState defines model for EntityRelation.ResolutionState.
+type EntityRelationResolutionState string
 
 // EntityRelationsOutputBody defines model for EntityRelationsOutputBody.
 type EntityRelationsOutputBody struct {
@@ -631,7 +843,7 @@ type Episode struct {
 	AirDate        *string               `json:"air_date,omitempty"`
 	EpisodeType    string                `json:"episode_type"`
 	ExternalIds    *[]EpisodicExternalID `json:"external_ids"`
-	Id             *string               `json:"id,omitempty"`
+	Id             *openapi_types.UUID   `json:"id,omitempty"`
 	Images         *[]Image              `json:"images"`
 	IsSpecial      bool                  `json:"is_special"`
 	Numbers        *[]EpisodeNumber      `json:"numbers"`
@@ -639,7 +851,7 @@ type Episode struct {
 	ProviderId     *string               `json:"provider_id,omitempty"`
 	Ratings        *[]Rating             `json:"ratings"`
 	RuntimeMinutes *int64                `json:"runtime_minutes,omitempty"`
-	SeasonId       *string               `json:"season_id,omitempty"`
+	SeasonId       *openapi_types.UUID   `json:"season_id,omitempty"`
 	Summary        *string               `json:"summary,omitempty"`
 	Titles         *[]Title              `json:"titles"`
 }
@@ -662,10 +874,10 @@ type EpisodeNumber struct {
 // EpisodeResource defines model for EpisodeResource.
 type EpisodeResource struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema *string        `json:"$schema,omitempty"`
-	Data   Episode        `json:"data"`
-	Id     string         `json:"id"`
-	Show   ParentResource `json:"show"`
+	Schema *string            `json:"$schema,omitempty"`
+	Data   Episode            `json:"data"`
+	Id     openapi_types.UUID `json:"id"`
+	Show   ParentResource     `json:"show"`
 }
 
 // EpisodicExternalID defines model for EpisodicExternalID.
@@ -719,13 +931,6 @@ type Evidence struct {
 	Weight  float64 `json:"weight"`
 }
 
-// ExternalID defines model for ExternalID.
-type ExternalID struct {
-	Namespace string `json:"namespace"`
-	Provider  string `json:"provider"`
-	Value     string `json:"value"`
-}
-
 // FingerprintMatchCreateInputBody defines model for FingerprintMatchCreateInputBody.
 type FingerprintMatchCreateInputBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -742,13 +947,13 @@ type FingerprintMatchCreateInputBodyEncoding string
 // FingerprintMatchResource defines model for FingerprintMatchResource.
 type FingerprintMatchResource struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema    *string      `json:"$schema,omitempty"`
-	Error     *string      `json:"error,omitempty"`
-	ExpiresAt time.Time    `json:"expires_at"`
-	Id        string       `json:"id"`
-	Job       *JobResource `json:"job,omitempty"`
-	Result    *MatchResult `json:"result,omitempty"`
-	State     string       `json:"state"`
+	Schema    *string            `json:"$schema,omitempty"`
+	Error     *string            `json:"error,omitempty"`
+	ExpiresAt time.Time          `json:"expires_at"`
+	Id        openapi_types.UUID `json:"id"`
+	Job       *JobResource       `json:"job,omitempty"`
+	Result    *MatchResult       `json:"result,omitempty"`
+	State     string             `json:"state"`
 }
 
 // Health defines model for Health.
@@ -764,12 +969,10 @@ type Health struct {
 type Hints struct {
 	Aliases       *[]string      `json:"aliases,omitempty"`
 	Area          *string        `json:"area,omitempty"`
-	ArtistIds     *[]string      `json:"artist_ids,omitempty"`
 	Artists       *[]string      `json:"artists,omitempty"`
 	Authors       *[]string      `json:"authors,omitempty"`
 	BeginDate     *string        `json:"begin_date,omitempty"`
 	Catalogue     *string        `json:"catalogue,omitempty"`
-	ComposerIds   *[]string      `json:"composer_ids,omitempty"`
 	Composers     *[]string      `json:"composers,omitempty"`
 	Country       *string        `json:"country,omitempty"`
 	Date          *string        `json:"date,omitempty"`
@@ -792,6 +995,23 @@ type Hints struct {
 	Year          *int64         `json:"year,omitempty"`
 }
 
+// Identifier defines model for Identifier.
+type Identifier struct {
+	Scheme string `json:"scheme"`
+	Value  string `json:"value"`
+}
+
+// IdentifierEvidence defines model for IdentifierEvidence.
+type IdentifierEvidence struct {
+	Detail  *string                   `json:"detail,omitempty"`
+	Outcome IdentifierEvidenceOutcome `json:"outcome"`
+	Scheme  string                    `json:"scheme"`
+	Value   string                    `json:"value"`
+}
+
+// IdentifierEvidenceOutcome defines model for IdentifierEvidence.Outcome.
+type IdentifierEvidenceOutcome string
+
 // Image defines model for Image.
 type Image struct {
 	Class         string   `json:"class"`
@@ -809,33 +1029,34 @@ type Image struct {
 // JobResource defines model for JobResource.
 type JobResource struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema   *string `json:"$schema,omitempty"`
-	EntityId *string `json:"entity_id,omitempty"`
-	Error    *string `json:"error,omitempty"`
-	Id       int64   `json:"id"`
-	Kind     string  `json:"kind"`
-	State    string  `json:"state"`
+	Schema   *string             `json:"$schema,omitempty"`
+	EntityId *openapi_types.UUID `json:"entity_id,omitempty"`
+	Error    *string             `json:"error,omitempty"`
+	Id       int64               `json:"id"`
+	Kind     string              `json:"kind"`
+	State    string              `json:"state"`
+}
+
+// JobStateCount defines model for JobStateCount.
+type JobStateCount struct {
+	Count int64  `json:"count"`
+	State string `json:"state"`
 }
 
 // MatchCandidate defines model for MatchCandidate.
 type MatchCandidate struct {
-	Artists       *[]string        `json:"artists,omitempty"`
-	Confidence    float64          `json:"confidence"`
-	Match         string           `json:"match"`
-	MusicbrainzId *string          `json:"musicbrainz_id,omitempty"`
-	RecordingId   *string          `json:"recording_id,omitempty"`
-	Resolution    *MatchResolution `json:"resolution,omitempty"`
-	Sources       *[]MatchSource   `json:"sources"`
-	Title         *string          `json:"title,omitempty"`
+	Artists         *[]string                     `json:"artists,omitempty"`
+	CandidateRef    *openapi_types.UUID           `json:"candidate_ref,omitempty"`
+	Confidence      float64                       `json:"confidence"`
+	EntityId        *openapi_types.UUID           `json:"entity_id,omitempty"`
+	Match           string                        `json:"match"`
+	ResolutionState MatchCandidateResolutionState `json:"resolution_state"`
+	Sources         *[]MatchSource                `json:"sources"`
+	Title           *string                       `json:"title,omitempty"`
 }
 
-// MatchResolution defines model for MatchResolution.
-type MatchResolution struct {
-	Kind      string `json:"kind"`
-	Namespace string `json:"namespace"`
-	Provider  string `json:"provider"`
-	Value     string `json:"value"`
-}
+// MatchCandidateResolutionState defines model for MatchCandidate.ResolutionState.
+type MatchCandidateResolutionState string
 
 // MatchResult defines model for MatchResult.
 type MatchResult struct {
@@ -860,27 +1081,31 @@ type MatchSource struct {
 
 // ParentResource defines model for ParentResource.
 type ParentResource struct {
-	EntityId string  `json:"entity_id"`
-	ImageId  *string `json:"image_id,omitempty"`
-	Kind     string  `json:"kind"`
-	Title    string  `json:"title"`
+	EntityId openapi_types.UUID `json:"entity_id"`
+	ImageId  *string            `json:"image_id,omitempty"`
+	Kind     string             `json:"kind"`
+	Title    string             `json:"title"`
 }
 
 // PersonCredit defines model for PersonCredit.
 type PersonCredit struct {
-	Character        *string `json:"character,omitempty"`
-	CreditType       string  `json:"credit_type"`
-	Department       *string `json:"department,omitempty"`
-	EntityId         *string `json:"entity_id,omitempty"`
-	ImageId          *string `json:"image_id,omitempty"`
-	Job              *string `json:"job,omitempty"`
-	Kind             string  `json:"kind"`
-	Order            *int64  `json:"order,omitempty"`
-	Provider         string  `json:"provider"`
-	ProviderTargetId *string `json:"provider_target_id,omitempty"`
-	Title            string  `json:"title"`
-	Year             *int64  `json:"year,omitempty"`
+	Character        *string                     `json:"character,omitempty"`
+	CreditType       string                      `json:"credit_type"`
+	Department       *string                     `json:"department,omitempty"`
+	EntityId         *openapi_types.UUID         `json:"entity_id,omitempty"`
+	ImageId          *openapi_types.UUID         `json:"image_id,omitempty"`
+	Job              *string                     `json:"job,omitempty"`
+	Kind             string                      `json:"kind"`
+	Order            *int64                      `json:"order,omitempty"`
+	Provider         string                      `json:"provider"`
+	ProviderTargetId *string                     `json:"provider_target_id,omitempty"`
+	ResolutionState  PersonCreditResolutionState `json:"resolution_state"`
+	Title            string                      `json:"title"`
+	Year             *int64                      `json:"year,omitempty"`
 }
+
+// PersonCreditResolutionState defines model for PersonCredit.ResolutionState.
+type PersonCreditResolutionState string
 
 // PersonCreditsOutputBody defines model for PersonCreditsOutputBody.
 type PersonCreditsOutputBody struct {
@@ -923,7 +1148,7 @@ type PersonDocument struct {
 	Display           PersonDisplay       `json:"display"`
 	ExternalIds       *[]PersonExternalID `json:"external_ids"`
 	Freshness         PersonFreshness     `json:"freshness"`
-	Id                string              `json:"id"`
+	Id                openapi_types.UUID  `json:"id"`
 	Kind              string              `json:"kind"`
 	ProjectionVersion int64               `json:"projection_version"`
 	SchemaVersion     int64               `json:"schema_version"`
@@ -946,11 +1171,9 @@ type PersonFreshness struct {
 
 // PersonSummary defines model for PersonSummary.
 type PersonSummary struct {
-	DisplayName      string  `json:"display_name"`
-	EntityId         string  `json:"entity_id"`
-	ProfileImageId   *string `json:"profile_image_id,omitempty"`
-	Provider         string  `json:"provider"`
-	ProviderPersonId string  `json:"provider_person_id"`
+	DisplayName    string              `json:"display_name"`
+	EntityId       openapi_types.UUID  `json:"entity_id"`
+	ProfileImageId *openapi_types.UUID `json:"profile_image_id,omitempty"`
 }
 
 // Rating defines model for Rating.
@@ -977,18 +1200,18 @@ type ReadinessStatus string
 
 // RecordingFingerprint defines model for RecordingFingerprint.
 type RecordingFingerprint struct {
-	Algorithm        string    `json:"algorithm"`
-	AlgorithmVersion string    `json:"algorithm_version"`
-	DurationMs       *int64    `json:"duration_ms,omitempty"`
-	Encoding         string    `json:"encoding"`
-	Fingerprint      string    `json:"fingerprint"`
-	GeneratedAt      time.Time `json:"generated_at"`
-	GeneratorVersion string    `json:"generator_version"`
-	HashCount        int64     `json:"hash_count"`
-	Id               string    `json:"id"`
-	SourceChecksum   string    `json:"source_checksum"`
-	SourceProvider   string    `json:"source_provider"`
-	SourceTrackId    string    `json:"source_track_id"`
+	Algorithm        string             `json:"algorithm"`
+	AlgorithmVersion string             `json:"algorithm_version"`
+	DurationMs       *int64             `json:"duration_ms,omitempty"`
+	Encoding         string             `json:"encoding"`
+	Fingerprint      string             `json:"fingerprint"`
+	GeneratedAt      time.Time          `json:"generated_at"`
+	GeneratorVersion string             `json:"generator_version"`
+	HashCount        int64              `json:"hash_count"`
+	Id               openapi_types.UUID `json:"id"`
+	SourceChecksum   string             `json:"source_checksum"`
+	SourceProvider   string             `json:"source_provider"`
+	SourceTrackId    string             `json:"source_track_id"`
 }
 
 // RecordingFingerprintsOutputBody defines model for RecordingFingerprintsOutputBody.
@@ -996,57 +1219,56 @@ type RecordingFingerprintsOutputBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema      *string                 `json:"$schema,omitempty"`
 	Items       *[]RecordingFingerprint `json:"items"`
-	RecordingId string                  `json:"recording_id"`
+	RecordingId openapi_types.UUID      `json:"recording_id"`
 }
 
 // RecordingLyrics defines model for RecordingLyrics.
 type RecordingLyrics struct {
-	AlbumName           *string   `json:"album_name,omitempty"`
-	ArtistName          string    `json:"artist_name"`
-	ContentChecksum     string    `json:"content_checksum"`
-	DurationMs          *int64    `json:"duration_ms,omitempty"`
-	Id                  string    `json:"id"`
-	Instrumental        bool      `json:"instrumental"`
-	ObservedAt          time.Time `json:"observed_at"`
-	PlainLyrics         *string   `json:"plain_lyrics,omitempty"`
-	Provider            string    `json:"provider"`
-	ProviderRecordId    string    `json:"provider_record_id"`
-	SourceObservationId string    `json:"source_observation_id"`
-	SyncedLyrics        *string   `json:"synced_lyrics,omitempty"`
-	TrackName           string    `json:"track_name"`
+	AlbumName           *string              `json:"album_name,omitempty"`
+	ArtistName          string               `json:"artist_name"`
+	ContentChecksum     string               `json:"content_checksum"`
+	DurationMs          *int64               `json:"duration_ms,omitempty"`
+	Id                  openapi_types.UUID   `json:"id"`
+	Instrumental        bool                 `json:"instrumental"`
+	ObservedAt          time.Time            `json:"observed_at"`
+	PlainLyrics         *string              `json:"plain_lyrics,omitempty"`
+	Provider            string               `json:"provider"`
+	ProviderRecordId    string               `json:"provider_record_id"`
+	Scope               RecordingLyricsScope `json:"scope"`
+	SourceObservationId string               `json:"source_observation_id"`
+	SourceRecordingId   openapi_types.UUID   `json:"source_recording_id"`
+	SyncedLyrics        *string              `json:"synced_lyrics,omitempty"`
+	TrackName           string               `json:"track_name"`
 }
+
+// RecordingLyricsScope defines model for RecordingLyrics.Scope.
+type RecordingLyricsScope string
 
 // RecordingLyricsOutputBody defines model for RecordingLyricsOutputBody.
 type RecordingLyricsOutputBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema      *string            `json:"$schema,omitempty"`
 	Items       *[]RecordingLyrics `json:"items"`
-	RecordingId string             `json:"recording_id"`
+	RecordingId openapi_types.UUID `json:"recording_id"`
 }
 
 // ReleaseHint defines model for ReleaseHint.
 type ReleaseHint struct {
-	Title string  `json:"title"`
-	Type  *string `json:"type,omitempty"`
-	Year  *int64  `json:"year,omitempty"`
+	Identifiers *[]Identifier `json:"identifiers,omitempty"`
+	Title       string        `json:"title"`
+	Type        *string       `json:"type,omitempty"`
+	Year        *int64        `json:"year,omitempty"`
 }
 
 // Request defines model for Request.
 type Request struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema *string `json:"$schema,omitempty"`
-	Hints  *Hints  `json:"hints,omitempty"`
-	Kind   string  `json:"kind"`
-	Limit  *int64  `json:"limit,omitempty"`
-	Query  string  `json:"query"`
-}
-
-// Resolution defines model for Resolution.
-type Resolution struct {
-	Kind      string `json:"kind"`
-	Namespace string `json:"namespace"`
-	Provider  string `json:"provider"`
-	Value     string `json:"value"`
+	Schema      *string       `json:"$schema,omitempty"`
+	Hints       *Hints        `json:"hints,omitempty"`
+	Identifiers *[]Identifier `json:"identifiers,omitempty"`
+	Kind        string        `json:"kind"`
+	Limit       *int64        `json:"limit,omitempty"`
+	Query       *string       `json:"query,omitempty"`
 }
 
 // ResolutionBody defines model for ResolutionBody.
@@ -1054,7 +1276,7 @@ type ResolutionBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema   *string             `json:"$schema,omitempty"`
 	Entity   interface{}         `json:"entity,omitempty"`
-	EntityId *string             `json:"entity_id,omitempty"`
+	EntityId *openapi_types.UUID `json:"entity_id,omitempty"`
 	Job      *JobResource        `json:"job,omitempty"`
 	State    ResolutionBodyState `json:"state"`
 }
@@ -1065,28 +1287,26 @@ type ResolutionBodyState string
 // ResolutionInputBody defines model for ResolutionInputBody.
 type ResolutionInputBody struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema    *string                 `json:"$schema,omitempty"`
-	Kind      ResolutionInputBodyKind `json:"kind"`
-	Namespace string                  `json:"namespace"`
-	Provider  string                  `json:"provider"`
-	Value     string                  `json:"value"`
+	Schema       *string            `json:"$schema,omitempty"`
+	CandidateRef openapi_types.UUID `json:"candidate_ref"`
 }
-
-// ResolutionInputBodyKind defines model for ResolutionInputBody.Kind.
-type ResolutionInputBodyKind string
 
 // Result defines model for Result.
 type Result struct {
-	Candidates     *[]Candidate `json:"candidates"`
-	Kind           string       `json:"kind"`
-	ObservedAt     time.Time    `json:"observed_at"`
-	Providers      *[]string    `json:"providers"`
-	Query          string       `json:"query"`
-	Recommendation string       `json:"recommendation"`
-	SchemaVersion  int64        `json:"schema_version"`
-	Status         string       `json:"status"`
-	Warnings       *[]string    `json:"warnings,omitempty"`
+	Candidates         *[]Candidate          `json:"candidates,omitempty"`
+	EntityId           *openapi_types.UUID   `json:"entity_id,omitempty"`
+	IdentifierEvidence *[]IdentifierEvidence `json:"identifier_evidence,omitempty"`
+	Kind               string                `json:"kind"`
+	ObservedAt         time.Time             `json:"observed_at"`
+	Query              *string               `json:"query,omitempty"`
+	Recommendation     string                `json:"recommendation"`
+	SchemaVersion      int64                 `json:"schema_version"`
+	Status             ResultStatus          `json:"status"`
+	Warnings           *[]string             `json:"warnings,omitempty"`
 }
+
+// ResultStatus defines model for Result.Status.
+type ResultStatus string
 
 // SearchOutputBody defines model for SearchOutputBody.
 type SearchOutputBody struct {
@@ -1103,7 +1323,7 @@ type Season struct {
 	EpisodeIds        *[]string             `json:"episode_ids"`
 	EpisodeOrder      *int64                `json:"episode_order,omitempty"`
 	ExternalIds       *[]EpisodicExternalID `json:"external_ids"`
-	Id                *string               `json:"id,omitempty"`
+	Id                *openapi_types.UUID   `json:"id,omitempty"`
 	Images            *[]Image              `json:"images"`
 	Name              *string               `json:"name,omitempty"`
 	Number            int64                 `json:"number"`
@@ -1117,11 +1337,11 @@ type Season struct {
 // SeasonResource defines model for SeasonResource.
 type SeasonResource struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema   *string        `json:"$schema,omitempty"`
-	Data     Season         `json:"data"`
-	Episodes *[]Episode     `json:"episodes"`
-	Id       string         `json:"id"`
-	Show     ParentResource `json:"show"`
+	Schema   *string            `json:"$schema,omitempty"`
+	Data     Season             `json:"data"`
+	Episodes *[]Episode         `json:"episodes"`
+	Id       openapi_types.UUID `json:"id"`
+	Show     ParentResource     `json:"show"`
 }
 
 // StatsOutputBody defines model for StatsOutputBody.
@@ -1157,16 +1377,20 @@ type Title struct {
 
 // TopTrack defines model for TopTrack.
 type TopTrack struct {
-	ExternalIds       *[]TopTrackExternalID `json:"external_ids"`
-	Listeners         *int64                `json:"listeners,omitempty"`
-	Playcount         *int64                `json:"playcount,omitempty"`
-	Provider          string                `json:"provider"`
-	ProviderTrackId   *string               `json:"provider_track_id,omitempty"`
-	Rank              int64                 `json:"rank"`
-	RecordingEntityId *string               `json:"recording_entity_id,omitempty"`
-	Title             string                `json:"title"`
-	Url               *string               `json:"url,omitempty"`
+	ExternalIds       *[]TopTrackExternalID   `json:"external_ids"`
+	Listeners         *int64                  `json:"listeners,omitempty"`
+	Playcount         *int64                  `json:"playcount,omitempty"`
+	Provider          string                  `json:"provider"`
+	ProviderTrackId   *string                 `json:"provider_track_id,omitempty"`
+	Rank              int64                   `json:"rank"`
+	RecordingEntityId *openapi_types.UUID     `json:"recording_entity_id,omitempty"`
+	ResolutionState   TopTrackResolutionState `json:"resolution_state"`
+	Title             string                  `json:"title"`
+	Url               *string                 `json:"url,omitempty"`
 }
+
+// TopTrackResolutionState defines model for TopTrack.ResolutionState.
+type TopTrackResolutionState string
 
 // TopTrackExternalID defines model for TopTrackExternalID.
 type TopTrackExternalID struct {
@@ -1189,13 +1413,13 @@ type TopTrackSource struct {
 // TopTracksPage defines model for TopTracksPage.
 type TopTracksPage struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema   *string           `json:"$schema,omitempty"`
-	ArtistId string            `json:"artist_id"`
-	Limit    int64             `json:"limit"`
-	Offset   int64             `json:"offset"`
-	Results  *[]TopTrack       `json:"results"`
-	Sources  *[]TopTrackSource `json:"sources"`
-	Total    int64             `json:"total"`
+	Schema   *string            `json:"$schema,omitempty"`
+	ArtistId openapi_types.UUID `json:"artist_id"`
+	Limit    int64              `json:"limit"`
+	Offset   int64              `json:"offset"`
+	Results  *[]TopTrack        `json:"results"`
+	Sources  *[]TopTrackSource  `json:"sources"`
+	Total    int64              `json:"total"`
 }
 
 // User defines model for User.
@@ -1209,10 +1433,59 @@ type User struct {
 // UserRole defines model for User.Role.
 type UserRole string
 
+// AdminJobsParams defines parameters for AdminJobs.
+type AdminJobsParams struct {
+	// State Filter by River state (available, running, retryable, scheduled, completed, cancelled, discarded); empty for all
+	State *string `form:"state,omitempty" json:"state,omitempty"`
+
+	// Kind Filter by job kind
+	Kind  *string `form:"kind,omitempty" json:"kind,omitempty"`
+	Limit *int64  `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Authorization Optional Heya API key using the Bearer scheme
+	Authorization *string `json:"Authorization,omitempty"`
+
+	// UnderscoreUnderscoreHostHeyaSession Opaque browser session
+	UnderscoreUnderscoreHostHeyaSession *string `form:"__Host-heya_session,omitempty" json:"__Host-heya_session,omitempty"`
+}
+
+// AdminJobActionParams defines parameters for AdminJobAction.
+type AdminJobActionParams struct {
+	Authorization                       *string `json:"Authorization,omitempty"`
+	UnderscoreUnderscoreHostHeyaSession *string `form:"__Host-heya_session,omitempty" json:"__Host-heya_session,omitempty"`
+}
+
 // DiscoverAnimeParams defines parameters for DiscoverAnime.
 type DiscoverAnimeParams struct {
 	// Prefer respond-async or wait=N (maximum 5 seconds)
 	Prefer *string `json:"Prefer,omitempty"`
+
+	// XHeyaTMDBAPIKey Optional request-scoped TMDB API key; never persisted
+	XHeyaTMDBAPIKey *string `json:"X-Heya-TMDB-API-Key,omitempty"`
+
+	// XHeyaOMDBAPIKey Optional request-scoped OMDb API key; never persisted
+	XHeyaOMDBAPIKey *string `json:"X-Heya-OMDB-API-Key,omitempty"`
+
+	// XHeyaTVDBAPIKey Optional request-scoped TVDB API key; never persisted
+	XHeyaTVDBAPIKey *string `json:"X-Heya-TVDB-API-Key,omitempty"`
+
+	// XHeyaFanartAPIKey Optional request-scoped Fanart.tv personal API key; never persisted
+	XHeyaFanartAPIKey *string `json:"X-Heya-Fanart-API-Key,omitempty"`
+
+	// XHeyaAppleAPIKey Optional request-scoped Apple Music developer token; never persisted
+	XHeyaAppleAPIKey *string `json:"X-Heya-Apple-API-Key,omitempty"`
+
+	// XHeyaDiscogsAPIKey Optional request-scoped Discogs token; never persisted
+	XHeyaDiscogsAPIKey *string `json:"X-Heya-Discogs-API-Key,omitempty"`
+
+	// XHeyaLastFMAPIKey Optional request-scoped Last.fm API key; never persisted
+	XHeyaLastFMAPIKey *string `json:"X-Heya-LastFM-API-Key,omitempty"`
+
+	// XHeyaGoogleBooksAPIKey Optional request-scoped Google Books API key; never persisted
+	XHeyaGoogleBooksAPIKey *string `json:"X-Heya-Google-Books-API-Key,omitempty"`
+
+	// XHeyaMALClientID Optional request-scoped MyAnimeList client ID; never persisted
+	XHeyaMALClientID *string `json:"X-Heya-MAL-Client-ID,omitempty"`
 }
 
 // AnimeDetailParams defines parameters for AnimeDetail.
@@ -1291,6 +1564,33 @@ type PublicChangesParams struct {
 type DiscoverComicParams struct {
 	// Prefer respond-async or wait=N (maximum 5 seconds)
 	Prefer *string `json:"Prefer,omitempty"`
+
+	// XHeyaTMDBAPIKey Optional request-scoped TMDB API key; never persisted
+	XHeyaTMDBAPIKey *string `json:"X-Heya-TMDB-API-Key,omitempty"`
+
+	// XHeyaOMDBAPIKey Optional request-scoped OMDb API key; never persisted
+	XHeyaOMDBAPIKey *string `json:"X-Heya-OMDB-API-Key,omitempty"`
+
+	// XHeyaTVDBAPIKey Optional request-scoped TVDB API key; never persisted
+	XHeyaTVDBAPIKey *string `json:"X-Heya-TVDB-API-Key,omitempty"`
+
+	// XHeyaFanartAPIKey Optional request-scoped Fanart.tv personal API key; never persisted
+	XHeyaFanartAPIKey *string `json:"X-Heya-Fanart-API-Key,omitempty"`
+
+	// XHeyaAppleAPIKey Optional request-scoped Apple Music developer token; never persisted
+	XHeyaAppleAPIKey *string `json:"X-Heya-Apple-API-Key,omitempty"`
+
+	// XHeyaDiscogsAPIKey Optional request-scoped Discogs token; never persisted
+	XHeyaDiscogsAPIKey *string `json:"X-Heya-Discogs-API-Key,omitempty"`
+
+	// XHeyaLastFMAPIKey Optional request-scoped Last.fm API key; never persisted
+	XHeyaLastFMAPIKey *string `json:"X-Heya-LastFM-API-Key,omitempty"`
+
+	// XHeyaGoogleBooksAPIKey Optional request-scoped Google Books API key; never persisted
+	XHeyaGoogleBooksAPIKey *string `json:"X-Heya-Google-Books-API-Key,omitempty"`
+
+	// XHeyaMALClientID Optional request-scoped MyAnimeList client ID; never persisted
+	XHeyaMALClientID *string `json:"X-Heya-MAL-Client-ID,omitempty"`
 }
 
 // ComicVolumeDetailParams defines parameters for ComicVolumeDetail.
@@ -1321,6 +1621,30 @@ type CreateDiscoveryParams struct {
 
 	// XHeyaTMDBAPIKey Optional request-scoped TMDB API key; never persisted
 	XHeyaTMDBAPIKey *string `json:"X-Heya-TMDB-API-Key,omitempty"`
+
+	// XHeyaOMDBAPIKey Optional request-scoped OMDb API key; never persisted
+	XHeyaOMDBAPIKey *string `json:"X-Heya-OMDB-API-Key,omitempty"`
+
+	// XHeyaTVDBAPIKey Optional request-scoped TVDB API key; never persisted
+	XHeyaTVDBAPIKey *string `json:"X-Heya-TVDB-API-Key,omitempty"`
+
+	// XHeyaFanartAPIKey Optional request-scoped Fanart.tv personal API key; never persisted
+	XHeyaFanartAPIKey *string `json:"X-Heya-Fanart-API-Key,omitempty"`
+
+	// XHeyaAppleAPIKey Optional request-scoped Apple Music developer token; never persisted
+	XHeyaAppleAPIKey *string `json:"X-Heya-Apple-API-Key,omitempty"`
+
+	// XHeyaDiscogsAPIKey Optional request-scoped Discogs token; never persisted
+	XHeyaDiscogsAPIKey *string `json:"X-Heya-Discogs-API-Key,omitempty"`
+
+	// XHeyaLastFMAPIKey Optional request-scoped Last.fm API key; never persisted
+	XHeyaLastFMAPIKey *string `json:"X-Heya-LastFM-API-Key,omitempty"`
+
+	// XHeyaGoogleBooksAPIKey Optional request-scoped Google Books API key; never persisted
+	XHeyaGoogleBooksAPIKey *string `json:"X-Heya-Google-Books-API-Key,omitempty"`
+
+	// XHeyaMALClientID Optional request-scoped MyAnimeList client ID; never persisted
+	XHeyaMALClientID *string `json:"X-Heya-MAL-Client-ID,omitempty"`
 }
 
 // EntityDetailParams defines parameters for EntityDetail.
@@ -1484,12 +1808,66 @@ type LatestLibraryParams struct {
 type DiscoverMangaParams struct {
 	// Prefer respond-async or wait=N (maximum 5 seconds)
 	Prefer *string `json:"Prefer,omitempty"`
+
+	// XHeyaTMDBAPIKey Optional request-scoped TMDB API key; never persisted
+	XHeyaTMDBAPIKey *string `json:"X-Heya-TMDB-API-Key,omitempty"`
+
+	// XHeyaOMDBAPIKey Optional request-scoped OMDb API key; never persisted
+	XHeyaOMDBAPIKey *string `json:"X-Heya-OMDB-API-Key,omitempty"`
+
+	// XHeyaTVDBAPIKey Optional request-scoped TVDB API key; never persisted
+	XHeyaTVDBAPIKey *string `json:"X-Heya-TVDB-API-Key,omitempty"`
+
+	// XHeyaFanartAPIKey Optional request-scoped Fanart.tv personal API key; never persisted
+	XHeyaFanartAPIKey *string `json:"X-Heya-Fanart-API-Key,omitempty"`
+
+	// XHeyaAppleAPIKey Optional request-scoped Apple Music developer token; never persisted
+	XHeyaAppleAPIKey *string `json:"X-Heya-Apple-API-Key,omitempty"`
+
+	// XHeyaDiscogsAPIKey Optional request-scoped Discogs token; never persisted
+	XHeyaDiscogsAPIKey *string `json:"X-Heya-Discogs-API-Key,omitempty"`
+
+	// XHeyaLastFMAPIKey Optional request-scoped Last.fm API key; never persisted
+	XHeyaLastFMAPIKey *string `json:"X-Heya-LastFM-API-Key,omitempty"`
+
+	// XHeyaGoogleBooksAPIKey Optional request-scoped Google Books API key; never persisted
+	XHeyaGoogleBooksAPIKey *string `json:"X-Heya-Google-Books-API-Key,omitempty"`
+
+	// XHeyaMALClientID Optional request-scoped MyAnimeList client ID; never persisted
+	XHeyaMALClientID *string `json:"X-Heya-MAL-Client-ID,omitempty"`
 }
 
 // DiscoverMangaVolumeParams defines parameters for DiscoverMangaVolume.
 type DiscoverMangaVolumeParams struct {
 	// Prefer respond-async or wait=N (maximum 5 seconds)
 	Prefer *string `json:"Prefer,omitempty"`
+
+	// XHeyaTMDBAPIKey Optional request-scoped TMDB API key; never persisted
+	XHeyaTMDBAPIKey *string `json:"X-Heya-TMDB-API-Key,omitempty"`
+
+	// XHeyaOMDBAPIKey Optional request-scoped OMDb API key; never persisted
+	XHeyaOMDBAPIKey *string `json:"X-Heya-OMDB-API-Key,omitempty"`
+
+	// XHeyaTVDBAPIKey Optional request-scoped TVDB API key; never persisted
+	XHeyaTVDBAPIKey *string `json:"X-Heya-TVDB-API-Key,omitempty"`
+
+	// XHeyaFanartAPIKey Optional request-scoped Fanart.tv personal API key; never persisted
+	XHeyaFanartAPIKey *string `json:"X-Heya-Fanart-API-Key,omitempty"`
+
+	// XHeyaAppleAPIKey Optional request-scoped Apple Music developer token; never persisted
+	XHeyaAppleAPIKey *string `json:"X-Heya-Apple-API-Key,omitempty"`
+
+	// XHeyaDiscogsAPIKey Optional request-scoped Discogs token; never persisted
+	XHeyaDiscogsAPIKey *string `json:"X-Heya-Discogs-API-Key,omitempty"`
+
+	// XHeyaLastFMAPIKey Optional request-scoped Last.fm API key; never persisted
+	XHeyaLastFMAPIKey *string `json:"X-Heya-LastFM-API-Key,omitempty"`
+
+	// XHeyaGoogleBooksAPIKey Optional request-scoped Google Books API key; never persisted
+	XHeyaGoogleBooksAPIKey *string `json:"X-Heya-Google-Books-API-Key,omitempty"`
+
+	// XHeyaMALClientID Optional request-scoped MyAnimeList client ID; never persisted
+	XHeyaMALClientID *string `json:"X-Heya-MAL-Client-ID,omitempty"`
 }
 
 // MangaVolumeDetailParams defines parameters for MangaVolumeDetail.
@@ -1611,6 +1989,33 @@ type SearchEntitiesParamsKind string
 type DiscoverTvShowParams struct {
 	// Prefer respond-async or wait=N (maximum 5 seconds)
 	Prefer *string `json:"Prefer,omitempty"`
+
+	// XHeyaTMDBAPIKey Optional request-scoped TMDB API key; never persisted
+	XHeyaTMDBAPIKey *string `json:"X-Heya-TMDB-API-Key,omitempty"`
+
+	// XHeyaOMDBAPIKey Optional request-scoped OMDb API key; never persisted
+	XHeyaOMDBAPIKey *string `json:"X-Heya-OMDB-API-Key,omitempty"`
+
+	// XHeyaTVDBAPIKey Optional request-scoped TVDB API key; never persisted
+	XHeyaTVDBAPIKey *string `json:"X-Heya-TVDB-API-Key,omitempty"`
+
+	// XHeyaFanartAPIKey Optional request-scoped Fanart.tv personal API key; never persisted
+	XHeyaFanartAPIKey *string `json:"X-Heya-Fanart-API-Key,omitempty"`
+
+	// XHeyaAppleAPIKey Optional request-scoped Apple Music developer token; never persisted
+	XHeyaAppleAPIKey *string `json:"X-Heya-Apple-API-Key,omitempty"`
+
+	// XHeyaDiscogsAPIKey Optional request-scoped Discogs token; never persisted
+	XHeyaDiscogsAPIKey *string `json:"X-Heya-Discogs-API-Key,omitempty"`
+
+	// XHeyaLastFMAPIKey Optional request-scoped Last.fm API key; never persisted
+	XHeyaLastFMAPIKey *string `json:"X-Heya-LastFM-API-Key,omitempty"`
+
+	// XHeyaGoogleBooksAPIKey Optional request-scoped Google Books API key; never persisted
+	XHeyaGoogleBooksAPIKey *string `json:"X-Heya-Google-Books-API-Key,omitempty"`
+
+	// XHeyaMALClientID Optional request-scoped MyAnimeList client ID; never persisted
+	XHeyaMALClientID *string `json:"X-Heya-MAL-Client-ID,omitempty"`
 }
 
 // TvShowDetailParams defines parameters for TvShowDetail.
@@ -1627,6 +2032,9 @@ type TvShowDetailParams struct {
 	// AcceptLanguage Presentation preferences used after explicit query preferences
 	AcceptLanguage *string `json:"Accept-Language,omitempty"`
 }
+
+// AdminJobActionJSONRequestBody defines body for AdminJobAction for application/json ContentType.
+type AdminJobActionJSONRequestBody = AdminJobActionInputBody
 
 // DiscoverAnimeJSONRequestBody defines body for DiscoverAnime for application/json ContentType.
 type DiscoverAnimeJSONRequestBody = DedicatedDiscoveryRequest
@@ -1734,6 +2142,14 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// AdminJobs request
+	AdminJobs(ctx context.Context, params *AdminJobsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AdminJobActionWithBody request with any body
+	AdminJobActionWithBody(ctx context.Context, params *AdminJobActionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AdminJobAction(ctx context.Context, params *AdminJobActionParams, body AdminJobActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DiscoverAnimeWithBody request with any body
 	DiscoverAnimeWithBody(ctx context.Context, params *DiscoverAnimeParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1782,7 +2198,7 @@ type ClientInterface interface {
 	CollectionsList(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CollectionDetail request
-	CollectionDetail(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	CollectionDetail(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DiscoverComicWithBody request with any body
 	DiscoverComicWithBody(ctx context.Context, params *DiscoverComicParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1870,7 +2286,7 @@ type ClientInterface interface {
 	PersonDetail(ctx context.Context, id openapi_types.UUID, params *PersonDetailParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PersonCredits request
-	PersonCredits(ctx context.Context, provider string, providerPersonId string, params *PersonCreditsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	PersonCredits(ctx context.Context, id openapi_types.UUID, params *PersonCreditsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RecordingDetail request
 	RecordingDetail(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1905,6 +2321,42 @@ type ClientInterface interface {
 
 	// TvShowDetail request
 	TvShowDetail(ctx context.Context, id openapi_types.UUID, params *TvShowDetailParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) AdminJobs(ctx context.Context, params *AdminJobsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdminJobsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AdminJobActionWithBody(ctx context.Context, params *AdminJobActionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdminJobActionRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AdminJobAction(ctx context.Context, params *AdminJobActionParams, body AdminJobActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdminJobActionRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) DiscoverAnimeWithBody(ctx context.Context, params *DiscoverAnimeParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2111,7 +2563,7 @@ func (c *Client) CollectionsList(ctx context.Context, reqEditors ...RequestEdito
 	return c.Client.Do(req)
 }
 
-func (c *Client) CollectionDetail(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) CollectionDetail(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCollectionDetailRequest(c.Server, id)
 	if err != nil {
 		return nil, err
@@ -2483,8 +2935,8 @@ func (c *Client) PersonDetail(ctx context.Context, id openapi_types.UUID, params
 	return c.Client.Do(req)
 }
 
-func (c *Client) PersonCredits(ctx context.Context, provider string, providerPersonId string, params *PersonCreditsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPersonCreditsRequest(c.Server, provider, providerPersonId, params)
+func (c *Client) PersonCredits(ctx context.Context, id openapi_types.UUID, params *PersonCreditsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPersonCreditsRequest(c.Server, id, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2639,6 +3091,188 @@ func (c *Client) TvShowDetail(ctx context.Context, id openapi_types.UUID, params
 	return c.Client.Do(req)
 }
 
+// NewAdminJobsRequest generates requests for AdminJobs
+func NewAdminJobsRequest(server string, params *AdminJobsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/admin/jobs")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Kind != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "kind", *params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Authorization", headerParam0)
+		}
+
+	}
+
+	if params != nil {
+
+		if params.UnderscoreUnderscoreHostHeyaSession != nil {
+			var cookieParam0 string
+
+			cookieParam0, err = runtime.StyleParamWithOptions("simple", true, "__Host-heya_session", *params.UnderscoreUnderscoreHostHeyaSession, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationCookie, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			cookie0 := &http.Cookie{
+				Name:  "__Host-heya_session",
+				Value: cookieParam0,
+			}
+			req.AddCookie(cookie0)
+		}
+	}
+	return req, nil
+}
+
+// NewAdminJobActionRequest calls the generic AdminJobAction builder with application/json body
+func NewAdminJobActionRequest(server string, params *AdminJobActionParams, body AdminJobActionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAdminJobActionRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewAdminJobActionRequestWithBody generates requests for AdminJobAction with any type of body
+func NewAdminJobActionRequestWithBody(server string, params *AdminJobActionParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/admin/jobs/actions")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Authorization", headerParam0)
+		}
+
+	}
+
+	if params != nil {
+
+		if params.UnderscoreUnderscoreHostHeyaSession != nil {
+			var cookieParam0 string
+
+			cookieParam0, err = runtime.StyleParamWithOptions("simple", true, "__Host-heya_session", *params.UnderscoreUnderscoreHostHeyaSession, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationCookie, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			cookie0 := &http.Cookie{
+				Name:  "__Host-heya_session",
+				Value: cookieParam0,
+			}
+			req.AddCookie(cookie0)
+		}
+	}
+	return req, nil
+}
+
 // NewDiscoverAnimeRequest calls the generic DiscoverAnime builder with application/json body
 func NewDiscoverAnimeRequest(server string, params *DiscoverAnimeParams, body DiscoverAnimeJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2687,6 +3321,105 @@ func NewDiscoverAnimeRequestWithBody(server string, params *DiscoverAnimeParams,
 			}
 
 			req.Header.Set("Prefer", headerParam0)
+		}
+
+		if params.XHeyaTMDBAPIKey != nil {
+			var headerParam1 string
+
+			headerParam1, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-TMDB-API-Key", *params.XHeyaTMDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-TMDB-API-Key", headerParam1)
+		}
+
+		if params.XHeyaOMDBAPIKey != nil {
+			var headerParam2 string
+
+			headerParam2, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-OMDB-API-Key", *params.XHeyaOMDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-OMDB-API-Key", headerParam2)
+		}
+
+		if params.XHeyaTVDBAPIKey != nil {
+			var headerParam3 string
+
+			headerParam3, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-TVDB-API-Key", *params.XHeyaTVDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-TVDB-API-Key", headerParam3)
+		}
+
+		if params.XHeyaFanartAPIKey != nil {
+			var headerParam4 string
+
+			headerParam4, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Fanart-API-Key", *params.XHeyaFanartAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Fanart-API-Key", headerParam4)
+		}
+
+		if params.XHeyaAppleAPIKey != nil {
+			var headerParam5 string
+
+			headerParam5, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Apple-API-Key", *params.XHeyaAppleAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Apple-API-Key", headerParam5)
+		}
+
+		if params.XHeyaDiscogsAPIKey != nil {
+			var headerParam6 string
+
+			headerParam6, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Discogs-API-Key", *params.XHeyaDiscogsAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Discogs-API-Key", headerParam6)
+		}
+
+		if params.XHeyaLastFMAPIKey != nil {
+			var headerParam7 string
+
+			headerParam7, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-LastFM-API-Key", *params.XHeyaLastFMAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-LastFM-API-Key", headerParam7)
+		}
+
+		if params.XHeyaGoogleBooksAPIKey != nil {
+			var headerParam8 string
+
+			headerParam8, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Google-Books-API-Key", *params.XHeyaGoogleBooksAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Google-Books-API-Key", headerParam8)
+		}
+
+		if params.XHeyaMALClientID != nil {
+			var headerParam9 string
+
+			headerParam9, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-MAL-Client-ID", *params.XHeyaMALClientID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-MAL-Client-ID", headerParam9)
 		}
 
 	}
@@ -3367,12 +4100,12 @@ func NewCollectionsListRequest(server string) (*http.Request, error) {
 }
 
 // NewCollectionDetailRequest generates requests for CollectionDetail
-func NewCollectionDetailRequest(server string, id string) (*http.Request, error) {
+func NewCollectionDetailRequest(server string, id openapi_types.UUID) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
 	if err != nil {
 		return nil, err
 	}
@@ -3448,6 +4181,105 @@ func NewDiscoverComicRequestWithBody(server string, params *DiscoverComicParams,
 			}
 
 			req.Header.Set("Prefer", headerParam0)
+		}
+
+		if params.XHeyaTMDBAPIKey != nil {
+			var headerParam1 string
+
+			headerParam1, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-TMDB-API-Key", *params.XHeyaTMDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-TMDB-API-Key", headerParam1)
+		}
+
+		if params.XHeyaOMDBAPIKey != nil {
+			var headerParam2 string
+
+			headerParam2, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-OMDB-API-Key", *params.XHeyaOMDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-OMDB-API-Key", headerParam2)
+		}
+
+		if params.XHeyaTVDBAPIKey != nil {
+			var headerParam3 string
+
+			headerParam3, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-TVDB-API-Key", *params.XHeyaTVDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-TVDB-API-Key", headerParam3)
+		}
+
+		if params.XHeyaFanartAPIKey != nil {
+			var headerParam4 string
+
+			headerParam4, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Fanart-API-Key", *params.XHeyaFanartAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Fanart-API-Key", headerParam4)
+		}
+
+		if params.XHeyaAppleAPIKey != nil {
+			var headerParam5 string
+
+			headerParam5, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Apple-API-Key", *params.XHeyaAppleAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Apple-API-Key", headerParam5)
+		}
+
+		if params.XHeyaDiscogsAPIKey != nil {
+			var headerParam6 string
+
+			headerParam6, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Discogs-API-Key", *params.XHeyaDiscogsAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Discogs-API-Key", headerParam6)
+		}
+
+		if params.XHeyaLastFMAPIKey != nil {
+			var headerParam7 string
+
+			headerParam7, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-LastFM-API-Key", *params.XHeyaLastFMAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-LastFM-API-Key", headerParam7)
+		}
+
+		if params.XHeyaGoogleBooksAPIKey != nil {
+			var headerParam8 string
+
+			headerParam8, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Google-Books-API-Key", *params.XHeyaGoogleBooksAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Google-Books-API-Key", headerParam8)
+		}
+
+		if params.XHeyaMALClientID != nil {
+			var headerParam9 string
+
+			headerParam9, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-MAL-Client-ID", *params.XHeyaMALClientID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-MAL-Client-ID", headerParam9)
 		}
 
 	}
@@ -3636,6 +4468,94 @@ func NewCreateDiscoveryRequestWithBody(server string, params *CreateDiscoveryPar
 			}
 
 			req.Header.Set("X-Heya-TMDB-API-Key", headerParam1)
+		}
+
+		if params.XHeyaOMDBAPIKey != nil {
+			var headerParam2 string
+
+			headerParam2, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-OMDB-API-Key", *params.XHeyaOMDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-OMDB-API-Key", headerParam2)
+		}
+
+		if params.XHeyaTVDBAPIKey != nil {
+			var headerParam3 string
+
+			headerParam3, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-TVDB-API-Key", *params.XHeyaTVDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-TVDB-API-Key", headerParam3)
+		}
+
+		if params.XHeyaFanartAPIKey != nil {
+			var headerParam4 string
+
+			headerParam4, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Fanart-API-Key", *params.XHeyaFanartAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Fanart-API-Key", headerParam4)
+		}
+
+		if params.XHeyaAppleAPIKey != nil {
+			var headerParam5 string
+
+			headerParam5, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Apple-API-Key", *params.XHeyaAppleAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Apple-API-Key", headerParam5)
+		}
+
+		if params.XHeyaDiscogsAPIKey != nil {
+			var headerParam6 string
+
+			headerParam6, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Discogs-API-Key", *params.XHeyaDiscogsAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Discogs-API-Key", headerParam6)
+		}
+
+		if params.XHeyaLastFMAPIKey != nil {
+			var headerParam7 string
+
+			headerParam7, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-LastFM-API-Key", *params.XHeyaLastFMAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-LastFM-API-Key", headerParam7)
+		}
+
+		if params.XHeyaGoogleBooksAPIKey != nil {
+			var headerParam8 string
+
+			headerParam8, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Google-Books-API-Key", *params.XHeyaGoogleBooksAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Google-Books-API-Key", headerParam8)
+		}
+
+		if params.XHeyaMALClientID != nil {
+			var headerParam9 string
+
+			headerParam9, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-MAL-Client-ID", *params.XHeyaMALClientID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-MAL-Client-ID", headerParam9)
 		}
 
 	}
@@ -4950,6 +5870,105 @@ func NewDiscoverMangaRequestWithBody(server string, params *DiscoverMangaParams,
 			req.Header.Set("Prefer", headerParam0)
 		}
 
+		if params.XHeyaTMDBAPIKey != nil {
+			var headerParam1 string
+
+			headerParam1, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-TMDB-API-Key", *params.XHeyaTMDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-TMDB-API-Key", headerParam1)
+		}
+
+		if params.XHeyaOMDBAPIKey != nil {
+			var headerParam2 string
+
+			headerParam2, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-OMDB-API-Key", *params.XHeyaOMDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-OMDB-API-Key", headerParam2)
+		}
+
+		if params.XHeyaTVDBAPIKey != nil {
+			var headerParam3 string
+
+			headerParam3, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-TVDB-API-Key", *params.XHeyaTVDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-TVDB-API-Key", headerParam3)
+		}
+
+		if params.XHeyaFanartAPIKey != nil {
+			var headerParam4 string
+
+			headerParam4, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Fanart-API-Key", *params.XHeyaFanartAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Fanart-API-Key", headerParam4)
+		}
+
+		if params.XHeyaAppleAPIKey != nil {
+			var headerParam5 string
+
+			headerParam5, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Apple-API-Key", *params.XHeyaAppleAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Apple-API-Key", headerParam5)
+		}
+
+		if params.XHeyaDiscogsAPIKey != nil {
+			var headerParam6 string
+
+			headerParam6, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Discogs-API-Key", *params.XHeyaDiscogsAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Discogs-API-Key", headerParam6)
+		}
+
+		if params.XHeyaLastFMAPIKey != nil {
+			var headerParam7 string
+
+			headerParam7, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-LastFM-API-Key", *params.XHeyaLastFMAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-LastFM-API-Key", headerParam7)
+		}
+
+		if params.XHeyaGoogleBooksAPIKey != nil {
+			var headerParam8 string
+
+			headerParam8, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Google-Books-API-Key", *params.XHeyaGoogleBooksAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Google-Books-API-Key", headerParam8)
+		}
+
+		if params.XHeyaMALClientID != nil {
+			var headerParam9 string
+
+			headerParam9, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-MAL-Client-ID", *params.XHeyaMALClientID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-MAL-Client-ID", headerParam9)
+		}
+
 	}
 
 	return req, nil
@@ -5003,6 +6022,105 @@ func NewDiscoverMangaVolumeRequestWithBody(server string, params *DiscoverMangaV
 			}
 
 			req.Header.Set("Prefer", headerParam0)
+		}
+
+		if params.XHeyaTMDBAPIKey != nil {
+			var headerParam1 string
+
+			headerParam1, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-TMDB-API-Key", *params.XHeyaTMDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-TMDB-API-Key", headerParam1)
+		}
+
+		if params.XHeyaOMDBAPIKey != nil {
+			var headerParam2 string
+
+			headerParam2, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-OMDB-API-Key", *params.XHeyaOMDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-OMDB-API-Key", headerParam2)
+		}
+
+		if params.XHeyaTVDBAPIKey != nil {
+			var headerParam3 string
+
+			headerParam3, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-TVDB-API-Key", *params.XHeyaTVDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-TVDB-API-Key", headerParam3)
+		}
+
+		if params.XHeyaFanartAPIKey != nil {
+			var headerParam4 string
+
+			headerParam4, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Fanart-API-Key", *params.XHeyaFanartAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Fanart-API-Key", headerParam4)
+		}
+
+		if params.XHeyaAppleAPIKey != nil {
+			var headerParam5 string
+
+			headerParam5, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Apple-API-Key", *params.XHeyaAppleAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Apple-API-Key", headerParam5)
+		}
+
+		if params.XHeyaDiscogsAPIKey != nil {
+			var headerParam6 string
+
+			headerParam6, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Discogs-API-Key", *params.XHeyaDiscogsAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Discogs-API-Key", headerParam6)
+		}
+
+		if params.XHeyaLastFMAPIKey != nil {
+			var headerParam7 string
+
+			headerParam7, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-LastFM-API-Key", *params.XHeyaLastFMAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-LastFM-API-Key", headerParam7)
+		}
+
+		if params.XHeyaGoogleBooksAPIKey != nil {
+			var headerParam8 string
+
+			headerParam8, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Google-Books-API-Key", *params.XHeyaGoogleBooksAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Google-Books-API-Key", headerParam8)
+		}
+
+		if params.XHeyaMALClientID != nil {
+			var headerParam9 string
+
+			headerParam9, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-MAL-Client-ID", *params.XHeyaMALClientID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-MAL-Client-ID", headerParam9)
 		}
 
 	}
@@ -5315,19 +6433,12 @@ func NewPersonDetailRequest(server string, id openapi_types.UUID, params *Person
 }
 
 // NewPersonCreditsRequest generates requests for PersonCredits
-func NewPersonCreditsRequest(server string, provider string, providerPersonId string, params *PersonCreditsParams) (*http.Request, error) {
+func NewPersonCreditsRequest(server string, id openapi_types.UUID, params *PersonCreditsParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "providerPersonId", providerPersonId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
 	if err != nil {
 		return nil, err
 	}
@@ -5337,7 +6448,7 @@ func NewPersonCreditsRequest(server string, provider string, providerPersonId st
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v2/persons/%s/%s/credits", pathParam0, pathParam1)
+	operationPath := fmt.Sprintf("/api/v2/persons/%s/credits", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -5974,6 +7085,105 @@ func NewDiscoverTvShowRequestWithBody(server string, params *DiscoverTvShowParam
 			req.Header.Set("Prefer", headerParam0)
 		}
 
+		if params.XHeyaTMDBAPIKey != nil {
+			var headerParam1 string
+
+			headerParam1, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-TMDB-API-Key", *params.XHeyaTMDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-TMDB-API-Key", headerParam1)
+		}
+
+		if params.XHeyaOMDBAPIKey != nil {
+			var headerParam2 string
+
+			headerParam2, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-OMDB-API-Key", *params.XHeyaOMDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-OMDB-API-Key", headerParam2)
+		}
+
+		if params.XHeyaTVDBAPIKey != nil {
+			var headerParam3 string
+
+			headerParam3, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-TVDB-API-Key", *params.XHeyaTVDBAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-TVDB-API-Key", headerParam3)
+		}
+
+		if params.XHeyaFanartAPIKey != nil {
+			var headerParam4 string
+
+			headerParam4, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Fanart-API-Key", *params.XHeyaFanartAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Fanart-API-Key", headerParam4)
+		}
+
+		if params.XHeyaAppleAPIKey != nil {
+			var headerParam5 string
+
+			headerParam5, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Apple-API-Key", *params.XHeyaAppleAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Apple-API-Key", headerParam5)
+		}
+
+		if params.XHeyaDiscogsAPIKey != nil {
+			var headerParam6 string
+
+			headerParam6, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Discogs-API-Key", *params.XHeyaDiscogsAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Discogs-API-Key", headerParam6)
+		}
+
+		if params.XHeyaLastFMAPIKey != nil {
+			var headerParam7 string
+
+			headerParam7, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-LastFM-API-Key", *params.XHeyaLastFMAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-LastFM-API-Key", headerParam7)
+		}
+
+		if params.XHeyaGoogleBooksAPIKey != nil {
+			var headerParam8 string
+
+			headerParam8, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-Google-Books-API-Key", *params.XHeyaGoogleBooksAPIKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-Google-Books-API-Key", headerParam8)
+		}
+
+		if params.XHeyaMALClientID != nil {
+			var headerParam9 string
+
+			headerParam9, err = runtime.StyleParamWithOptions("simple", false, "X-Heya-MAL-Client-ID", *params.XHeyaMALClientID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Heya-MAL-Client-ID", headerParam9)
+		}
+
 	}
 
 	return req, nil
@@ -6122,6 +7332,14 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// AdminJobsWithResponse request
+	AdminJobsWithResponse(ctx context.Context, params *AdminJobsParams, reqEditors ...RequestEditorFn) (*AdminJobsResponse, error)
+
+	// AdminJobActionWithBodyWithResponse request with any body
+	AdminJobActionWithBodyWithResponse(ctx context.Context, params *AdminJobActionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdminJobActionResponse, error)
+
+	AdminJobActionWithResponse(ctx context.Context, params *AdminJobActionParams, body AdminJobActionJSONRequestBody, reqEditors ...RequestEditorFn) (*AdminJobActionResponse, error)
+
 	// DiscoverAnimeWithBodyWithResponse request with any body
 	DiscoverAnimeWithBodyWithResponse(ctx context.Context, params *DiscoverAnimeParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DiscoverAnimeResponse, error)
 
@@ -6170,7 +7388,7 @@ type ClientWithResponsesInterface interface {
 	CollectionsListWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*CollectionsListResponse, error)
 
 	// CollectionDetailWithResponse request
-	CollectionDetailWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*CollectionDetailResponse, error)
+	CollectionDetailWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*CollectionDetailResponse, error)
 
 	// DiscoverComicWithBodyWithResponse request with any body
 	DiscoverComicWithBodyWithResponse(ctx context.Context, params *DiscoverComicParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DiscoverComicResponse, error)
@@ -6258,7 +7476,7 @@ type ClientWithResponsesInterface interface {
 	PersonDetailWithResponse(ctx context.Context, id openapi_types.UUID, params *PersonDetailParams, reqEditors ...RequestEditorFn) (*PersonDetailResponse, error)
 
 	// PersonCreditsWithResponse request
-	PersonCreditsWithResponse(ctx context.Context, provider string, providerPersonId string, params *PersonCreditsParams, reqEditors ...RequestEditorFn) (*PersonCreditsResponse, error)
+	PersonCreditsWithResponse(ctx context.Context, id openapi_types.UUID, params *PersonCreditsParams, reqEditors ...RequestEditorFn) (*PersonCreditsResponse, error)
 
 	// RecordingDetailWithResponse request
 	RecordingDetailWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*RecordingDetailResponse, error)
@@ -6295,11 +7513,83 @@ type ClientWithResponsesInterface interface {
 	TvShowDetailWithResponse(ctx context.Context, id openapi_types.UUID, params *TvShowDetailParams, reqEditors ...RequestEditorFn) (*TvShowDetailResponse, error)
 }
 
+type AdminJobsResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	JSON200                   *AdminJobsBody
+	ApplicationproblemJSON401 *ErrorModel
+	ApplicationproblemJSON403 *ErrorModel
+	ApplicationproblemJSON422 *ErrorModel
+	ApplicationproblemJSON500 *ErrorModel
+	ApplicationproblemJSON503 *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r AdminJobsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AdminJobsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AdminJobsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AdminJobActionResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	JSON200                   *AdminJobActionOutputBody
+	ApplicationproblemJSON400 *ErrorModel
+	ApplicationproblemJSON401 *ErrorModel
+	ApplicationproblemJSON403 *ErrorModel
+	ApplicationproblemJSON422 *ErrorModel
+	ApplicationproblemJSON500 *ErrorModel
+	ApplicationproblemJSON503 *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r AdminJobActionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AdminJobActionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AdminJobActionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type DiscoverAnimeResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *DiscoveryResource
 	JSON202      *DiscoveryResource
+	JSON503      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -6757,6 +8047,7 @@ type DiscoverComicResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *DiscoveryResource
 	JSON202      *DiscoveryResource
+	JSON503      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -6819,6 +8110,7 @@ type CreateDiscoveryResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *DiscoveryResource
 	JSON202      *DiscoveryResource
+	JSON503      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -6846,10 +8138,10 @@ func (r CreateDiscoveryResponse) ContentType() string {
 }
 
 type GetDiscoveryResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *DiscoveryResource
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *DiscoveryResource
+	JSON503      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -6910,7 +8202,7 @@ func (r EntityDetailResponse) ContentType() string {
 type EntityCreditsResponse struct {
 	Body                          []byte
 	HTTPResponse                  *http.Response
-	JSON200                       *EntityMetadataOutputBody
+	JSON200                       *EntityCreditsOutputBody
 	ApplicationproblemJSONDefault *ErrorModel
 }
 
@@ -7375,6 +8667,7 @@ type DiscoverMangaResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *DiscoveryResource
 	JSON202      *DiscoveryResource
+	JSON503      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -7406,6 +8699,7 @@ type DiscoverMangaVolumeResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *DiscoveryResource
 	JSON202      *DiscoveryResource
+	JSON503      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -7809,6 +9103,7 @@ type DiscoverTvShowResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *DiscoveryResource
 	JSON202      *DiscoveryResource
+	JSON503      *DiscoveryResource
 }
 
 // Status returns HTTPResponse.Status
@@ -7864,6 +9159,32 @@ func (r TvShowDetailResponse) ContentType() string {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
+}
+
+// AdminJobsWithResponse request returning *AdminJobsResponse
+func (c *ClientWithResponses) AdminJobsWithResponse(ctx context.Context, params *AdminJobsParams, reqEditors ...RequestEditorFn) (*AdminJobsResponse, error) {
+	rsp, err := c.AdminJobs(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdminJobsResponse(rsp)
+}
+
+// AdminJobActionWithBodyWithResponse request with arbitrary body returning *AdminJobActionResponse
+func (c *ClientWithResponses) AdminJobActionWithBodyWithResponse(ctx context.Context, params *AdminJobActionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdminJobActionResponse, error) {
+	rsp, err := c.AdminJobActionWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdminJobActionResponse(rsp)
+}
+
+func (c *ClientWithResponses) AdminJobActionWithResponse(ctx context.Context, params *AdminJobActionParams, body AdminJobActionJSONRequestBody, reqEditors ...RequestEditorFn) (*AdminJobActionResponse, error) {
+	rsp, err := c.AdminJobAction(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdminJobActionResponse(rsp)
 }
 
 // DiscoverAnimeWithBodyWithResponse request with arbitrary body returning *DiscoverAnimeResponse
@@ -8016,7 +9337,7 @@ func (c *ClientWithResponses) CollectionsListWithResponse(ctx context.Context, r
 }
 
 // CollectionDetailWithResponse request returning *CollectionDetailResponse
-func (c *ClientWithResponses) CollectionDetailWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*CollectionDetailResponse, error) {
+func (c *ClientWithResponses) CollectionDetailWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*CollectionDetailResponse, error) {
 	rsp, err := c.CollectionDetail(ctx, id, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -8290,8 +9611,8 @@ func (c *ClientWithResponses) PersonDetailWithResponse(ctx context.Context, id o
 }
 
 // PersonCreditsWithResponse request returning *PersonCreditsResponse
-func (c *ClientWithResponses) PersonCreditsWithResponse(ctx context.Context, provider string, providerPersonId string, params *PersonCreditsParams, reqEditors ...RequestEditorFn) (*PersonCreditsResponse, error) {
-	rsp, err := c.PersonCredits(ctx, provider, providerPersonId, params, reqEditors...)
+func (c *ClientWithResponses) PersonCreditsWithResponse(ctx context.Context, id openapi_types.UUID, params *PersonCreditsParams, reqEditors ...RequestEditorFn) (*PersonCreditsResponse, error) {
+	rsp, err := c.PersonCredits(ctx, id, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -8404,6 +9725,135 @@ func (c *ClientWithResponses) TvShowDetailWithResponse(ctx context.Context, id o
 	return ParseTvShowDetailResponse(rsp)
 }
 
+// ParseAdminJobsResponse parses an HTTP response from a AdminJobsWithResponse call
+func ParseAdminJobsResponse(rsp *http.Response) (*AdminJobsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AdminJobsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AdminJobsBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAdminJobActionResponse parses an HTTP response from a AdminJobActionWithResponse call
+func ParseAdminJobActionResponse(rsp *http.Response) (*AdminJobActionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AdminJobActionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AdminJobActionOutputBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDiscoverAnimeResponse parses an HTTP response from a DiscoverAnimeWithResponse call
 func ParseDiscoverAnimeResponse(rsp *http.Response) (*DiscoverAnimeResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -8431,6 +9881,13 @@ func ParseDiscoverAnimeResponse(rsp *http.Response) (*DiscoverAnimeResponse, err
 			return nil, err
 		}
 		response.JSON202 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest DiscoveryResource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -9055,6 +10512,13 @@ func ParseDiscoverComicResponse(rsp *http.Response) (*DiscoverComicResponse, err
 		}
 		response.JSON202 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest DiscoveryResource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -9121,6 +10585,13 @@ func ParseCreateDiscoveryResponse(rsp *http.Response) (*CreateDiscoveryResponse,
 		}
 		response.JSON202 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest DiscoveryResource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -9147,12 +10618,12 @@ func ParseGetDiscoveryResponse(rsp *http.Response) (*GetDiscoveryResponse, error
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest DiscoveryResource
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSON503 = &dest
 
 	}
 
@@ -9207,7 +10678,7 @@ func ParseEntityCreditsResponse(rsp *http.Response) (*EntityCreditsResponse, err
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest EntityMetadataOutputBody
+		var dest EntityCreditsOutputBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9701,6 +11172,13 @@ func ParseDiscoverMangaResponse(rsp *http.Response) (*DiscoverMangaResponse, err
 		}
 		response.JSON202 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest DiscoveryResource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -9733,6 +11211,13 @@ func ParseDiscoverMangaVolumeResponse(rsp *http.Response) (*DiscoverMangaVolumeR
 			return nil, err
 		}
 		response.JSON202 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest DiscoveryResource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -10162,6 +11647,13 @@ func ParseDiscoverTvShowResponse(rsp *http.Response) (*DiscoverTvShowResponse, e
 			return nil, err
 		}
 		response.JSON202 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest DiscoveryResource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 

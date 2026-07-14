@@ -16,11 +16,15 @@ import (
 )
 
 type Entry struct {
-	AniDBID   int `json:"anidb_id"`
-	MALID     int `json:"mal_id"`
-	AniListID int `json:"anilist_id"`
-	TVDBID    int `json:"tvdb_id"`
-	Season    struct {
+	AniDBID   int      `json:"anidb_id"`
+	MALID     int      `json:"mal_id"`
+	AniListID int      `json:"anilist_id"`
+	TVDBID    int      `json:"tvdb_id"`
+	IMDbIDs   []string `json:"imdb_id"`
+	TMDBID    struct {
+		TV int `json:"tv"`
+	} `json:"themoviedb_id"`
+	Season struct {
 		TVDB *int `json:"tvdb"`
 	} `json:"season"`
 	EpisodeOffset struct {
@@ -46,9 +50,67 @@ func (c *Client) Lookup(ctx context.Context, aid string) (providers.Payload, Ent
 	if n, err := strconv.Atoi(aid); err != nil || n < 1 {
 		return providers.Payload{}, Entry{}, false, fmt.Errorf("anime-lists requires a positive AniDB ID")
 	}
+	payload, entries, err := c.entries(ctx)
+	if err != nil || payload.StatusCode != http.StatusOK {
+		return payload, Entry{}, false, err
+	}
+	want, _ := strconv.Atoi(aid)
+	for _, entry := range entries {
+		if entry.AniDBID == want {
+			return payload, entry, true, nil
+		}
+	}
+	return payload, Entry{}, false, nil
+}
+
+func (c *Client) LookupExternal(ctx context.Context, scheme, value string) (providers.Payload, Entry, bool, error) {
+	want, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || want < 1 {
+		return providers.Payload{}, Entry{}, false, fmt.Errorf("anime-lists external lookup requires a positive ID")
+	}
+	scheme = strings.ToLower(strings.TrimSpace(scheme))
+	if scheme != "myanimelist" && scheme != "anilist" && scheme != "tvdb" {
+		return providers.Payload{}, Entry{}, false, fmt.Errorf("anime-lists does not support %q lookup", scheme)
+	}
+	payload, entries, err := c.entries(ctx)
+	if err != nil || payload.StatusCode != http.StatusOK {
+		return payload, Entry{}, false, err
+	}
+	var fallback *Entry
+	for index := range entries {
+		entry := entries[index]
+		matches := (scheme == "myanimelist" && entry.MALID == want) ||
+			(scheme == "anilist" && entry.AniListID == want) ||
+			(scheme == "tvdb" && entry.TVDBID == want)
+		if !matches || entry.AniDBID < 1 {
+			continue
+		}
+		// A TVDB series commonly spans several AniDB entries. Prefer the
+		// season-one (or explicitly unscoped) entry regardless of dump order;
+		// returning a sequel here would let a broad TVDB identity ingest the
+		// wrong canonical anime.
+		if scheme != "tvdb" || entry.IsTVDBSeriesRoot() {
+			return payload, entry, true, nil
+		}
+		if fallback == nil {
+			copy := entry
+			fallback = &copy
+		}
+	}
+	if fallback != nil {
+		return payload, *fallback, true, nil
+	}
+	return payload, Entry{}, false, nil
+}
+
+func (entry Entry) IsTVDBSeriesRoot() bool {
+	return entry.Season.TVDB == nil || (*entry.Season.TVDB == 1 && entry.EpisodeOffset.TVDB == 0)
+}
+
+func (c *Client) entries(ctx context.Context) (providers.Payload, []Entry, error) {
 	req, err := http.NewRequest(http.MethodGet, strings.TrimSpace(c.config.URL), nil)
 	if err != nil {
-		return providers.Payload{}, Entry{}, false, err
+		return providers.Payload{}, nil, err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.config.UserAgent)
@@ -59,20 +121,14 @@ func (c *Client) Lookup(ctx context.Context, aid string) (providers.Payload, Ent
 		}
 	})
 	if err != nil {
-		return payload, Entry{}, false, err
+		return payload, nil, err
 	}
 	if payload.StatusCode != http.StatusOK {
-		return payload, Entry{}, false, nil
+		return payload, nil, nil
 	}
 	var entries []Entry
 	if err := json.Unmarshal(payload.Body, &entries); err != nil {
-		return payload, Entry{}, false, fmt.Errorf("decode anime-lists mapping dump: %w", err)
+		return payload, nil, fmt.Errorf("decode anime-lists mapping dump: %w", err)
 	}
-	want, _ := strconv.Atoi(aid)
-	for _, entry := range entries {
-		if entry.AniDBID == want {
-			return payload, entry, true, nil
-		}
-	}
-	return payload, Entry{}, false, nil
+	return payload, entries, nil
 }

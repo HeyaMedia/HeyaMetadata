@@ -15,6 +15,12 @@ const { data: collection, pending, error } = await useAsyncData(
 const members = computed(() =>
   [...(collection.value?.members ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
 )
+
+// Members link only through a materialized entity_id — never a provider id.
+function memberLink(member: { entity_id?: string; resolution_state?: string }): string | undefined {
+  if (!member.entity_id || member.resolution_state === 'unresolved') return undefined
+  return `/movies/${member.entity_id}`
+}
 const linkTag = resolveComponent('NuxtLink')
 </script>
 
@@ -40,12 +46,12 @@ const linkTag = resolveComponent('NuxtLink')
         <h2 class="collection-members__title">Members <small>release order</small></h2>
         <div class="media-grid is-poster">
           <component
-            :is="member.entity_id ? linkTag : 'div'"
-            v-for="member in members"
-            :key="member.provider_id"
-            :to="member.entity_id ? `/movies/${member.entity_id}` : undefined"
+            :is="memberLink(member) ? linkTag : 'div'"
+            v-for="(member, index) in members"
+            :key="member.entity_id || index"
+            :to="memberLink(member)"
             class="member"
-            :class="{ 'member--ghost': !member.entity_id }"
+            :class="{ 'member--ghost': !memberLink(member) }"
           >
             <span class="member__art">
               <MetadataImage :image-id="member.image_id" :alt="member.title" variant="card" />
@@ -53,8 +59,8 @@ const linkTag = resolveComponent('NuxtLink')
             <span class="member__body">
               <small>{{ member.year || 'TBA' }}</small>
               <strong>{{ member.title }}</strong>
-              <span class="member__status" :class="{ 'is-ingested': member.entity_id }">
-                {{ member.entity_id ? 'Canonical entity ↗' : 'Not ingested' }}
+              <span class="member__status" :class="{ 'is-ingested': memberLink(member) }">
+                {{ memberLink(member) ? 'Canonical entity ↗' : 'Not materialized' }}
               </span>
             </span>
           </component>

@@ -80,42 +80,42 @@ Use `GET /api/v2/health/ready`, not liveness, before sending normal work.
 
 There are deliberately three different operations:
 
-1. **Search** reads the local canonical index. It is the fast path and never
-   calls an upstream provider.
-2. **Discovery** searches upstream identity providers and returns ranked,
-   explainable candidates. It does not create an entity.
-3. **Resolution** confirms one provider identity and idempotently returns or
-   ingests the canonical entity.
+1. **Search** reads the local canonical index for query-only matching. It is a
+   fast path and never calls an upstream provider.
+2. **Discovery** accepts every external identifier and local fact HeyaMedia
+   has. HeyaMetadata resolves known claims locally, internally crosswalks a
+   fresh identifier into the canonical pipeline, or searches upstream by hints.
+3. **Resolution** selects an opaque HeyaMetadata candidate reference. The
+   client never sees or reconstructs the provider identity behind it.
+
+Resolution is an optional ambiguity branch, not a mandatory stage after every
+discovery. A discovery that returns `result.entity_id` is already resolved.
 
 Every successful path ends with `GET /api/v2/entities/{id}`.
 
 ```text
-GET /api/v2/search?q=...&kind=...
+identifiers present?
   |
-  +-- acceptable result
-  |     `-- persist result.id
-  |           `-- GET /api/v2/entities/{result.id}
+  +-- yes -> POST /api/v2/discoveries with every identifier + facts
   |
-  `-- no acceptable result
-        `-- POST /api/v2/discoveries
+  `-- no  -> GET /api/v2/search?q=...&kind=...
               |
-              +-- 202 queued/working
-              |     `-- poll GET /api/v2/discoveries/{discovery.id}
+              +-- acceptable result -> persist result.id
               |
-              `-- 200 completed
-                    `-- choose candidate using evidence
-                          |
-                          +-- candidate.existing_entity_id exists
-                          |     `-- persist/read that entity
-                          |
-                          `-- POST candidate.resolution verbatim
-                                to /api/v2/resolutions
-                                  |
-                                  +-- 200 completed
-                                  |     `-- persist response.entity_id
-                                  |
-                                  `-- 202 accepted
-                                        `-- poll GET /api/v2/jobs/{job.id}
+              `-- no acceptable result -> POST /api/v2/discoveries with query + facts
+
+completed discovery
+  |
+  +-- result.entity_id
+  |     `-- persist/read that Heya entity directly
+  |
+  `-- result.status = needs_selection
+        `-- choose candidate using evidence
+              `-- POST {candidate_ref} to /api/v2/resolutions
+                    |
+                    +-- 200 completed -> persist response.entity_id
+                    |
+                    `-- 202 accepted -> poll GET /api/v2/jobs/{job.id}
                                               `-- persist job.entity_id
 
 GET /api/v2/entities/{persisted Heya ID}
@@ -128,29 +128,34 @@ provider quotas.
 ### Recommended client algorithm
 
 ```text
-Resolve(kind, query, hints, providerCredentials):
-    local = GET /api/v2/search?q=query&kind=kind
-    if an acceptable canonical summary can be selected:
-        return GET /api/v2/entities/{local.id}
+Resolve(kind, query, identifiers, hints, providerCredentials):
+    if identifiers is empty:
+        local = GET /api/v2/search?q=query&kind=kind
+        if an acceptable canonical summary can be selected:
+            return GET /api/v2/entities/{local.id}
 
-    discovery = POST /api/v2/discoveries with {kind, query, hints}
+    discovery = POST /api/v2/discoveries with
+                {kind, query?, identifiers: allKnownIDs, hints}
     while discovery.state is queued or working:
         discovery = GET /api/v2/discoveries/{discovery.id}
 
     if discovery.state is failed:
         return an upstream-discovery error
 
-    candidate = apply product selection policy to discovery.result
+    if discovery.result.entity_id is not empty:
+        id = discovery.result.entity_id
+        persist id and kind
+        return GET /api/v2/entities/{id}
+
+    candidate = apply product selection policy to discovery.result.candidates
     if no candidate can be selected safely:
         return candidates to the caller/user for disambiguation
 
-    if candidate.existing_entity_id is not empty:
-        id = candidate.existing_entity_id
-    else:
-        resolution = POST /api/v2/resolutions with candidate.resolution
-        while resolution is accepted and its job has no entity_id:
-            job = GET /api/v2/jobs/{resolution.job.id}
-        id = resolution.entity_id or job.entity_id
+    resolution = POST /api/v2/resolutions with
+                 {candidate_ref: candidate.candidate_ref}
+    while resolution is accepted and its job has no entity_id:
+        job = GET /api/v2/jobs/{resolution.job.id}
+    id = resolution.entity_id or job.entity_id
 
     persist id and kind
     return GET /api/v2/entities/{id}
@@ -164,7 +169,7 @@ Use bounded exponential polling with jitter. A reasonable client starts around
 200 ms, caps around 2 seconds, and applies an overall workflow deadline. Honor
 `Retry-After` whenever present. Never poll in a tight loop.
 
-## Step 1: local canonical search
+## Step 1: query-only local canonical search
 
 ```http
 GET /api/v2/search?q=ano&kind=artist&limit=20
@@ -175,7 +180,7 @@ Supported query parameters:
 
 | Parameter | Meaning |
 | --- | --- |
-| `q` | Required title, name, alias, or exact external ID query |
+| `q` | Required title, name, or alias query |
 | `kind` | Strongly recommended canonical kind filter |
 | `limit` | 1–100; default 20 |
 | `year` | Exact release/start year |
@@ -184,9 +189,10 @@ Supported query parameters:
 | `language` | Language filter |
 | `status` | Lifecycle/status filter |
 
-An exact local external-ID lookup can use `provider:value`, for example
-`q=imdb:tt0133093` or `q=tmdb:603`. This still queries only accepted local
-claims; it does not call IMDb or TMDB.
+When the caller has any external identifiers, skip this search step and submit
+all of them to discovery. That is required even if one identifier is likely
+known locally, because discovery verifies fresh and known evidence together.
+Search remains the query-only fast path and never calls an upstream service.
 
 Search returns polymorphic summary documents in `results`. The canonical ID is
 `result.id`, not `result.entity_id`. Every summary has the stable core:
@@ -219,10 +225,10 @@ This is also the rule that prevents UI output such as `[object Object]`.
 
 A fuzzy name hit is not automatically a durable identity match. Use kind,
 year/date, aliases, credited artists/authors, country/language, and existing
-external IDs to decide whether the local row is acceptable. If doubt remains,
-run discovery with structured hints.
+facts to decide whether the local row is acceptable. If doubt remains, run
+discovery with structured hints.
 
-## Step 2: upstream discovery
+## Step 2: provider-transparent discovery
 
 The generic operation is:
 
@@ -234,13 +240,23 @@ Prefer: wait=5
 {
   "kind": "artist",
   "query": "ano",
+  "identifiers": [
+    {"scheme": "musicbrainz", "value": "ebb4513e-4aab-4ac9-a949-14e77bb7b836"}
+  ],
   "limit": 10,
   "hints": {
     "country": "JP",
     "type": "person",
     "aliases": ["あの"],
     "releases": [
-      {"title": "猫猫吐吐", "year": 2023}
+      {
+        "title": "猫猫吐吐",
+        "year": 2023,
+        "identifiers": [
+          {"scheme": "apple", "value": "..."},
+          {"scheme": "deezer", "value": "..."}
+        ]
+      }
     ]
   }
 }
@@ -251,21 +267,43 @@ seconds. `Prefer: respond-async` returns immediately. The response is:
 
 - `200` with `state: completed` if work finished during the wait;
 - `202` with `state: queued` or `working` if it remains asynchronous;
-- `422` if it failed while the create request was waiting;
+- `503` with `Retry-After` if all worker attempts fail; the same normalized
+  request may be submitted again safely;
 - `GET /api/v2/discoveries/{id}` returns the durable resource afterward.
 
 Discovery resource states are `queued`, `working`, `completed`, and `failed`.
 Equivalent normalized requests reuse durable work and completed results for six
 hours. The resource exposes `expires_at`.
 
-The completed result contains:
+When identifiers uniquely establish an entity, the completed result contains
+`entity_id` directly. No resolution call is needed. It also reports
+`identifier_evidence` outcomes (`resolved`, `corroborating`, `unused`,
+`unsupported`, or `conflict`) so HeyaMedia can diagnose what contributed
+without learning provider routing.
+
+Identifier evidence is processed before fuzzy title/name search. If one
+identifier is already known locally while another supported identifier is
+fresh, discovery continues in the durable worker instead of returning the
+known entity early. The worker crosswalks the fresh evidence: agreement returns
+the same Heya UUID with corroborating evidence; disagreement returns opaque
+reviewable candidates. HeyaMedia must not discard fresh IDs merely because one
+of the submitted IDs already has a local claim.
+
+When selection is required, the completed result contains:
 
 - `recommendation`: `strong_match`, `likely_match`, `ambiguous`, or `no_match`;
 - ranked `candidates`;
 - a 0–1 `confidence` and per-field `evidence` on every candidate;
 - `match`: `strong`, `likely`, `possible`, or `weak`;
-- `existing_entity_id` when the provider identity is already canonical;
-- a `resolution` object ready for the next request.
+- an opaque `candidate_ref` on each candidate.
+
+Candidates deliberately do not contain `provider`, `namespace`, `value`,
+`existing_entity_id`, or a provider-shaped `resolution` object.
+
+A decisively ranked query-and-hint candidate that already has an accepted
+external-ID claim completes directly with the existing `entity_id`. This is
+provider-claim reconciliation, never a title/year merge. Weak or ambiguous
+same-title productions remain opaque candidates requiring selection.
 
 The current generic recommendation policy requires both confidence and margin
 over the second result. Do not replace it with “rank 1 always wins.” A safe
@@ -281,21 +319,25 @@ Always display the candidate evidence when asking a user to choose. It exists
 specifically to make namesakes such as `ano`, `Ano`, and other similarly named
 artists resolvable without guessing.
 
-### Supported discovery roots
+### Supported discovery kinds and identifier evidence
 
-| Kind | Discovery provider | Resolution identity |
-| --- | --- | --- |
-| `movie` | TMDB | `tmdb / movie / <id>` |
-| `artist` | MusicBrainz | `musicbrainz / artist / <MBID>` |
-| `release_group` | MusicBrainz | `musicbrainz / release_group / <MBID>` |
-| `recording` | MusicBrainz | `musicbrainz / recording / <MBID>` |
-| `musical_work` | Open Opus | `openopus / work / <id>` |
-| `tv_show` | TVMaze | `tvmaze / show / <id>` |
-| `anime` | AniDB | `anidb / anime / <AID>` |
-| `book_work` | Open Library | `openlibrary / work / <OL…W>` |
-| `manga` | Kitsu | `kitsu / manga / <id>` |
-| `manga_volume` | Open Library | `openlibrary / work / <OL…W>` |
-| `comic_volume` | Open Library | `openlibrary / work / <OL…W>` |
+HeyaMedia may submit all identifiers it has. Common bootstrap evidence is:
+
+| Kind | Accepted fresh identifier evidence |
+| --- | --- |
+| `movie` | TMDB, IMDb |
+| `artist` | MusicBrainz, Apple/iTunes artist ID, Deezer artist ID |
+| `release_group` | MusicBrainz |
+| `recording` | MusicBrainz |
+| `musical_work` | Open Opus |
+| `tv_show` | TVMaze, TVDB, IMDb, TMDB |
+| `anime` | AniDB, MyAnimeList, AniList, TVDB, TMDB |
+| `book_work`, `manga_volume`, `comic_volume` | Open Library work/edition, ISBN |
+| `manga` | Kitsu; already-known AniList/MyAnimeList claims also resolve locally |
+
+This table describes input evidence, not provider-selection rules. Its contents
+may grow without a HeyaMedia change because HeyaMetadata owns crosswalking and
+all private ingestion strategy.
 
 There is no direct upstream discovery operation for issued `release`, edition,
 `author`, or `person` entities. Issued releases come from release-group edition
@@ -325,9 +367,9 @@ manufacture empty or guessed values.
 | --- | --- |
 | Movie | `year`, `date`, `original_title`, `aliases`, `language`, `country` |
 | Artist | `country`, `area`, `type`, `begin_date`, `end_date`, `aliases`, `releases[]` |
-| Release group | `year`, `date`, `type`, `artists`, `artist_ids`, `tracks` |
-| Recording | `artists`, `artist_ids`, `duration_ms`, exact `isrcs`, `releases[]` |
-| Musical work | `composers`, `composer_ids`, `catalogue`, `year` |
+| Release group | `year`, `date`, `type`, `artists`, `tracks` |
+| Recording | `artists`, `duration_ms`, exact `isrcs`, `releases[]` |
+| Musical work | `composers`, `catalogue`, `year` |
 | TV | `year`, `country`, `language`, `network`, `status`, `episodes[]` |
 | Anime | `year`, `type`, `episode_count`, `source`, `studios`, `episodes[]` |
 | Books/publications | `year`, `authors`, exact `isbns` |
@@ -336,23 +378,24 @@ manufacture empty or guessed values.
 `{title, year, type}`. Release titles, track titles, ISRCs, durations, and IDs
 are evidence—not individually infallible identities.
 
-## Step 3: resolution and ingestion
+## Step 3: opaque selection and ingestion, only when required
 
-Pass the selected candidate's `resolution` object through unchanged:
+Skip this entire step when discovery returns `result.entity_id`. Use
+`/api/v2/resolutions` only for a safely selected opaque candidate from a
+`needs_selection` result.
+
+Pass only the selected candidate reference:
 
 ```http
 POST /api/v2/resolutions
 Content-Type: application/json
 
 {
-  "kind": "artist",
-  "provider": "musicbrainz",
-  "namespace": "artist",
-  "value": "ebb4513e-4aab-4ac9-a949-14e77bb7b836"
+  "candidate_ref": "7edb3b9e-0ae8-4ac8-8735-37046f67aa2d"
 }
 ```
 
-If the provider identity is already known, the response is `200`:
+If the candidate is already canonical, the response is `200`:
 
 ```json
 {
@@ -381,21 +424,17 @@ entity ID, is a failed resolution. River's intermediate state vocabulary is an
 implementation detail; do not make success depend on one exact intermediate
 string.
 
-Resolution is idempotent at the provider identity/job and canonical-entity
-level. It is safe to retry after network timeouts.
+Resolution is idempotent at the private identity/job and canonical-entity
+level. It is safe to retry after network timeouts. A candidate reference is
+short-lived selection state, not an identity to persist.
 
-Only the discovery roots in the previous table can create a missing entity
-directly. Supplemental IDs such as IMDb, Discogs, Deezer, Apple/iTunes, TVDB,
-TMDB TV IDs, or MyAnimeList can resolve after they are attached to a canonical
-entity, but cannot necessarily bootstrap one. For existing HeyaMedia data:
-
-1. Prefer a known ingestible root ID and post it directly to resolutions.
-2. Otherwise try local search with `provider:value`.
-3. If still absent, discover by title/name with all useful old-document hints.
-4. Resolve only the selected candidate returned by discovery.
-
-Do not reconstruct namespaces from provider names when a discovery candidate
-already supplied the correct object.
+Identifiers that cannot currently bootstrap an entity are returned as unused
+or unsupported evidence without breaking otherwise valid discovery. HeyaMedia
+must not compensate by adding provider-specific routing. For existing data,
+send the media kind, every old external ID as `{scheme,value}`, and all useful
+title/name hints to discovery. HeyaMetadata decides which evidence can resolve
+locally, crosswalk, or bootstrap ingestion. Resolve only by a returned opaque
+`candidate_ref` when the result needs selection.
 
 ## Step 4: canonical reads
 
@@ -473,6 +512,28 @@ The generic entity route is the best default for HeyaMedia because it also
 accepts localization and request-scoped provider credentials. Dedicated routes
 are useful where their typed resource or shareable URL is important.
 
+### Canonical relation IDs
+
+Every independently navigable object is represented by a Heya UUID. This
+includes movies, shows, seasons, episodes, artists, release groups, issued
+releases, track placements, recordings, books/editions, authors, manga/comic
+volumes, people, and movie collections. Important nested fields are:
+
+- `person_entity_id` on every cast/crew credit;
+- `artist_entity_id` on materialized music credits;
+- track-placement `id` plus `recording_entity_id` on an issued release;
+- `entity_id` on materialized release-group editions, recommendations,
+  collection members, filmography items, and generic relation targets;
+- `release_entity_id` and `release_group_entity_id` on recording appearances;
+- season/episode `id` and episode `season_id`;
+- publication author/edition `id` and edition `work_id`.
+
+When an upstream source reports a related object that is not yet canonical,
+the relation omits the target UUID and exposes `resolution_state: unresolved`.
+Clients may display that evidence but must not navigate using its passive
+provider ID. `resolution_state: materialized` means the Heya target ID is safe
+to retain and follow.
+
 ## Relationships, credits, ratings, and recommendations
 
 ### Generic relationships
@@ -481,7 +542,8 @@ are useful where their typed resource or shareable URL is important.
 GET /api/v2/entities/{id}/relations?type=discography&offset=0&limit=50
 ```
 
-Each relation contains provider identity and optional canonical target:
+Each relation contains a Heya target when materialized and passive provider
+provenance:
 
 ```json
 {
@@ -491,6 +553,7 @@ Each relation contains provider identity and optional canonical target:
   "provider": "itunes",
   "namespace": "collection",
   "provider_value": "123",
+  "resolution_state": "materialized",
   "metadata": {"title": "..."},
   "target": {"id": "...", "display": {"title": "..."}}
 }
@@ -511,6 +574,15 @@ Apple/iTunes storefront evidence, and other configured music providers. The
 caller must not append provider album arrays itself. HeyaMetadata performs
 romanization-aware deduplication, track/date evidence reconciliation, and
 promotion to canonical release groups.
+
+MusicBrainz is not required to create an artist. A direct Apple/iTunes or
+Deezer artist identifier can establish the canonical Heya artist and its public
+discography. Include known Apple/Deezer album IDs in the matching
+`hints.releases[].identifiers` array; HeyaMetadata validates the fetched release
+credit and uses the ID as catalog evidence. Common credit joins (`feat.`,
+`featuring`, `ft.`, `f/`, `with`/`w/`, `vs.`, `presents`, `meets`, `&`, `and`,
+`x`, `×`, `/`, `;`, and spaced `:`) are parsed only after literal artist
+resolution fails and never merge artists by name.
 
 ### Artist top tracks
 
@@ -537,7 +609,9 @@ so useful rankings cannot create cross-artist identity contamination.
 An artist's `discography` points to release groups. A release group's
 `editions` point to issued releases. `GET /api/v2/releases/{id}` returns ordered
 media and track placements. A canonicalized track includes
-`recording_entity_id`; use it to link to `GET /api/v2/recordings/{id}`.
+`recording_entity_id`; use it to link to `GET /api/v2/recordings/{id}`. It also
+includes `lyrics_available`, populated in one batch by HeyaMetadata, so clients
+can decide whether to fetch `/recordings/{id}/lyrics` without an N+1 probe.
 
 This distinction is intentional:
 
@@ -558,24 +632,22 @@ GET /api/v2/entities/{id}/credits?credit_type=cast&offset=0&limit=100
 GET /api/v2/entities/{id}/credits?credit_type=crew&offset=0&limit=100
 ```
 
-Credits apply to movie, TV, and anime entities. Use `person_entity_id` when it
-is present and link to:
+Credits apply to movie, TV, and anime entities. Every projected credit carries
+the canonical `person_entity_id`; link to:
 
 ```http
 GET /api/v2/persons/{person_entity_id}
 ```
 
-If older data has only a provider person ID, the reverse index is:
+The reverse filmography index is canonical-ID-only:
 
 ```http
-GET /api/v2/persons/{provider}/{providerPersonId}/credits
+GET /api/v2/persons/{person_entity_id}/credits
 ```
 
-It returns the canonical person ID and known filmography. It resolves an
-already known person; it is not person discovery. There is currently no v2
-replacement for HeyaMedia's old person batch endpoint. Prefer canonical person
-IDs embedded in credits and use bounded parallel reads where full person pages
-are actually required.
+It returns known canonical filmography entries with `entity_id`. Provider-only
+filmography observations remain explicitly unresolved; HeyaMedia never chooses
+a provider-person route.
 
 ### Ratings
 
@@ -601,9 +673,13 @@ TV and anime are separate canonical kinds. Do not map both back to the old `tv`
 kind:
 
 ```text
-tv_show = conventional television, rooted at TVMaze
-anime   = dedicated anime domain, rooted at AniDB
+tv_show = conventional television with canonical Heya show/season/episode UUIDs
+anime   = dedicated anime domain with canonical Heya title/season/episode UUIDs
 ```
+
+Provider selection, crosswalking, reconciliation, and merge priority are
+private HeyaMetadata behavior. HeyaMedia follows only canonical UUIDs and must
+not reproduce source-precedence rules.
 
 Show documents include canonical UUIDs on their season and episode entries.
 Those IDs have standalone, bookmarkable reads:
@@ -620,14 +696,12 @@ season UUID, localized text, typed external IDs, ratings, opaque stills,
 explicit special/type state, and scheme-aware numbers. Do not assume one
 provider's ordering is universally canonical.
 
-Number schemes are normalized lowercase. `aired` is the preferred conventional
-season association when available; TVMaze is preferred for conventional TV and
-AniDB for anime while supplemental aired orders remain in the array. Provider
-schemes (`tmdb`, `tvdb`, `tvmaze`, `anidb`) retain provider assertions, and
-anime may additionally expose integer `absolute` order. Fractional provider
-numbers remain decimals. Identity is
-resolved from typed episode IDs first and deterministic scheme priority second,
-never from slice order. Specials are explicit and season zero is retained.
+Number schemes are normalized lowercase. `aired` is the canonical presentation
+selected by HeyaMetadata when sufficient evidence exists; source-specific
+schemes remain passive provenance, and anime may additionally expose integer
+`absolute` order. Fractional source numbers remain decimals. HeyaMedia must not
+derive identity or season association from number-array order or apply its own
+source precedence. Specials are explicit and season zero is retained.
 
 ## Language-aware presentation and artwork
 
@@ -690,7 +764,14 @@ GET /api/v2/recordings/{id}/lyrics
 
 Fingerprints identify their algorithm, version, encoding, duration, source,
 and checksum. Lyrics retain provider evidence and may contain plain and/or
-synchronized text.
+synchronized text. Each lyric item includes `scope` and
+`source_recording_id`. Scope `recording` is exact evidence for the requested
+recording. Scope `musical_work` is untimed plain text inherited through an
+explicit shared-work relationship; synchronized timestamps are never
+inherited across recordings with different timing.
+
+Album and issued-release tracklists include a compact `lyrics_available`
+boolean. Fetch full lyrics only for tracks where that flag is true.
 
 A client-generated Chromaprint can be matched without exposing a broad
 mutation surface:
@@ -710,9 +791,11 @@ Content-Type: application/json
 ```
 
 Poll `GET /api/v2/fingerprint-matches/{id}`, not merely the nested River job.
-The result contains ranked recording candidates, optional canonical recording
-IDs, and resolution objects for provider-only matches. Submitted fingerprint
-payloads expire after one hour and are erased after completion.
+The result contains ranked recording candidates. A materialized match carries
+`entity_id`; an upstream-only match carries an opaque `candidate_ref` accepted
+by `/api/v2/resolutions`. It never returns an MBID or provider-shaped resolution
+for client routing. Submitted fingerprint payloads expire after one hour and
+are erased after completion.
 
 ## Freshness, refresh, caching, and change consumption
 
@@ -783,9 +866,10 @@ headers:
 
 Forward applicable keys on resolution, generic entity reads, and explicit
 refreshes. Generic discovery currently accepts a request-scoped TMDB key for
-movie discovery; the other discovery roots use providers that do not require a
-user key. Enrichment workers receive credentials through short-lived opaque
-Redis references. Keys are never written to Postgres or River job arguments.
+movie discovery; other currently implemented discovery paths may not require a
+user key. That provider choice is private to HeyaMetadata. Enrichment workers
+receive credentials through short-lived opaque Redis references. Keys are never
+written to Postgres or River job arguments.
 
 The HeyaMedia implementation must preserve that property:
 
@@ -802,10 +886,10 @@ The HeyaMedia implementation must preserve that property:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/v2/search` | Fast local canonical search |
-| POST | `/api/v2/discoveries` | Upstream candidate search |
+| GET | `/api/v2/search` | Fast local canonical search for query-only matching |
+| POST | `/api/v2/discoveries` | Reconcile identifiers or discover from query/hints |
 | GET | `/api/v2/discoveries/{id}` | Discovery status/result |
-| POST | `/api/v2/resolutions` | Resolve or ingest selected identity |
+| POST | `/api/v2/resolutions` | Resolve a selected opaque candidate when required |
 | GET | `/api/v2/jobs/{id}` | Durable River job status |
 | GET | `/api/v2/entities/{id}` | Universal combined canonical detail |
 | POST | `/api/v2/entities/{id}/refreshes` | Explicit interactive refresh |
@@ -831,7 +915,7 @@ The HeyaMedia implementation must preserve that property:
 | POST | `/api/v2/fingerprint-matches` | Match a client fingerprint |
 | GET | `/api/v2/fingerprint-matches/{id}` | Fingerprint-match status/result |
 | GET | `/api/v2/persons/{id}` | Canonical person and filmography |
-| GET | `/api/v2/persons/{provider}/{providerPersonId}/credits` | Provider-person reverse filmography |
+| GET | `/api/v2/persons/{id}/credits` | Canonical-person reverse filmography |
 | GET | `/api/v2/manga/{id}` | Manga series detail |
 | POST | `/api/v2/manga/discoveries` | Manga discovery |
 | GET | `/api/v2/manga/volumes/{id}` | Physical manga-volume detail |
@@ -915,7 +999,7 @@ do not depend on every generated operation:
 type MetadataResolver interface {
     Search(context.Context, SearchRequest) ([]CanonicalSummary, error)
     Discover(context.Context, DiscoveryRequest, ProviderCredentials) (Discovery, error)
-    Resolve(context.Context, heyametadata.Resolution, ProviderCredentials) (string, error)
+    Resolve(context.Context, heyametadata.ResolutionInputBody, ProviderCredentials) (string, error)
     Entity(context.Context, string, Locale, ProviderCredentials) (CanonicalDocument, error)
 }
 
@@ -926,9 +1010,10 @@ type MetadataLibrary interface {
 }
 ```
 
-The generated workflow models (`Request`, `Hints`, `Candidate`, `Resolution`,
-`DiscoveryResource`, `ResolutionBody`, `JobResource`, image/credit/relation
-resources, and so on) are typed. Several polymorphic canonical/search bodies
+The generated workflow models (`Request`, `Hints`, `Candidate`,
+`ResolutionInputBody`, `DiscoveryResource`, `JobResource`, image/credit/relation
+resources, and so on) are typed. A resolution input contains only the opaque
+`candidate_ref` returned by discovery. Several polymorphic canonical/search bodies
 are intentionally generated as `interface{}` because the current OpenAPI
 operation uses a union-like body. Use
 `heyametadata.DecodeCanonicalDocument(response.Body)` (or
@@ -979,9 +1064,9 @@ API errors use `application/problem+json` with standard `type`, `title`,
 
 Client policy:
 
-- `400`/`422`: invalid request or completed workflow failure; do not retry
+- `400`/`422`: invalid request or schema validation failure; do not retry
   unchanged input indefinitely;
-- `404`: unknown entity/resource/provider identity; fall through only where
+- `404`: unknown entity/resource or expired opaque candidate; fall through only where
   the identity state machine explicitly permits it;
 - `409`: conflict such as account state; caller action required;
 - `429`: honor `Retry-After` and apply jittered backoff;
@@ -1000,15 +1085,15 @@ upstream discovery, inline enrichment, and persistence. Replace it as follows:
 
 | Old HeyaMedia behavior | v2 replacement |
 | --- | --- |
-| `GET /api/v1/search` upstream fan-out | local `/api/v2/search`, then discovery only on miss |
-| `GET /api/v1/{kind}/{provider:id}` inline enrich | resolution → job polling → canonical entity read |
+| `GET /api/v1/search` upstream fan-out | identifier-bearing input goes directly to discovery; query-only input uses local `/api/v2/search`, then discovery on miss |
+| `GET /api/v1/{kind}/{provider:id}` inline enrich | discovery with every known identifier → direct canonical read on `result.entity_id`, or opaque selection/resolution/job polling when ambiguous |
 | `GET /api/v1/{kind}/{slug}` | stored Heya UUID or local search; slug is presentation, not identity |
 | `GET /api/v1/recent` | `/api/v2/latest` |
 | `GET /api/v1/browse` | `/api/v2/browse` |
 | `GET /api/v1/stats` | `/api/v2/stats` |
 | collection endpoints | v2 collection endpoints |
 | arbitrary image proxy/old image registry | entity image selection + canonical image IDs/variants |
-| person detail | `/api/v2/persons/{id}` or provider-person reverse credits |
+| person detail/filmography | `/api/v2/persons/{id}` and `/api/v2/persons/{id}/credits` |
 | person batch hydration | no direct equivalent; use embedded person IDs and bounded reads |
 | similar artist/track endpoints | combined canonical similarity/recommendation evidence where available |
 | old Mongo change/refresh logic | v2 change cursor + stale-while-revalidate |
@@ -1030,7 +1115,7 @@ browse helpers likewise require an explicit Heya-side migration or retirement.
 
 Audiobook-specific provider corroboration is deferred from the first V2
 cutover. Publication discovery accepts general title, author, date, ISBN, and
-format hints, but has no Audible identity spine and makes no audiobook-specific
+format hints, but has no dedicated Audible canonicalization and makes no audiobook-specific
 confidence promise. Heya must preserve ambiguity for audiobook candidates and
 request user selection rather than auto-selecting on a title/author resemblance.
 
@@ -1040,8 +1125,10 @@ request user selection rather than auto-selecting on a title/author resemblance.
 2. Implement the resolver state machine behind a small HeyaMedia interface.
 3. Add canonical raw-envelope and kind-specific DTO decoding. Do not reuse the
    old flattened `TitleDoc` as the new storage model.
-4. Migrate scanner/import matching. Exact ingestible root IDs resolve first;
-   names use search → discovery → resolution.
+4. Migrate scanner/import matching. Submit every exact identifier directly to
+   discovery and let HeyaMetadata reconcile it before fuzzy name/title search.
+   Query-only matching uses local search, then discovery on a miss. Resolution
+   is used only when discovery returns opaque candidates requiring selection.
 5. Persist Heya UUIDs on media/library records and backfill existing items.
 6. Migrate detail reads, artwork, credits/people, discography/releases/tracks,
    TV seasons/episodes, books, and recommendations.
@@ -1077,13 +1164,14 @@ Use no real provider secrets in fixtures, snapshots, or logs.
 - assert search returns its `id` without creating a discovery/job;
 - fetch by UUID and verify kind, display, projection version, freshness, and
   provenance;
-- query an accepted exact external ID with `provider:value`.
+- query a canonical name/alias and verify the local fast path remains
+  side-effect free.
 
 ### Movie canary
 
-- resolve TMDB movie 603 (`The Matrix`) in an empty test library;
+- discover The Matrix in an empty test library with TMDB and/or IMDb evidence;
 - accept either immediate 200 or 202 + job, then read the canonical movie;
-- verify credits, person IDs where available, provider-native ratings,
+- verify credits, required Heya person IDs, provider-native ratings,
   collection/recommendation links, and English artwork selection;
 - request a WebP image variant and handle both initial 202 and final bytes.
 
@@ -1093,6 +1181,11 @@ Use no real provider secrets in fixtures, snapshots, or logs.
   hints and assert kind `tv_show`;
 - discover an AniDB title through kind `anime` and assert it cannot collapse
   into the TV entity kind;
+- discover `Attack on Titan` year 2013 with AniDB `9541`, IMDb `tt2560140`,
+  TMDB `1429`, and TVDB `267440`; assert all evidence converges on the 2013
+  Heya UUID and no selection is required;
+- combine the later-season AniDB `10944` with those broad series IDs and assert
+  it remains a reviewable conflict rather than stealing the series identity;
 - read a season and episode through their standalone UUIDs;
 - verify credits/ratings and language-aware posters.
 
@@ -1104,6 +1197,10 @@ Use no real provider secrets in fixtures, snapshots, or logs.
   `Love me forever!` under its localized or alternate title;
 - discover Japanese artist `ano` with JP/alias/release hints and assert the
   selected evidence does not merge German or other namesake identities;
+- resolve an Apple-only and a Deezer-only artist to canonical Heya UUIDs, then
+  verify their storefront releases appear without a MusicBrainz claim;
+- submit Yoshiko's Apple artist `591024034` plus release `1630125755` and assert
+  `Freaks Out` is linked to the canonical Yoshiko discography;
 - verify `Blank & Jones`, `Balloon` (the Monstersound/Pussylovers artist), GPF,
   Valknee, PaleNeØ, and ハク/Haku remain individually selectable when matching
   hints distinguish them;
@@ -1150,7 +1247,8 @@ Use no real provider secrets in fixtures, snapshots, or logs.
 
 - disable/remove old upstream provider clients and metadata stores in the test
   wiring;
-- run scanner → match → discovery/resolution → canonical fetch → artwork and
+- run scanner → match → discovery → direct canonical fetch or, only for an
+  ambiguous result, opaque resolution/job polling → artwork and
   relationship traversal end to end;
 - stop HeyaMetadata and assert HeyaMedia reports dependency failure instead of
   silently writing old-format metadata;
@@ -1161,8 +1259,11 @@ Use no real provider secrets in fixtures, snapshots, or logs.
 The replacement is complete when:
 
 - every HeyaMedia metadata consumer uses a Heya UUID;
-- all misses follow search → discovery → resolution rather than inline provider
-  fan-out;
+- identifier-bearing requests go directly through discovery, while query-only
+  misses use local search then discovery rather than inline provider fan-out;
+- discovery `result.entity_id` proceeds directly to canonical read;
+- only a `needs_selection` result uses opaque `candidate_ref` resolution and
+  optional job polling before canonical read;
 - ambiguous candidates are not silently auto-selected;
 - combined data, localization, provenance, artwork, relations, credits,
   ratings, releases, recordings, books, seasons, and episodes are reachable;

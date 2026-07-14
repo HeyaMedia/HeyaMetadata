@@ -19,7 +19,20 @@ const facts = computed<Fact[]>(() => {
   ]
 })
 
-const media = computed(() => (Array.isArray(data.value.media) ? data.value.media : []))
+const media = computed<any[]>(() => (Array.isArray(data.value.media) ? data.value.media : []))
+// Discs that carry a real tracklist — rendered as full tracklists so each track
+// can link to its canonical recording (via recording_entity_id).
+const trackDiscs = computed(() =>
+  media.value
+    .map((medium, index) => ({ medium, index }))
+    .filter(({ medium }) => Array.isArray(medium.tracks) && medium.tracks.length),
+)
+
+function mediumTitle(medium: any, index: number): string {
+  const label = media.value.length > 1 ? `Disc ${medium.position || index + 1}` : 'Tracklist'
+  const format = formatValue(medium.format)
+  return format && format.toLowerCase() !== 'cd' ? `${label} · ${format}` : label
+}
 </script>
 
 <template>
@@ -30,7 +43,15 @@ const media = computed(() => (Array.isArray(data.value.media) ? data.value.media
 
     <ExternalIdsPanel :external-ids="entity.external_ids" />
 
-    <OverviewPanel v-if="media.length" title="Media" kicker="Physical structure" full>
+    <TracklistPanel
+      v-for="disc in trackDiscs"
+      :key="disc.index"
+      :tracks="disc.medium.tracks"
+      :title="mediumTitle(disc.medium, disc.index)"
+      :kicker="formatValue(disc.medium.format) || 'Recordings'"
+    />
+
+    <OverviewPanel v-if="!trackDiscs.length && media.length" title="Media" kicker="Physical structure" full>
       <ol class="line-list">
         <li v-for="(medium, index) in media" :key="index">
           <span class="line-list__index">{{ medium.position || index + 1 }}</span>

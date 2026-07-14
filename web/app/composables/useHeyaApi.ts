@@ -1,6 +1,9 @@
 import { useLocale } from './useLocale'
 import { useProviderCredentials } from './useProviderCredentials'
 import type {
+  AdminJobAction,
+  AdminJobActionResult,
+  AdminJobsResponse,
   BrowseResult,
   CollectionCard,
   Credit,
@@ -158,8 +161,32 @@ export function useHeyaApi() {
     return request(`${BASE}/persons/${id}`)
   }
 
-  function personCredits(provider: string, providerPersonId: string): Promise<PersonCreditsResponse> {
-    return request(`${BASE}/persons/${encodeURIComponent(provider)}/${encodeURIComponent(providerPersonId)}/credits`)
+  // Canonical filmography by Heya person id (the provider-scoped route is gone).
+  function personCredits(personEntityId: string, options: { offset?: number; limit?: number } = {}): Promise<PersonCreditsResponse> {
+    const params = new URLSearchParams()
+    params.set('offset', String(options.offset ?? 0))
+    params.set('limit', String(options.limit ?? 100))
+    return request(`${BASE}/persons/${encodeURIComponent(personEntityId)}/credits?${params}`)
+  }
+
+  // Fetches the full filmography across pages. Detail-page scale (hundreds, not
+  // thousands), so a bounded accumulation is fine.
+  async function allPersonCredits(personEntityId: string): Promise<PersonCreditsResponse> {
+    const limit = 100
+    const credits: PersonCreditsResponse['credits'] = []
+    let offset = 0
+    let total = 0
+    let person: PersonCreditsResponse['person'] = {}
+    do {
+      const page = await personCredits(personEntityId, { offset, limit })
+      person = page.person ?? person
+      const items = page.credits ?? []
+      credits.push(...items)
+      total = page.total ?? credits.length
+      offset += items.length
+      if (!items.length) break
+    } while (offset < total)
+    return { person, credits, total }
   }
 
   function season(id: string): Promise<SeasonResource> {
@@ -172,6 +199,19 @@ export function useHeyaApi() {
 
   function health(): Promise<{ status?: string }> {
     return request(`${BASE}/health/ready`)
+  }
+
+  // Admin-only: River job queue introspection. The session cookie authorises.
+  function adminJobs(options: { state?: string; kind?: string; limit?: number } = {}): Promise<AdminJobsResponse> {
+    const params = new URLSearchParams()
+    if (options.state) params.set('state', options.state)
+    if (options.kind) params.set('kind', options.kind)
+    params.set('limit', String(options.limit ?? 50))
+    return request(`${BASE}/admin/jobs?${params}`)
+  }
+
+  function adminJobAction(action: AdminJobAction): Promise<AdminJobActionResult> {
+    return request(`${BASE}/admin/jobs/actions`, { method: 'POST', json: true, body: JSON.stringify({ action }) })
   }
 
   // ---- Discovery / resolution workflow ------------------------------------
@@ -214,6 +254,8 @@ export function useHeyaApi() {
   async function pollJob(id: number | string, attempts = 120): Promise<any> {
     for (let attempt = 0; attempt < attempts; attempt++) {
       const job = await getJob(id)
+      // A materialized entity is success regardless of the exact River state.
+      if (job.entity_id) return job
       if (job.state === 'completed') return job
       if (['cancelled', 'discarded', 'failed'].includes(job.state)) {
         throw new Error(job.error || `Job ${job.state}`)
@@ -245,9 +287,12 @@ export function useHeyaApi() {
     recordingLyrics,
     person,
     personCredits,
+    allPersonCredits,
     season,
     episode,
     health,
+    adminJobs,
+    adminJobAction,
     createDiscovery,
     getDiscovery,
     pollDiscovery,

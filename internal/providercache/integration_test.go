@@ -92,11 +92,37 @@ func TestIntegrationConcurrentMissFetchesUpstreamOnce(t *testing.T) {
 		t.Fatalf("corrupt Redis body did not recover from S3: fetches=%d cached=%t", fetches.Load(), recovered.FromCache)
 	}
 
+	// Replace the durable object itself with invalid bytes. A cache integrity
+	// failure must evict the immutable object, refetch once under the provider
+	// lock, and restore the blob row to verified state.
+	fingerprint := providers.RequestFingerprint(template.Provider, requestKey)
+	objectKey, _ := runtime.Blobs.ContentKeyUnder(retention.ObjectPrefix, results[0].BlobChecksum, ".json.gz")
+	_ = runtime.Redis.Del(ctx, pointerKey(template.Provider, fingerprint), "heya:metadata:v1:provider-body:"+results[0].BlobChecksum).Err()
+	if err := runtime.Blobs.Delete(ctx, objectKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Blobs.PutImmutable(ctx, objectKey, []byte("corrupt"), "application/octet-stream", ""); err != nil {
+		t.Fatal(err)
+	}
+	repaired, err := resolver.Resolve(ctx, template, fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetches.Load() != 2 || repaired.FromCache {
+		t.Fatalf("corrupt S3 body did not fall through to one new fetch: fetches=%d cached=%t", fetches.Load(), repaired.FromCache)
+	}
+	var integrityState string
+	var deletedAt *time.Time
+	if err := runtime.DB.QueryRow(ctx, `SELECT integrity_state,deleted_at FROM source_blobs WHERE checksum=$1`, results[0].BlobChecksum).Scan(&integrityState, &deletedAt); err != nil {
+		t.Fatal(err)
+	}
+	if integrityState != "verified" || deletedAt != nil {
+		t.Fatalf("repaired blob state: integrity=%q deleted_at=%v", integrityState, deletedAt)
+	}
+
 	// Simulate lifecycle removing S3 before the pointer is reconciled. The
 	// resolver must invalidate the stale entry and safely fetch again.
-	fingerprint := providers.RequestFingerprint(template.Provider, requestKey)
 	_ = runtime.Redis.Del(ctx, pointerKey(template.Provider, fingerprint), "heya:metadata:v1:provider-body:"+results[0].BlobChecksum).Err()
-	objectKey, _ := runtime.Blobs.ContentKeyUnder(retention.ObjectPrefix, results[0].BlobChecksum, ".json.gz")
 	if err := runtime.Blobs.Delete(ctx, objectKey); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +130,7 @@ func TestIntegrationConcurrentMissFetchesUpstreamOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fetches.Load() != 2 || refetched.FromCache {
+	if fetches.Load() != 3 || refetched.FromCache {
 		t.Fatalf("missing S3 body did not fall through to one new fetch: fetches=%d cached=%t", fetches.Load(), refetched.FromCache)
 	}
 

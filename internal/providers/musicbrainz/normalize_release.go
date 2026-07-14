@@ -38,7 +38,8 @@ type releaseResponse struct {
 				ID, Title    string
 				Length       int64
 				ISRCs        []string
-				ArtistCredit []mbCredit `json:"artist-credit"`
+				ArtistCredit []mbCredit   `json:"artist-credit"`
+				Relations    []mbRelation `json:"relations"`
 			} `json:"recording"`
 		} `json:"tracks"`
 	} `json:"media"`
@@ -97,6 +98,7 @@ func NormalizeRelease(body []byte, observationID string, observedAt time.Time) (
 			recID := strings.ToLower(item.Recording.ID)
 			if mbidPattern.MatchString(recID) {
 				t.Recording = releasedomain.Recording{Provider: "musicbrainz", Namespace: "recording", ProviderID: recID, Title: item.Recording.Title, DurationMS: item.Recording.Length, ISRCs: uniqueUpper(item.Recording.ISRCs), ArtistCredits: releaseCredits(item.Recording.ArtistCredit)}
+				t.WorkRelations = workRelations(item.Recording.Relations)
 			}
 			if t.DurationMS == 0 {
 				t.DurationMS = t.Recording.DurationMS

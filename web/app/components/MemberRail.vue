@@ -27,24 +27,30 @@ const items = computed(() =>
     .filter(member => member.entity_id !== props.excludeId)
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
 )
+
+// Members link only through a materialized entity_id — never a provider id.
+function memberLink(member: CollectionMember): string | undefined {
+  if (!member.entity_id || member.resolution_state === 'unresolved') return undefined
+  return entityPath({ id: member.entity_id, kind: props.kind })
+}
 const linkTag = resolveComponent('NuxtLink')
 </script>
 
 <template>
-  <MediaShelf :title="title" :kicker="kicker" :items="items" shape="poster" :item-key="m => m.provider_id">
+  <MediaShelf :title="title" :kicker="kicker" :items="items" shape="poster" :item-key="(m, i) => m.entity_id || i">
     <template #default="{ item: member }">
       <component
-        :is="member.entity_id ? linkTag : 'div'"
-        :to="member.entity_id ? entityPath({ id: member.entity_id, kind }) : undefined"
+        :is="memberLink(member) ? linkTag : 'div'"
+        :to="memberLink(member)"
         class="member-card"
-        :class="{ 'is-ghost': !member.entity_id }"
+        :class="{ 'is-ghost': !memberLink(member) }"
       >
         <span class="member-card__art"><MetadataImage :image-id="member.image_id" :alt="member.title" variant="card" /></span>
         <span class="member-card__body">
           <small>{{ member.year || 'TBA' }}</small>
           <strong>{{ member.title }}</strong>
-          <span class="member-card__status" :class="{ 'is-ingested': member.entity_id }">
-            {{ member.entity_id ? 'Canonical ↗' : 'Not ingested' }}
+          <span class="member-card__status" :class="{ 'is-ingested': memberLink(member) }">
+            {{ memberLink(member) ? 'Canonical ↗' : 'Not materialized' }}
           </span>
         </span>
       </component>

@@ -35,7 +35,7 @@ const facts = computed<Fact[]>(() => {
 
 const collection = computed(() => {
   const c = data.value.collection
-  return c && c.provider_id ? c : null
+  return c && c.id ? c : null
 })
 </script>
 
@@ -49,7 +49,7 @@ const collection = computed(() => {
       <ExternalIdsPanel :external-ids="entity.external_ids" />
 
       <OverviewPanel v-if="collection" title="Collection" kicker="Franchise">
-        <NuxtLink :to="`/collections/${collection.provider_id}`" class="collection-link">
+        <NuxtLink :to="`/collections/${collection.id}`" class="collection-link">
           <strong>{{ collection.name }}</strong>
           <span>{{ collection.members?.length || 0 }} films ↗</span>
         </NuxtLink>
@@ -64,7 +64,7 @@ const collection = computed(() => {
 
     <MemberRail
       v-if="collection"
-      :collection-id="collection.provider_id"
+      :collection-id="collection.id"
       :exclude-id="entity.id"
       :title="collection.name"
       kicker="Part of the collection"

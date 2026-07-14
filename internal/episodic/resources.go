@@ -13,21 +13,21 @@ import (
 )
 
 type ParentResource struct {
-	EntityID string `json:"entity_id"`
+	EntityID string `json:"entity_id" format:"uuid"`
 	Kind     string `json:"kind"`
 	Title    string `json:"title"`
 	ImageID  string `json:"image_id,omitempty"`
 }
 
 type SeasonResource struct {
-	ID       string         `json:"id"`
+	ID       string         `json:"id" format:"uuid"`
 	Show     ParentResource `json:"show"`
 	Data     Season         `json:"data"`
 	Episodes []Episode      `json:"episodes"`
 }
 
 type EpisodeResource struct {
-	ID   string         `json:"id"`
+	ID   string         `json:"id" format:"uuid"`
 	Show ParentResource `json:"show"`
 	Data Episode        `json:"data"`
 }
@@ -195,6 +195,35 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 }
 
 func hydrateResources(ctx context.Context, runtime *platform.Runtime, showID string, doc *Document) error {
+	for index := range doc.Data.Networks {
+		network := &doc.Data.Networks[index]
+		network.ResolutionState = "unresolved"
+		if network.EntityID != "" {
+			network.ResolutionState = "materialized"
+		}
+	}
+	for index := range doc.Data.Organizations {
+		organization := &doc.Data.Organizations[index]
+		organization.ResolutionState = "unresolved"
+		if organization.EntityID != "" {
+			organization.ResolutionState = "materialized"
+		}
+	}
+	for index := range doc.Data.Recommendations {
+		recommendation := &doc.Data.Recommendations[index]
+		if recommendation.EntityID == "" {
+			for _, external := range recommendation.ExternalIDs {
+				_ = runtime.DB.QueryRow(ctx, `SELECT claim.entity_id::text FROM external_id_claims claim JOIN entities entity ON entity.id=claim.entity_id AND entity.kind=$1 AND entity.deleted_at IS NULL WHERE claim.entity_kind=$1 AND claim.provider=$2 AND claim.namespace=$3 AND claim.normalized_value=$4 AND claim.state='accepted' LIMIT 1`, doc.Kind, external.Provider, external.Namespace, strings.ToLower(external.Value)).Scan(&recommendation.EntityID)
+				if recommendation.EntityID != "" {
+					break
+				}
+			}
+		}
+		recommendation.ResolutionState = "unresolved"
+		if recommendation.EntityID != "" {
+			recommendation.ResolutionState = "materialized"
+		}
+	}
 	if len(doc.Data.Credits) > 0 {
 		providers := make([]string, 0, len(doc.Data.Credits))
 		values := make([]string, 0, len(doc.Data.Credits))

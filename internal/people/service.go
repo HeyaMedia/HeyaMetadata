@@ -26,18 +26,19 @@ type PersonDisplay struct {
 }
 
 type PersonCredit struct {
-	EntityID         string `json:"entity_id,omitempty"`
+	EntityID         string `json:"entity_id,omitempty" format:"uuid"`
 	ProviderTargetID string `json:"provider_target_id,omitempty"`
 	Kind             string `json:"kind"`
 	Title            string `json:"title"`
 	Year             int    `json:"year,omitempty"`
-	ImageID          string `json:"image_id,omitempty"`
+	ImageID          string `json:"image_id,omitempty" format:"uuid"`
 	CreditType       string `json:"credit_type"`
 	Character        string `json:"character,omitempty"`
 	Department       string `json:"department,omitempty"`
 	Job              string `json:"job,omitempty"`
 	Order            int    `json:"order,omitempty"`
 	Provider         string `json:"provider"`
+	ResolutionState  string `json:"resolution_state" enum:"materialized,unresolved"`
 }
 
 type PersonData struct {
@@ -58,7 +59,7 @@ type PersonData struct {
 type PersonDocument struct {
 	SchemaVersion     int                `json:"schema_version"`
 	ProjectionVersion int64              `json:"projection_version"`
-	ID                string             `json:"id"`
+	ID                string             `json:"id" format:"uuid"`
 	Kind              string             `json:"kind"`
 	Slug              string             `json:"slug"`
 	Display           PersonDisplay      `json:"display"`
@@ -282,6 +283,7 @@ func (s *Service) allCredits(ctx context.Context, id string) ([]PersonCredit, er
 			return nil, err
 		}
 		key := creditKey(value)
+		value.ResolutionState = "materialized"
 		if !seen[key] {
 			seen[key] = true
 			credits = append(credits, value)
@@ -303,6 +305,10 @@ func (s *Service) allCredits(ctx context.Context, id string) ([]PersonCredit, er
 			return nil, err
 		}
 		key := creditKey(value)
+		value.ResolutionState = "unresolved"
+		if value.EntityID != "" {
+			value.ResolutionState = "materialized"
+		}
 		if !seen[key] {
 			seen[key] = true
 			credits = append(credits, value)

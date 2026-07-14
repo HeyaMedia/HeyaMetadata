@@ -87,6 +87,39 @@ func TestGeneratedClientDecodesTypedAcceptedResponses(t *testing.T) {
 	}
 }
 
+func TestGeneratedClientDecodesRetryableDiscoveryFailure(t *testing.T) {
+	body := `{"id":"00000000-0000-4000-8000-000000000001","state":"failed","error":"upstream unavailable","expires_at":"2026-07-14T00:00:00Z"}`
+	for _, test := range []struct {
+		name  string
+		parse func(*http.Response) (bool, error)
+	}{
+		{"create discovery", func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseCreateDiscoveryResponse(response)
+			return parsed != nil && parsed.JSON503 != nil && parsed.JSON503.State == "failed", err
+		}},
+		{"get discovery", func(response *http.Response) (bool, error) {
+			parsed, err := heyametadata.ParseGetDiscoveryResponse(response)
+			return parsed != nil && parsed.JSON503 != nil && parsed.JSON503.State == "failed", err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := &http.Response{
+				Status:     "503 Service Unavailable",
+				StatusCode: http.StatusServiceUnavailable,
+				Header:     http.Header{"Content-Type": []string{"application/json"}, "Retry-After": []string{"5"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}
+			decoded, err := test.parse(response)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !decoded {
+				t.Fatal("generated response did not populate its typed JSON503 field")
+			}
+		})
+	}
+}
+
 func TestGeneratedClientAgainstServer(t *testing.T) {
 	host := httptest.NewServer(server.New("acceptance-test").Handler())
 	defer host.Close()
@@ -120,7 +153,7 @@ func TestGeneratedClientBuildsCoreLookupFlow(t *testing.T) {
 	if search.StatusCode() != 503 {
 		t.Fatalf("search compatibility: status=%d", search.StatusCode())
 	}
-	resolution, err := client.ResolveEntityWithResponse(ctx, nil, heyametadata.ResolutionInputBody{Kind: heyametadata.ResolutionInputBodyKind("manga"), Provider: "kitsu", Namespace: "manga", Value: "35"})
+	resolution, err := client.ResolveEntityWithResponse(ctx, nil, heyametadata.ResolutionInputBody{CandidateRef: uuid.MustParse("00000000-0000-0000-0000-000000000001")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,13 +178,14 @@ func TestGeneratedClientBuildsCrossDomainDiscoveryRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	query := heyametadata.DedicatedDiscoveryRequest{Query: "contract probe"}
+	queryText := "contract probe"
+	query := heyametadata.DedicatedDiscoveryRequest{Query: &queryText}
 	checks := []struct {
 		name string
 		call func() (int, error)
 	}{
 		{"movie", func() (int, error) {
-			r, e := client.CreateDiscoveryWithResponse(ctx, nil, heyametadata.Request{Kind: "movie", Query: "contract probe"})
+			r, e := client.CreateDiscoveryWithResponse(ctx, nil, heyametadata.Request{Kind: "movie", Query: &queryText})
 			if e != nil {
 				return 0, e
 			}
@@ -193,14 +227,14 @@ func TestGeneratedClientBuildsCrossDomainDiscoveryRequests(t *testing.T) {
 			return r.StatusCode(), nil
 		}},
 		{"book", func() (int, error) {
-			r, e := client.CreateDiscoveryWithResponse(ctx, nil, heyametadata.Request{Kind: "book_work", Query: "contract probe"})
+			r, e := client.CreateDiscoveryWithResponse(ctx, nil, heyametadata.Request{Kind: "book_work", Query: &queryText})
 			if e != nil {
 				return 0, e
 			}
 			return r.StatusCode(), nil
 		}},
 		{"music", func() (int, error) {
-			r, e := client.CreateDiscoveryWithResponse(ctx, nil, heyametadata.Request{Kind: "artist", Query: "contract probe"})
+			r, e := client.CreateDiscoveryWithResponse(ctx, nil, heyametadata.Request{Kind: "artist", Query: &queryText})
 			if e != nil {
 				return 0, e
 			}

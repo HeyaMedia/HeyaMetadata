@@ -19,18 +19,19 @@ type entityRelationsInput struct {
 }
 
 type entityRelation struct {
-	ID             string          `json:"id"`
-	RelationType   string          `json:"relation_type"`
-	SourceKind     string          `json:"source_kind"`
-	TargetKind     string          `json:"target_kind"`
-	TargetEntityID string          `json:"target_entity_id,omitempty"`
-	Provider       string          `json:"provider"`
-	Namespace      string          `json:"namespace"`
-	ProviderValue  string          `json:"provider_value"`
-	Position       *int            `json:"position,omitempty"`
-	Metadata       json.RawMessage `json:"metadata"`
-	Target         json.RawMessage `json:"target,omitempty"`
-	LastObservedAt time.Time       `json:"last_observed_at"`
+	ID              string          `json:"id" format:"uuid"`
+	RelationType    string          `json:"relation_type"`
+	SourceKind      string          `json:"source_kind"`
+	TargetKind      string          `json:"target_kind"`
+	TargetEntityID  string          `json:"target_entity_id,omitempty" format:"uuid"`
+	Provider        string          `json:"provider"`
+	Namespace       string          `json:"namespace"`
+	ProviderValue   string          `json:"provider_value"`
+	Position        *int            `json:"position,omitempty"`
+	Metadata        json.RawMessage `json:"metadata"`
+	Target          json.RawMessage `json:"target,omitempty"`
+	LastObservedAt  time.Time       `json:"last_observed_at"`
+	ResolutionState string          `json:"resolution_state" enum:"materialized,unresolved"`
 }
 
 type entityRelationsOutput struct {
@@ -119,6 +120,10 @@ func listEntityRelations(ctx context.Context, runtime *platform.Runtime, input *
 		relation.Metadata = json.RawMessage(metadata)
 		if string(target) != "null" {
 			relation.Target = json.RawMessage(target)
+		}
+		relation.ResolutionState = "unresolved"
+		if relation.TargetEntityID != "" {
+			relation.ResolutionState = "materialized"
 		}
 		out.Body.Relations = append(out.Body.Relations, relation)
 	}

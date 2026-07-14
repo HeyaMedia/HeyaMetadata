@@ -88,22 +88,30 @@ export interface ImagesResponse {
   results?: ImageCandidate[]
 }
 
+/** materialized → the Heya target id is navigable; unresolved → display-only. */
+export type ResolutionState = 'materialized' | 'unresolved'
+
 export interface CollectionMember {
-  provider_id: string
   entity_id?: string
+  resolution_state?: ResolutionState
   title?: string
   year?: number
   image_id?: string
   order?: number
+  /** passive provenance only — never used for routing */
+  provider_id?: string
 }
 
 export interface CollectionCard {
-  provider?: string
-  provider_id: string
+  /** canonical Heya collection id — the only routing/read key */
+  id: string
   name?: string
   overview?: string
   image_id?: string
   members?: CollectionMember[]
+  /** passive provenance only */
+  provider?: string
+  provider_id?: string
 }
 
 export interface LibraryStats {
@@ -126,15 +134,17 @@ export interface BrowseResult {
 }
 
 export interface Credit {
-  provider?: string
+  /** canonical person id — required; the only navigation key */
+  person_entity_id: string
   character?: string
   job?: string
   credit_type?: string
   display_name?: string
   profile_image_id?: string
-  provider_person_id?: string
-  person_entity_id?: string
   order?: number
+  /** passive provenance only */
+  provider?: string
+  provider_person_id?: string
 }
 
 export interface Relation {
@@ -143,11 +153,13 @@ export interface Relation {
   source_kind?: string
   target_kind?: string
   target_entity_id?: string
+  resolution_state?: ResolutionState
+  metadata?: Record<string, any>
+  last_observed_at?: string
+  /** passive provenance only — never used for routing */
   provider?: string
   namespace?: string
   provider_value?: string
-  metadata?: Record<string, any>
-  last_observed_at?: string
 }
 
 export interface RelationsResponse {
@@ -172,14 +184,16 @@ export interface LyricDocument {
 export interface TopTrack {
   rank: number
   title: string
-  provider?: string
-  provider_track_id?: string
-  /** canonical recording UUID; only link when present */
+  /** canonical recording UUID; present when materialized */
   recording_entity_id?: string
+  resolution_state?: ResolutionState
   external_ids?: ExternalId[]
   playcount?: number
   listeners?: number
   url?: string
+  /** passive provenance only */
+  provider?: string
+  provider_track_id?: string
 }
 
 export interface TopTrackSource {
@@ -199,6 +213,41 @@ export interface TopTracksResponse {
   total: number
   offset: number
   limit: number
+}
+
+export interface JobStateCount {
+  state: string
+  count: number
+}
+
+export interface AdminJob {
+  id: number
+  kind: string
+  state: string
+  queue: string
+  attempt: number
+  max_attempts: number
+  priority: number
+  created_at: string
+  scheduled_at: string
+  attempted_at?: string
+  finalized_at?: string
+  error?: string
+  /** the job's own River payload */
+  args?: Record<string, unknown>
+}
+
+export interface AdminJobsResponse {
+  summary: JobStateCount[]
+  jobs: AdminJob[]
+  total: number
+}
+
+export type AdminJobAction = 'clear_completed' | 'clear_queue' | 'rescue_stuck'
+
+export interface AdminJobActionResult {
+  action: AdminJobAction
+  affected: number
 }
 
 export interface AuthUser {
@@ -243,9 +292,9 @@ export interface PersonDocument {
 }
 
 export interface PersonCredit {
+  /** canonical id of the credited work; present when materialized */
   entity_id?: string
-  provider?: string
-  provider_target_id?: string
+  resolution_state?: ResolutionState
   kind: string
   title?: string
   year?: number
@@ -255,6 +304,9 @@ export interface PersonCredit {
   department?: string
   job?: string
   order?: number
+  /** passive provenance only */
+  provider?: string
+  provider_target_id?: string
 }
 
 export interface PersonCreditsResponse {
@@ -283,13 +335,23 @@ export interface EpisodeResource {
   data?: Record<string, any>
 }
 
+/** Provider-transparent discovery candidate. The only actionable field is the
+ * opaque candidate_ref, passed back to POST /resolutions. No provider identity,
+ * existing-entity shortcut, or provider-shaped resolution object is exposed. */
 export interface DiscoveryCandidate {
+  candidate_ref: string
   rank: number
   confidence: number
   match: string
-  identity: { provider: string; namespace: string; value: string }
   display: Record<string, any>
   evidence?: Array<Record<string, any>>
-  existing_entity_id?: string
-  resolution: { kind: string; provider: string; namespace: string; value: string }
+}
+
+/** The completed discovery result envelope (DiscoveryResource.result). */
+export interface DiscoveryResult {
+  status?: 'completed' | 'needs_selection'
+  entity_id?: string
+  candidates?: DiscoveryCandidate[]
+  kind?: string
+  warnings?: string[]
 }

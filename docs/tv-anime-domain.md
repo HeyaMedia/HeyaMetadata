@@ -22,24 +22,40 @@ The canonical routes are distinct:
 - `POST /api/v2/anime/discoveries`
 - `GET /api/v2/anime/{id}`
 
-Likewise, provider discovery will have dedicated TV and Anime entry points. The
-generic discovery request still carries a stable `kind` for reusable job,
-caching, and ranking infrastructure; dedicated routes inject the kind rather
-than asking clients to infer it.
+The generic discovery request carries a stable `kind`; dedicated routes simply
+inject that kind rather than changing the identity model.
 
-## Provider routing
+## Provider reconciliation is private
 
-TV discovery starts with TVMaze, then uses explicit remote IDs to unlock TVDB,
-TMDB TV, and supplemental sources. Anime discovery starts with AniDB's official
-daily title dump and detail API, then uses mapping authorities to relate safely
-to TVDB/TMDB/MyAnimeList/AniList/Kitsu
-identities where explicit mappings exist. A title resemblance is candidate
-evidence only.
+Clients submit every identifier and fact they have. HeyaMetadata privately
+selects sources, crosswalks identities, reconciles conflicts, and chooses merge
+behavior. No client may depend on a particular source, source order, or
+provider-specific resolution request.
 
-Anime ranking gives first-class weight to native/romanized/English titles,
-format, start year, episode count, season, source material, studio, and known
-episode or release titles. TV ranking emphasizes original/localized title,
-premiere year, country, network, status, and known season/episode titles.
+Title resemblance is candidate evidence only. Canonical identity is returned
+as a Heya UUID, and conflicts remain opaque reviewable candidates.
+
+### Anime series and season identity
+
+AniDB commonly assigns a separate AID to every season or cour, while TVDB,
+TMDB, and IMDb may use one identifier for the whole multi-season series. Those
+different granularities are not interchangeable. An AniDB entry mapped to
+TVDB season 2 or later—or to a nonzero episode offset within season 1—keeps its
+AniDB, MAL, AniList, and provider-season identity, but cannot claim the
+series-wide TVDB, TMDB, or IMDb identifier.
+
+The Anime Lists bridge explicitly anchors those broad identifiers to the TVDB
+series and records them as shared episodic-series evidence. Reverse TVDB
+lookup deterministically chooses the season-one or unscoped AniDB entry,
+regardless of mapping-dump order. Once that root exists, shared identifiers
+resolve to it; refreshing a later season cannot steal them. TVDB and Fanart
+payloads normalized for a later AniDB season use season-scoped normalization
+and identity keys even though their upstream response covers the full series.
+
+For example, Attack on Titan AniDB `9541`, IMDb `tt2560140`, TMDB `1429`, and
+TVDB `267440` converge on the 2013 root entity. AniDB `10944` remains the 2017
+season-two entity and conflicts when incorrectly combined with those broad
+series identifiers.
 
 ## Numbering
 
@@ -48,61 +64,26 @@ seasonal, cour, aired, DVD, and specials numbering remain named schemes with
 provenance. TV seasons and episodes use the same scheme-aware primitive, but the
 default TV projection does not inherit anime-specific assumptions.
 
-## Implemented multi-source slice
+## Canonical guarantees
 
-TVMaze is the initial `tv_show` identity spine. Its canonical document retains
-alternate titles, lifecycle, network, external TVDB/IMDb/TVRage IDs, seasons,
-full episodes, artwork evidence, and TVMaze numbering. Discovery can verify
-known episode titles and numbers before resolution.
+The combined document retains alternate and localized titles, lifecycle,
+networks/studios, complete seasons and episodes, artwork, credits, ratings,
+videos, recommendations, links, classifications, provenance, and explicit
+numbering evidence when supplied by applicable sources.
 
-An accepted TVMaze `tvdb.series` claim unlocks TVDB extended series evidence.
-An accepted IMDb title claim is resolved through TMDB's external-ID index and
-then unlocks TMDB TV detail plus each conventional season. The deterministic
-mixer keeps TVMaze scalar priority while unioning titles, classifications,
-artwork, localized text, organizations, links, videos, certifications,
-recommendations, ratings, and explicit IDs. Episodes match within an authority
-by typed external ID or exact numbering. Conventional cross-authority aired
-numbers require corroborating date or title evidence; the weaker final fallback
-requires both the same air date and normalized title. Absolute anime order can
-match across authorities even when their aired orders conflict. The result
-retains `aired`, `tvmaze`, `tvdb`, `tmdb`, and available `absolute` numbers.
-Season zero is retained, and specials have explicit `is_special` and
-`episode_type` values.
+Season and episode persistence is deterministic and independent of source
+payload order. Refreshes retain child UUIDs. Season posters and episode stills
+are materialized as opaque image IDs owned by their child resource rather than
+leaking upstream URLs or pretending they are show images.
 
-AniDB AID is the initial `anime` identity spine. The official daily title dump
-is reused for at least 24 hours, then at most the best three candidates are
-detail-enriched through the existing half-request-per-second gate. Requests
-carry the registered client/client-version where required and the configured
-`HEYA_METADATA_ANIDB_USER_AGENT`, which defaults to the old server's
-`heya-media/1.0 anidb-titles-sync` value.
+Regular anime episodes can expose canonical `aired` and integer `absolute`
+evidence. Specials and other non-regular entries remain explicit typed
+season-zero resources. Conflicting mappings remain ambiguous rather than being
+silently accepted as canonical claims.
 
-Anime detail retains the source episode count while exposing all returned
-episodes. Regular episodes expose canonical `aired` season one and integer
-`absolute` evidence. Special, credit, trailer, and parody entries are explicit
-typed season-zero resources and retain their AniDB scheme. Cowboy Bebop
-therefore reports 26 conventional episodes even though supplemental AniDB
-entries are also retained.
-
-Season and episode persistence first resolves typed provider child IDs, then a
-deterministic numbering priority independent of JSON slice order. Refreshes
-therefore retain child UUIDs even when provider ordering changes. Season posters
-and episode stills are materialized as opaque image IDs owned by their child
-resource rather than leaking upstream URLs or pretending they are show images.
-Within the preferred `aired` scheme, TVMaze wins for conventional TV and AniDB
-wins for anime; supplemental provider order remains present in `numbers[]`.
-
-The cached Fribb anime-lists mapping dump is the explicit AniDB-to-MAL,
-AniList, and TVDB bridge. TVDB enrichment is restricted to the mapped season;
-`episode_offset.tvdb` translates split-cour numbering without changing the
-original TVDB number. AniDB resource groups that contain several IDs in the
-same namespace remain ambiguous evidence and are not accepted as canonical
-claims. The mapping authority supplies the selected MAL/AniList identity.
-
-All contributing normalized records are persisted independently and the
-canonical projection records each provider in freshness and provenance. Raw
-TVDB, TMDB, AniDB, TVMaze, and mapping responses use the 48-hour lifecycle
-tier. Request-scoped TMDB and TVDB keys flow to episodic River jobs through the
-same opaque Redis credential references as movie ingestion.
+All contributing normalized records are persisted independently, and the
+canonical projection retains source freshness and provenance. Request-scoped
+provider credentials remain private to HeyaMetadata workers.
 
 Both kinds reuse River priority, caching, access-frequency refresh,
 observations, search, change-feed, and low-level episodic storage primitives.

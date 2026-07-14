@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -38,10 +39,14 @@ func Flush(ctx context.Context, runtime *platform.Runtime, limit int64) (int, er
 	if len(claimed) == 0 {
 		return 0, nil
 	}
+	discarded := make(map[string]struct{})
 	restore := func() {
 		pipe := runtime.Redis.TxPipeline()
 		for _, entry := range claimed {
 			if entityID, ok := entry.Member.(string); ok && entityID != "" {
+				if _, drop := discarded[entityID]; drop {
+					continue
+				}
 				pipe.ZIncrBy(context.WithoutCancel(ctx), pendingKey, entry.Score, entityID)
 			}
 		}
@@ -58,30 +63,51 @@ func Flush(ctx context.Context, runtime *platform.Runtime, limit int64) (int, er
 		if !ok || entityID == "" {
 			continue
 		}
+		if _, parseErr := uuid.Parse(entityID); parseErr != nil {
+			discarded[entityID] = struct{}{}
+			continue
+		}
 		lastAccessed := time.Now().UTC()
 		if raw, getErr := runtime.Redis.HGet(ctx, lastAccessKey, entityID).Result(); getErr == nil {
 			if milliseconds, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil {
 				lastAccessed = time.UnixMilli(milliseconds).UTC()
 			}
 		}
-		if _, err := tx.Exec(ctx, `
+		result, err := tx.Exec(ctx, `
 			INSERT INTO entity_access_stats (
 				entity_id, total_fetches, decayed_score, last_accessed_at, score_updated_at
-			) VALUES ($1, $2::bigint, $2::double precision, $3, now())
+			)
+			SELECT id, $2::bigint, $2::double precision, $3, now()
+			FROM entities
+			WHERE id = $1
 			ON CONFLICT (entity_id) DO UPDATE SET
 				total_fetches = entity_access_stats.total_fetches + EXCLUDED.total_fetches,
 				decayed_score = entity_access_stats.decayed_score *
 					exp(-EXTRACT(EPOCH FROM (now() - entity_access_stats.score_updated_at)) / 604800.0)
 					+ EXCLUDED.decayed_score,
 				last_accessed_at = GREATEST(entity_access_stats.last_accessed_at, EXCLUDED.last_accessed_at),
-				score_updated_at = now(), updated_at = now()`, entityID, int64(entry.Score), lastAccessed); err != nil {
+				score_updated_at = now(), updated_at = now()`, entityID, int64(entry.Score), lastAccessed)
+		if err != nil {
 			restore()
 			return 0, fmt.Errorf("upsert entity access stats: %w", err)
+		}
+		if result.RowsAffected() == 0 {
+			// The entity may have been deleted after its successful read but
+			// before this buffered counter was flushed. It is no longer useful
+			// and must not poison every subsequent scheduler run.
+			discarded[entityID] = struct{}{}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		restore()
 		return 0, fmt.Errorf("commit access stats flush: %w", err)
+	}
+	if len(discarded) > 0 {
+		members := make([]string, 0, len(discarded))
+		for entityID := range discarded {
+			members = append(members, entityID)
+		}
+		_ = runtime.Redis.HDel(context.WithoutCancel(ctx), lastAccessKey, members...).Err()
 	}
 	return len(claimed), nil
 }

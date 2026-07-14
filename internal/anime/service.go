@@ -20,9 +20,9 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
 )
 
-const tvdbAnimeNormalizerVersion = "tvdb-anime-series/v3"
+const tvdbAnimeNormalizerVersion = "tvdb-anime-series/v4"
 
-var definition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v2", MergeVersion: "anime-combiner/v4"}
+var definition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v3", MergeVersion: "anime-combiner/v5"}
 
 type Service struct{ runtime *platform.Runtime }
 
@@ -70,17 +70,49 @@ func (s *Service) IngestAniDBWithCredentials(ctx context.Context, id string, job
 	if err != nil {
 		return result, err
 	}
-	mappingPayload, mapping, found, mappingErr := animelists.NewCached(s.runtime.Config.Providers.AnimeLists, mappingCache).Lookup(ctx, id)
+	mappingClient := animelists.NewCached(s.runtime.Config.Providers.AnimeLists, mappingCache)
+	mappingPayload, mapping, found, mappingErr := mappingClient.Lookup(ctx, id)
 	if mappingErr == nil && found {
-		mappingRecord := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "anime_lists", Namespace: "mapping", ProviderID: id, PrimaryObservationID: mappingPayload.ObservationID, ObservedAt: mappingPayload.ObservedAt, NormalizerVersion: "anime-lists-mapping/v1"}
+		seriesRoot := mapping.IsTVDBSeriesRoot()
+		rootAniDBID := id
+		mappingSeriesIDs := animeListSeriesExternalIDs(mapping)
+		if mapping.TVDBID > 0 && !seriesRoot {
+			_, rootMapping, rootFound, rootErr := mappingClient.LookupExternal(ctx, "tvdb", strconv.Itoa(mapping.TVDBID))
+			if rootErr == nil && rootFound && rootMapping.AniDBID > 0 {
+				rootAniDBID = strconv.Itoa(rootMapping.AniDBID)
+			}
+		}
+		if mapping.TVDBID > 0 {
+			if seriesRoot {
+				shared, evidenceErr := s.seriesExternalEvidence(ctx, strconv.Itoa(mapping.TVDBID))
+				if evidenceErr != nil {
+					return result, evidenceErr
+				}
+				record.ExternalIDs = appendExternalIDs(record.ExternalIDs, shared...)
+			} else {
+				var shared []episodic.ExternalID
+				record.ExternalIDs, shared = splitAnimeSeriesExternalIDs(record.ExternalIDs)
+				if evidenceErr := s.rememberSeriesExternalEvidence(ctx, strconv.Itoa(mapping.TVDBID), rootAniDBID, shared, record.PrimaryObservationID, record.ObservedAt); evidenceErr != nil {
+					return result, evidenceErr
+				}
+				if evidenceErr := s.rememberSeriesExternalEvidence(ctx, strconv.Itoa(mapping.TVDBID), rootAniDBID, mappingSeriesIDs, mappingPayload.ObservationID, mappingPayload.ObservedAt); evidenceErr != nil {
+					return result, evidenceErr
+				}
+			}
+		}
+		// record was copied into records before the mapping scope was known.
+		// Keep the persisted AniDB normalization in sync with the filtered or
+		// promoted series-level evidence above.
+		records[0] = record
+		mappingRecord := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "anime_lists", Namespace: "mapping", ProviderID: id, PrimaryObservationID: mappingPayload.ObservationID, ObservedAt: mappingPayload.ObservedAt, NormalizerVersion: "anime-lists-mapping/v2/anidb/" + id}
 		if mapping.MALID > 0 {
 			mappingRecord.ExternalIDs = append(mappingRecord.ExternalIDs, episodic.ExternalID{Provider: "myanimelist", Namespace: "anime", Value: strconv.Itoa(mapping.MALID)})
 		}
 		if mapping.AniListID > 0 {
 			mappingRecord.ExternalIDs = append(mappingRecord.ExternalIDs, episodic.ExternalID{Provider: "anilist", Namespace: "anime", Value: strconv.Itoa(mapping.AniListID)})
 		}
-		if mapping.TVDBID > 0 {
-			mappingRecord.ExternalIDs = append(mappingRecord.ExternalIDs, episodic.ExternalID{Provider: "tvdb", Namespace: "series", Value: strconv.Itoa(mapping.TVDBID)})
+		if seriesRoot {
+			mappingRecord.ExternalIDs = appendExternalIDs(mappingRecord.ExternalIDs, mappingSeriesIDs...)
 		}
 		records = append(records, mappingRecord)
 		if mapping.TVDBID > 0 && mapping.Season.TVDB != nil && (credentials.APIKey("tvdb") != "" || s.runtime.Config.Providers.TVDB.APIKey != "") {
@@ -105,7 +137,13 @@ func (s *Service) IngestAniDBWithCredentials(ctx context.Context, id string, job
 			payloads, collectErr := fanart.NewCached(s.runtime.Config.Providers.Fanart, fanartCache, credentials.APIKey("fanart")).Collect(ctx, providers.Identifier{Provider: "tvdb", Namespace: "series", Value: strconv.Itoa(mapping.TVDBID)})
 			if collectErr == nil && len(payloads) > 0 && payloads[0].StatusCode == http.StatusOK {
 				if supplemental, normalizeErr := fanart.NormalizeTV(payloads[0].Body, payloads[0].ObservationID, payloads[0].ObservedAt, "anime"); normalizeErr == nil {
+					supplemental.NormalizerVersion = fmt.Sprintf("%s/anime-season/%d", fanart.TVNormalizerVersion, *mapping.Season.TVDB)
 					supplemental.Images = nil
+					if !seriesRoot {
+						supplemental.Namespace = "series_season"
+						supplemental.ProviderID = fmt.Sprintf("%d:%d", mapping.TVDBID, *mapping.Season.TVDB)
+						supplemental.ExternalIDs, _ = splitAnimeSeriesExternalIDs(supplemental.ExternalIDs)
+					}
 					mappedSeasons := make([]episodic.Season, 0, 1)
 					for _, season := range supplemental.Seasons {
 						if season.Number == *mapping.Season.TVDB {

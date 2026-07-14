@@ -52,7 +52,7 @@ func normalizeTVDBAnime(payload providers.Payload, season, offset int, seasonPay
 	if v.ID < 1 {
 		return episodic.NormalizedRecord{}, fmt.Errorf("invalid TVDB anime supplement")
 	}
-	r := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "tvdb", Namespace: "series", ProviderID: strconv.FormatInt(v.ID, 10), PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, NormalizerVersion: tvdbAnimeNormalizerVersion, ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "series", Value: strconv.FormatInt(v.ID, 10)}}}
+	r := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "tvdb", Namespace: "series", ProviderID: strconv.FormatInt(v.ID, 10), PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, NormalizerVersion: fmt.Sprintf("%s/season/%d", tvdbAnimeNormalizerVersion, season), ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "series", Value: strconv.FormatInt(v.ID, 10)}}}
 	if v.Name != "" {
 		r.Titles = []episodic.Title{{Value: v.Name, Type: "alias"}}
 	}
@@ -70,6 +70,11 @@ func normalizeTVDBAnime(payload providers.Payload, season, offset int, seasonPay
 			continue
 		}
 		providerID := strconv.FormatInt(sourceSeason.ID, 10)
+		if season != 1 {
+			r.Namespace = "season"
+			r.ProviderID = providerID
+			r.ExternalIDs = []episodic.ExternalID{{Provider: "tvdb", Namespace: "season", Value: providerID}}
+		}
 		item := episodic.Season{ProviderID: providerID, Number: 1, Name: sourceSeason.Name, ExternalIDs: []episodic.ExternalID{{Provider: "tvdb", Namespace: "season", Value: providerID}}}
 		if item.Name == "" {
 			item.Name = "Season 1"
@@ -83,6 +88,11 @@ func normalizeTVDBAnime(payload providers.Payload, season, offset int, seasonPay
 	}
 	if len(r.Seasons) == 0 {
 		r.Seasons = []episodic.Season{{Number: 1, Name: "Season 1", Titles: []episodic.Title{{Value: "Season 1", Language: "en", Type: "display"}}}}
+		if season != 1 {
+			r.Namespace = "series_season"
+			r.ProviderID = fmt.Sprintf("%d:%d", v.ID, season)
+			r.ExternalIDs = nil
+		}
 	}
 	for _, seasonPayload := range seasonPayloads {
 		appendTVDBAnimeSeasonArtwork(&r, seasonPayload, season)

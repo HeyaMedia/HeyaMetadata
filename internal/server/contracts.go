@@ -13,6 +13,15 @@ func jsonResponse(description, schemaRef string) *huma.Response {
 
 func acceptedJSONResponse(schemaRef string) *huma.Response {
 	response := jsonResponse("Accepted for asynchronous processing", schemaRef)
+	return withRetryAfter(response)
+}
+
+func retryableJSONResponse(schemaRef string) *huma.Response {
+	response := jsonResponse("Processing failed after retries; the request may be submitted again", schemaRef)
+	return withRetryAfter(response)
+}
+
+func withRetryAfter(response *huma.Response) *huma.Response {
 	response.Headers = map[string]*huma.Param{
 		"Retry-After": {
 			Description: "Suggested number of seconds before polling the returned resource or job",

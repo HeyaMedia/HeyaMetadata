@@ -65,7 +65,11 @@ func RecordObservation(
 	if err := compressor.Close(); err != nil {
 		return RecordedObservation{}, fmt.Errorf("finish observation compression: %w", err)
 	}
-	if err := runtime.Blobs.PutImmutable(ctx, objectKey, compressed.Bytes(), mediaType, "gzip"); err != nil {
+	// Compression is an internal source_blobs concern. Do not advertise the
+	// storage wrapper as HTTP Content-Encoding: S3-compatible gateways are
+	// allowed to decode it transparently, which makes an opaque blob's wire
+	// representation (and sometimes Content-Length) gateway-dependent.
+	if err := runtime.Blobs.PutImmutable(ctx, objectKey, compressed.Bytes(), mediaType, ""); err != nil {
 		return RecordedObservation{}, fmt.Errorf("store provider observation: %w", err)
 	}
 
@@ -93,6 +97,11 @@ func RecordObservation(
         ) VALUES ($1, $2, 'gzip', $3, $4, $5, 'verified', $6, $7)
         ON CONFLICT (checksum) DO UPDATE SET
             object_key = EXCLUDED.object_key,
+			compression = EXCLUDED.compression,
+			media_type = EXCLUDED.media_type,
+			uncompressed_size = EXCLUDED.uncompressed_size,
+			compressed_size = EXCLUDED.compressed_size,
+			integrity_state = 'verified',
             retention_class = CASE
                 WHEN source_blobs.expires_at IS NULL THEN source_blobs.retention_class
                 ELSE EXCLUDED.retention_class

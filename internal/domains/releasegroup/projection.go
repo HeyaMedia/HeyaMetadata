@@ -59,21 +59,23 @@ type ProjectedImage struct {
 	Provider      string  `json:"provider"`
 }
 type ProjectedEdition struct {
-	Provider   string          `json:"provider"`
-	Namespace  string          `json:"namespace"`
-	ProviderID string          `json:"provider_id"`
-	Title      string          `json:"title"`
-	Status     string          `json:"status,omitempty"`
-	Date       DateValue       `json:"date"`
-	Country    string          `json:"country,omitempty"`
-	Barcode    string          `json:"barcode,omitempty"`
-	TrackCount int             `json:"track_count,omitempty"`
-	DurationMS int64           `json:"duration_ms,omitempty"`
-	Explicit   *bool           `json:"explicit,omitempty"`
-	Formats    []string        `json:"formats"`
-	Link       string          `json:"link,omitempty"`
-	ImageID    string          `json:"image_id,omitempty"`
-	Sources    []EditionSource `json:"sources"`
+	EntityID        string          `json:"entity_id,omitempty" format:"uuid"`
+	Provider        string          `json:"provider"`
+	Namespace       string          `json:"namespace"`
+	ProviderID      string          `json:"provider_id"`
+	Title           string          `json:"title"`
+	Status          string          `json:"status,omitempty"`
+	Date            DateValue       `json:"date"`
+	Country         string          `json:"country,omitempty"`
+	Barcode         string          `json:"barcode,omitempty"`
+	TrackCount      int             `json:"track_count,omitempty"`
+	DurationMS      int64           `json:"duration_ms,omitempty"`
+	Explicit        *bool           `json:"explicit,omitempty"`
+	Formats         []string        `json:"formats"`
+	Link            string          `json:"link,omitempty"`
+	ImageID         string          `json:"image_id,omitempty"`
+	Sources         []EditionSource `json:"sources"`
+	ResolutionState string          `json:"resolution_state" enum:"materialized,unresolved"`
 }
 type EditionSource struct {
 	Provider   string `json:"provider"`
@@ -83,8 +85,10 @@ type EditionSource struct {
 }
 type ProjectedTrack struct {
 	Track
-	Provider          string `json:"provider"`
-	RecordingEntityID string `json:"recording_entity_id,omitempty"`
+	Provider                 string `json:"provider"`
+	RecordingEntityID        string `json:"recording_entity_id,omitempty" format:"uuid"`
+	RecordingResolutionState string `json:"recording_resolution_state" enum:"materialized,unresolved"`
+	LyricsAvailable          bool   `json:"lyrics_available"`
 }
 type DetailData struct {
 	Titles         []Title            `json:"titles"`
@@ -105,7 +109,7 @@ type DetailData struct {
 type DetailDocument struct {
 	SchemaVersion     int                     `json:"schema_version"`
 	ProjectionVersion int64                   `json:"projection_version"`
-	ID                string                  `json:"id"`
+	ID                string                  `json:"id" format:"uuid"`
 	Kind              string                  `json:"kind"`
 	Slug              string                  `json:"slug"`
 	Display           Display                 `json:"display"`
@@ -117,7 +121,7 @@ type DetailDocument struct {
 type SummaryDocument struct {
 	SchemaVersion     int          `json:"schema_version"`
 	ProjectionVersion int64        `json:"projection_version"`
-	ID                string       `json:"id"`
+	ID                string       `json:"id" format:"uuid"`
 	Kind              string       `json:"kind"`
 	Slug              string       `json:"slug"`
 	Display           Display      `json:"display"`

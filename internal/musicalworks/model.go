@@ -19,7 +19,8 @@ type Composer struct {
 	Name             string `json:"name"`
 	Provider         string `json:"provider"`
 	ProviderPersonID string `json:"provider_person_id"`
-	ArtistEntityID   string `json:"artist_entity_id,omitempty"`
+	ArtistEntityID   string `json:"artist_entity_id,omitempty" format:"uuid"`
+	ResolutionState  string `json:"resolution_state" enum:"materialized,unresolved"`
 	Epoch            string `json:"epoch,omitempty"`
 }
 
@@ -59,7 +60,7 @@ type SourceRef struct {
 type Document struct {
 	SchemaVersion     int    `json:"schema_version"`
 	ProjectionVersion int64  `json:"projection_version"`
-	ID                string `json:"id"`
+	ID                string `json:"id" format:"uuid"`
 	Kind              string `json:"kind"`
 	Slug              string `json:"slug"`
 	Display           struct {

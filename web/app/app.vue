@@ -13,4 +13,5 @@ onMounted(() => useAuth().hydrate())
   <NuxtLayout>
     <NuxtPage />
   </NuxtLayout>
+  <SongPanel />
 </template>

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/accessstats"
+	"github.com/HeyaMedia/HeyaMetadata/internal/canonicalrefs"
 	artistdomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/artist"
 	"github.com/jackc/pgx/v5"
 )
@@ -25,11 +26,12 @@ type TopTrack struct {
 	Title             string               `json:"title"`
 	Provider          string               `json:"provider"`
 	ProviderTrackID   string               `json:"provider_track_id,omitempty"`
-	RecordingEntityID string               `json:"recording_entity_id,omitempty"`
+	RecordingEntityID string               `json:"recording_entity_id,omitempty" format:"uuid"`
 	ExternalIDs       []TopTrackExternalID `json:"external_ids"`
 	Playcount         int64                `json:"playcount,omitempty"`
 	Listeners         int64                `json:"listeners,omitempty"`
 	URL               string               `json:"url,omitempty"`
+	ResolutionState   string               `json:"resolution_state" enum:"materialized,unresolved"`
 }
 
 type TopTrackSource struct {
@@ -43,7 +45,7 @@ type TopTrackSource struct {
 }
 
 type TopTracksPage struct {
-	ArtistID string           `json:"artist_id"`
+	ArtistID string           `json:"artist_id" format:"uuid"`
 	Results  []TopTrack       `json:"results"`
 	Sources  []TopTrackSource `json:"sources"`
 	Total    int              `json:"total"`
@@ -56,6 +58,9 @@ func (s *Service) Detail(ctx context.Context, entityID string) (artistdomain.Det
 	if cached, err := s.runtime.Redis.Get(ctx, key).Bytes(); err == nil {
 		var document artistdomain.DetailDocument
 		if json.Unmarshal(cached, &document) == nil && document.Kind == "artist" {
+			if err := hydrateArtistRelationIDs(ctx, s.runtime.DB, &document); err != nil {
+				return artistdomain.DetailDocument{}, false, err
+			}
 			_ = accessstats.Track(ctx, s.runtime.Redis, entityID)
 			return document, time.Now().Before(document.Freshness.FreshUntil), nil
 		}
@@ -75,11 +80,47 @@ func (s *Service) Detail(ctx context.Context, entityID string) (artistdomain.Det
 	if document.Kind != "artist" {
 		return artistdomain.DetailDocument{}, false, ErrNotFound
 	}
+	if err := hydrateArtistRelationIDs(ctx, s.runtime.DB, &document); err != nil {
+		return artistdomain.DetailDocument{}, false, err
+	}
 	if ttl := time.Until(freshUntil); ttl > 0 {
 		_ = s.runtime.Redis.Set(ctx, key, body, ttl).Err()
 	}
 	_ = accessstats.Track(ctx, s.runtime.Redis, entityID)
 	return document, time.Now().Before(freshUntil), nil
+}
+
+func hydrateArtistRelationIDs(ctx context.Context, db canonicalrefs.Querier, document *artistdomain.DetailDocument) error {
+	refs := make([]canonicalrefs.Ref, 0, len(document.Data.Relationships)+len(document.Data.SimilarArtists))
+	for _, relationship := range document.Data.Relationships {
+		refs = append(refs, canonicalrefs.Ref{Provider: relationship.TargetProvider, Namespace: relationship.TargetNamespace, Value: relationship.TargetID})
+	}
+	for _, similar := range document.Data.SimilarArtists {
+		refs = append(refs, canonicalrefs.Ref{Provider: similar.Provider, Namespace: "artist", Value: similar.ProviderID})
+	}
+	resolved, err := canonicalrefs.Resolve(ctx, db, "artist", refs)
+	if err != nil {
+		return err
+	}
+	for index := range document.Data.Relationships {
+		relationship := &document.Data.Relationships[index]
+		ref := canonicalrefs.Ref{Provider: relationship.TargetProvider, Namespace: relationship.TargetNamespace, Value: relationship.TargetID}
+		relationship.EntityID = resolved[canonicalrefs.Key(ref)]
+		relationship.ResolutionState = "unresolved"
+		if relationship.EntityID != "" {
+			relationship.ResolutionState = "materialized"
+		}
+	}
+	for index := range document.Data.SimilarArtists {
+		similar := &document.Data.SimilarArtists[index]
+		ref := canonicalrefs.Ref{Provider: similar.Provider, Namespace: "artist", Value: similar.ProviderID}
+		similar.EntityID = resolved[canonicalrefs.Key(ref)]
+		similar.ResolutionState = "unresolved"
+		if similar.EntityID != "" {
+			similar.ResolutionState = "materialized"
+		}
+	}
+	return nil
 }
 
 func (s *Service) TopTracks(ctx context.Context, entityID string, offset, limit int) (TopTracksPage, error) {
@@ -133,6 +174,10 @@ func (s *Service) TopTracks(ctx context.Context, entityID string, offset, limit 
 		if recordingMBID != "" {
 			track.ExternalIDs = append(track.ExternalIDs, TopTrackExternalID{Provider: "musicbrainz", Namespace: "recording", Value: recordingMBID})
 		}
+		track.ResolutionState = "unresolved"
+		if track.RecordingEntityID != "" {
+			track.ResolutionState = "materialized"
+		}
 		page.Results = append(page.Results, track)
 	}
 	if err := rows.Err(); err != nil {
@@ -171,4 +216,27 @@ func (s *Service) MusicBrainzID(ctx context.Context, entityID string) (string, e
 		return "", err
 	}
 	return value, nil
+}
+
+// RefreshRoot returns the best directly ingestible artist identity. Provider
+// selection is private to HeyaMetadata and does not leak into client control
+// flow.
+func (s *Service) RefreshRoot(ctx context.Context, entityID string) (provider, value string, err error) {
+	err = s.runtime.DB.QueryRow(ctx, `
+		SELECT claim.provider,claim.normalized_value
+		FROM external_id_claims claim
+		WHERE claim.entity_id=$1 AND claim.entity_kind='artist' AND claim.namespace='artist' AND claim.state='accepted'
+		  AND claim.provider IN('musicbrainz','apple','deezer')
+		  AND (claim.provider='musicbrainz' OR EXISTS(
+			SELECT 1 FROM normalized_records record
+			WHERE record.entity_id=claim.entity_id AND record.entity_kind='artist'
+			  AND record.provider=claim.provider AND record.provider_namespace='artist'
+			  AND record.provider_record_id=claim.normalized_value))
+		ORDER BY CASE claim.provider WHEN 'musicbrainz' THEN 1 WHEN 'apple' THEN 2 ELSE 3 END,
+		         claim.last_observed_at DESC
+		LIMIT 1`, entityID).Scan(&provider, &value)
+	if err == pgx.ErrNoRows {
+		return "", "", ErrNotFound
+	}
+	return provider, value, err
 }

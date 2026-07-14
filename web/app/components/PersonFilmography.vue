@@ -8,11 +8,18 @@ import type { PersonCredit } from '~/utils/types'
 // hundreds of unresolved provider entries.
 const props = defineProps<{ credits?: PersonCredit[] }>()
 
+// A credit is navigable only when the backend materialized its target entity;
+// unresolved items are display-only (never a route from a provider id).
+function linkFor(credit: PersonCredit): string | undefined {
+  if (!credit.entity_id || credit.resolution_state === 'unresolved') return undefined
+  return entityPath({ id: credit.entity_id, kind: credit.kind })
+}
+
 const groups = computed(() => {
   const credits = props.credits ?? []
   const cast = credits.filter(c => (c.credit_type ?? 'cast') === 'cast')
   const crew = credits.filter(c => (c.credit_type ?? 'cast') !== 'cast')
-  const rank = (c: PersonCredit) => (c.entity_id ? 0 : 1)
+  const rank = (c: PersonCredit) => (linkFor(c) ? 0 : 1)
   const order = (a: PersonCredit, b: PersonCredit) => rank(a) - rank(b) || (b.year ?? 0) - (a.year ?? 0)
   return [
     { key: 'cast', title: 'Acting', items: [...cast].sort(order) },
@@ -23,11 +30,8 @@ const groups = computed(() => {
 function roleOf(credit: PersonCredit) {
   return formatValue(credit.character) || titleCase(credit.job) || titleCase(credit.department)
 }
-function synth(credit: PersonCredit) {
-  return { id: credit.entity_id, kind: credit.kind, display: { title: credit.title, year: credit.year, image_id: credit.image_id } }
-}
 function creditKey(credit: PersonCredit, index: number) {
-  return credit.entity_id || credit.provider_target_id || index
+  return credit.entity_id || index
 }
 const linkTag = resolveComponent('NuxtLink')
 </script>
@@ -44,17 +48,17 @@ const linkTag = resolveComponent('NuxtLink')
   >
     <template #default="{ item: credit }">
       <component
-        :is="credit.entity_id ? linkTag : 'div'"
-        :to="credit.entity_id ? entityPath(synth(credit)) : undefined"
+        :is="linkFor(credit) ? linkTag : 'div'"
+        :to="linkFor(credit)"
         class="film"
-        :class="{ 'is-ghost': !credit.entity_id }"
+        :class="{ 'is-ghost': !linkFor(credit) }"
       >
         <span class="film__art"><MetadataImage :image-id="credit.image_id" :alt="credit.title" variant="card" /></span>
         <span class="film__body">
           <small>{{ credit.year || '—' }}</small>
           <strong>{{ formatValue(credit.title) || 'Untitled' }}</strong>
           <span v-if="roleOf(credit)" class="film__role">{{ roleOf(credit) }}</span>
-          <span v-if="!credit.entity_id" class="film__status">Not ingested</span>
+          <span v-if="!linkFor(credit)" class="film__status">Not materialized</span>
         </span>
       </component>
     </template>

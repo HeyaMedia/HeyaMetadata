@@ -22,6 +22,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/fanart"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/wikidata"
+	"github.com/HeyaMedia/HeyaMetadata/internal/recordings"
 	"github.com/jackc/pgx/v5"
 	"log/slog"
 	"net/http"
@@ -29,6 +30,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/HeyaMedia/HeyaMetadata/internal/canonicalrefs"
 )
 
 var nonSlug = regexp.MustCompile(`[^\p{L}\p{N}]+`)
@@ -391,13 +394,8 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 		return Result{}, err
 	}
 	projection := rgdomain.Combine(entityID, slug, version, records, imageIDs, time.Now().UTC())
-	for i := range projection.Detail.Data.Tracks {
-		track := &projection.Detail.Data.Tracks[i]
-		provider, namespace, value := track.Provider, "track", track.ProviderID
-		if track.RecordingProvider != "" && track.RecordingID != "" {
-			provider, namespace, value = track.RecordingProvider, "recording", track.RecordingID
-		}
-		_ = tx.QueryRow(ctx, `SELECT entity_id::text FROM external_id_claims WHERE entity_kind='recording' AND provider=$1 AND namespace=$2 AND normalized_value=$3 AND state='accepted' LIMIT 1`, provider, namespace, strings.ToLower(value)).Scan(&track.RecordingEntityID)
+	if err := hydrateCanonicalIDs(ctx, tx, &projection.Detail); err != nil {
+		return Result{}, err
 	}
 	detailJSON, _ := json.Marshal(projection.Detail)
 	summaryJSON, _ := json.Marshal(projection.Summary)
@@ -481,7 +479,9 @@ func (s *Service) Detail(ctx context.Context, id string) (rgdomain.DetailDocumen
 	if body, err := s.runtime.Redis.Get(ctx, key).Bytes(); err == nil {
 		var document rgdomain.DetailDocument
 		if json.Unmarshal(body, &document) == nil && document.Kind == "release_group" {
-			s.hydrateRecordingIDs(ctx, &document)
+			if err := hydrateCanonicalIDs(ctx, s.runtime.DB, &document); err != nil {
+				return rgdomain.DetailDocument{}, false, err
+			}
 			return document, time.Now().Before(document.Freshness.FreshUntil), nil
 		}
 	}
@@ -496,22 +496,95 @@ func (s *Service) Detail(ctx context.Context, id string) (rgdomain.DetailDocumen
 	if err := json.Unmarshal(body, &document); err != nil {
 		return document, false, err
 	}
-	s.hydrateRecordingIDs(ctx, &document)
+	if err := hydrateCanonicalIDs(ctx, s.runtime.DB, &document); err != nil {
+		return rgdomain.DetailDocument{}, false, err
+	}
 	return document, time.Now().Before(fresh), nil
 }
 
-func (s *Service) hydrateRecordingIDs(ctx context.Context, document *rgdomain.DetailDocument) {
-	for i := range document.Data.Tracks {
-		track := &document.Data.Tracks[i]
-		if track.RecordingEntityID != "" {
-			continue
-		}
-		provider, namespace, value := track.Provider, "track", track.ProviderID
-		if track.RecordingProvider != "" && track.RecordingID != "" {
-			provider, namespace, value = track.RecordingProvider, "recording", track.RecordingID
-		}
-		_ = s.runtime.DB.QueryRow(ctx, `SELECT entity_id::text FROM external_id_claims WHERE entity_kind='recording' AND provider=$1 AND namespace=$2 AND normalized_value=$3 AND state='accepted' LIMIT 1`, provider, namespace, strings.ToLower(value)).Scan(&track.RecordingEntityID)
+func hydrateCanonicalIDs(ctx context.Context, db canonicalrefs.Querier, document *rgdomain.DetailDocument) error {
+	artistRefs := make([]canonicalrefs.Ref, 0, len(document.Data.ArtistCredits))
+	for _, credit := range document.Data.ArtistCredits {
+		artistRefs = append(artistRefs, canonicalrefs.Ref{Provider: credit.ArtistProvider, Namespace: credit.ArtistNamespace, Value: credit.ArtistID})
 	}
+	for _, track := range document.Data.Tracks {
+		for _, credit := range track.ArtistCredits {
+			artistRefs = append(artistRefs, canonicalrefs.Ref{Provider: credit.ArtistProvider, Namespace: credit.ArtistNamespace, Value: credit.ArtistID})
+		}
+	}
+	artists, err := canonicalrefs.Resolve(ctx, db, "artist", artistRefs)
+	if err != nil {
+		return err
+	}
+	hydrateCredit := func(credit *rgdomain.ArtistCredit) {
+		ref := canonicalrefs.Ref{Provider: credit.ArtistProvider, Namespace: credit.ArtistNamespace, Value: credit.ArtistID}
+		credit.ArtistEntityID = artists[canonicalrefs.Key(ref)]
+		credit.ResolutionState = "unresolved"
+		if credit.ArtistEntityID != "" {
+			credit.ResolutionState = "materialized"
+		}
+	}
+	for index := range document.Data.ArtistCredits {
+		hydrateCredit(&document.Data.ArtistCredits[index])
+	}
+
+	recordingRefs := make([]canonicalrefs.Ref, 0, len(document.Data.Tracks))
+	for _, track := range document.Data.Tracks {
+		ref := canonicalrefs.Ref{Provider: track.Provider, Namespace: "track", Value: track.ProviderID}
+		if track.RecordingProvider != "" && track.RecordingID != "" {
+			ref = canonicalrefs.Ref{Provider: track.RecordingProvider, Namespace: "recording", Value: track.RecordingID}
+		}
+		recordingRefs = append(recordingRefs, ref)
+	}
+	recordingEntities, err := canonicalrefs.Resolve(ctx, db, "recording", recordingRefs)
+	if err != nil {
+		return err
+	}
+	recordingIDs := make([]string, 0, len(document.Data.Tracks))
+	for trackIndex := range document.Data.Tracks {
+		track := &document.Data.Tracks[trackIndex]
+		ref := canonicalrefs.Ref{Provider: track.Provider, Namespace: "track", Value: track.ProviderID}
+		if track.RecordingProvider != "" && track.RecordingID != "" {
+			ref = canonicalrefs.Ref{Provider: track.RecordingProvider, Namespace: "recording", Value: track.RecordingID}
+		}
+		track.RecordingEntityID = recordingEntities[canonicalrefs.Key(ref)]
+		track.RecordingResolutionState = "unresolved"
+		if track.RecordingEntityID != "" {
+			track.RecordingResolutionState = "materialized"
+		}
+		track.LyricsAvailable = false
+		recordingIDs = append(recordingIDs, track.RecordingEntityID)
+		for creditIndex := range track.ArtistCredits {
+			hydrateCredit(&track.ArtistCredits[creditIndex])
+		}
+	}
+	lyricsAvailability, err := recordings.LyricsAvailability(ctx, db, recordingIDs)
+	if err != nil {
+		return err
+	}
+	for trackIndex := range document.Data.Tracks {
+		track := &document.Data.Tracks[trackIndex]
+		track.LyricsAvailable = lyricsAvailability[track.RecordingEntityID]
+	}
+
+	editionRefs := make([]canonicalrefs.Ref, 0, len(document.Data.Editions))
+	for _, edition := range document.Data.Editions {
+		editionRefs = append(editionRefs, canonicalrefs.Ref{Provider: edition.Provider, Namespace: edition.Namespace, Value: edition.ProviderID})
+	}
+	editions, err := canonicalrefs.Resolve(ctx, db, "release", editionRefs)
+	if err != nil {
+		return err
+	}
+	for index := range document.Data.Editions {
+		edition := &document.Data.Editions[index]
+		ref := canonicalrefs.Ref{Provider: edition.Provider, Namespace: edition.Namespace, Value: edition.ProviderID}
+		edition.EntityID = editions[canonicalrefs.Key(ref)]
+		edition.ResolutionState = "unresolved"
+		if edition.EntityID != "" {
+			edition.ResolutionState = "materialized"
+		}
+	}
+	return nil
 }
 func (s *Service) Resolve(ctx context.Context, provider, namespace, value string) (string, error) {
 	provider = strings.ToLower(provider)

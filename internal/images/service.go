@@ -48,7 +48,21 @@ func safeHTTPClient() *http.Client {
 
 func (s *Service) Materialize(ctx context.Context, id string) (asset Asset, returnErr error) {
 	var provider, sourceURL, class, state string
-	err := s.runtime.DB.QueryRow(ctx, `UPDATE image_candidates SET materialization_state='working',materialization_error=NULL,materialization_attempted_at=now() WHERE id=$1 AND materialization_state IN ('pending','failed') RETURNING provider,source_url,class,materialization_state`, id).Scan(&provider, &sourceURL, &class, &state)
+	err := s.runtime.DB.QueryRow(ctx, `
+		UPDATE image_candidates candidate
+		SET materialization_state='working',materialization_error=NULL,materialization_attempted_at=now()
+		WHERE candidate.id=$1
+		  AND (
+			candidate.materialization_state IN ('pending','failed')
+			OR (
+				candidate.materialization_state='ready'
+				AND NOT EXISTS (
+					SELECT 1 FROM image_variants variant
+					WHERE variant.image_id=candidate.id AND variant.transform_version=$2
+				)
+			)
+		  )
+		RETURNING provider,source_url,class,materialization_state`, id, TransformVersion).Scan(&provider, &sourceURL, &class, &state)
 	if err == pgx.ErrNoRows {
 		var existing Asset
 		var existingState string
@@ -290,20 +304,21 @@ func validateSourceURL(value *url.URL, allowHTTP bool) error {
 func providerHostAllowed(provider, host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	allowed := map[string][]string{
-		"tmdb":        {"image.tmdb.org"},
-		"tvdb":        {"artworks.thetvdb.com"},
-		"tvmaze":      {"static.tvmaze.com"},
-		"anidb":       {"cdn-eu.anidb.net"},
-		"fanart":      {"assets.fanart.tv"},
-		"discogs":     {"i.discogs.com", "st.discogs.com"},
-		"deezer":      {"cdn-images.dzcdn.net"},
-		"lastfm":      {"lastfm.freetls.fastly.net"},
-		"wikidata":    {"commons.wikimedia.org", "upload.wikimedia.org"},
-		"openlibrary": {"covers.openlibrary.org", "archive.org"},
-		"googlebooks": {"books.google.com", "books.googleusercontent.com"},
-		"kitsu":       {"media.kitsu.app"},
-		"myanimelist": {"api-cdn.myanimelist.net"},
-		"apple":       {"mzstatic.com"},
+		"tmdb":            {"image.tmdb.org"},
+		"tvdb":            {"artworks.thetvdb.com"},
+		"tvmaze":          {"static.tvmaze.com"},
+		"anidb":           {"cdn-eu.anidb.net"},
+		"fanart":          {"assets.fanart.tv"},
+		"coverartarchive": {"coverartarchive.org", "archive.org"},
+		"discogs":         {"i.discogs.com", "st.discogs.com"},
+		"deezer":          {"cdn-images.dzcdn.net"},
+		"lastfm":          {"lastfm.freetls.fastly.net"},
+		"wikidata":        {"commons.wikimedia.org", "upload.wikimedia.org"},
+		"openlibrary":     {"covers.openlibrary.org", "archive.org"},
+		"googlebooks":     {"books.google.com", "books.googleusercontent.com"},
+		"kitsu":           {"media.kitsu.app"},
+		"myanimelist":     {"api-cdn.myanimelist.net"},
+		"apple":           {"mzstatic.com"},
 	}
 	for _, suffix := range allowed[strings.ToLower(provider)] {
 		if host == suffix || strings.HasSuffix(host, "."+suffix) {

@@ -221,6 +221,10 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 	}
 	for i := range record.Networks {
 		item := &record.Networks[i]
+		item.ResolutionState = "unresolved"
+		if item.EntityID != "" {
+			item.ResolutionState = "materialized"
+		}
 		if item.LogoURL == "" {
 			continue
 		}
@@ -233,6 +237,10 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 	}
 	for i := range record.Organizations {
 		item := &record.Organizations[i]
+		item.ResolutionState = "unresolved"
+		if item.EntityID != "" {
+			item.ResolutionState = "materialized"
+		}
 		if item.LogoURL == "" {
 			continue
 		}
@@ -250,6 +258,10 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 			if recommendation.EntityID != "" {
 				break
 			}
+		}
+		recommendation.ResolutionState = "unresolved"
+		if recommendation.EntityID != "" {
+			recommendation.ResolutionState = "materialized"
 		}
 		if recommendation.ImageURL != "" {
 			image, err := materializeImage(Image{Provider: recommendation.Provider, ProviderID: "recommendation:" + recommendation.ProviderID, URL: recommendation.ImageURL, Class: "poster", ProviderScore: recommendation.ProviderScore}, "recommendation", "")

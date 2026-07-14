@@ -52,6 +52,7 @@ func newServer(version string, checker ReadinessChecker, runtime *platform.Runti
 	registerLibrary(api, runtime)
 	registerRelations(api, runtime)
 	registerPersons(api, runtime)
+	registerAdmin(api, runtime)
 
 	return &Server{handler: mux, api: api}
 }

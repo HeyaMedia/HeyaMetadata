@@ -23,7 +23,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var ErrFetchInProgress = errors.New("an identical provider request is already being fetched")
+var (
+	ErrFetchInProgress = errors.New("an identical provider request is already being fetched")
+	errCorruptBody     = errors.New("cached provider body failed integrity verification")
+)
 
 type Resolver struct {
 	runtime           *platform.Runtime
@@ -195,9 +198,15 @@ func (r *Resolver) materialize(ctx context.Context, template providers.Payload, 
 			}
 			return providers.Payload{}, false, fmt.Errorf("load cached provider body: %w", getErr)
 		}
-		body, err = decompress(stored)
+		body, err = decodeStoredBody(stored, p.Checksum)
 		if err != nil {
-			return providers.Payload{}, false, fmt.Errorf("decompress cached provider body: %w", err)
+			if !errors.Is(err, errCorruptBody) {
+				return providers.Payload{}, false, err
+			}
+			if invalidateErr := r.invalidateCorrupt(ctx, template.Provider, fingerprint, p); invalidateErr != nil {
+				return providers.Payload{}, false, invalidateErr
+			}
+			return providers.Payload{}, false, nil
 		}
 	}
 	digest := sha256.Sum256(body)
@@ -206,7 +215,10 @@ func (r *Resolver) materialize(ctx context.Context, template providers.Payload, 
 			_ = r.runtime.Redis.Del(ctx, bodyKey).Err()
 			return r.materialize(ctx, template, fingerprint, p)
 		}
-		return providers.Payload{}, false, fmt.Errorf("cached provider body checksum mismatch")
+		if err := r.invalidateCorrupt(ctx, template.Provider, fingerprint, p); err != nil {
+			return providers.Payload{}, false, err
+		}
+		return providers.Payload{}, false, nil
 	}
 	if err := r.remember(ctx, template.Provider, fingerprint, p, body); err != nil {
 		return providers.Payload{}, false, err
@@ -219,6 +231,49 @@ func (r *Resolver) materialize(ctx context.Context, template providers.Payload, 
 	template.BlobChecksum = p.Checksum
 	template.FromCache = true
 	return template, true, nil
+}
+
+// decodeStoredBody accepts both representations an S3-compatible gateway may
+// return. The object is normally a gzip storage wrapper around the provider
+// payload. Some gateways honor Content-Encoding and remove that wrapper before
+// delivery; hashing the bytes first prevents an already-restored gzip provider
+// payload (notably AniDB's title dump) from being decompressed a second time.
+func decodeStoredBody(stored []byte, expectedChecksum string) ([]byte, error) {
+	if checksum(stored) == expectedChecksum {
+		return stored, nil
+	}
+	decoded, err := decompress(stored)
+	if err != nil {
+		return nil, fmt.Errorf("%w: decompress storage wrapper: %v", errCorruptBody, err)
+	}
+	if checksum(decoded) == expectedChecksum {
+		return decoded, nil
+	}
+	return nil, errCorruptBody
+}
+
+func checksum(body []byte) string {
+	digest := sha256.Sum256(body)
+	return hex.EncodeToString(digest[:])
+}
+
+func (r *Resolver) invalidateCorrupt(ctx context.Context, provider, fingerprint string, p pointer) error {
+	// Remove the immutable object first. A later refetch of identical upstream
+	// bytes has the same content key and must be able to recreate it rather than
+	// accepting the corrupt object through PutImmutable's precondition result.
+	if err := r.runtime.Blobs.Delete(ctx, p.ObjectKey); err != nil && !errors.Is(err, blobstore.ErrNotFound) {
+		return fmt.Errorf("delete corrupt cached provider body: %w", err)
+	}
+	if _, err := r.runtime.DB.Exec(ctx, `UPDATE source_blobs SET integrity_state='corrupt',deleted_at=now() WHERE checksum=$1`, p.Checksum); err != nil {
+		return fmt.Errorf("invalidate corrupt provider blob: %w", err)
+	}
+	if err := r.runtime.Redis.Del(ctx,
+		pointerKey(provider, fingerprint),
+		"heya:metadata:v1:provider-body:"+p.Checksum,
+	).Err(); err != nil {
+		return fmt.Errorf("evict corrupt provider cache: %w", err)
+	}
+	return nil
 }
 
 func (r *Resolver) remember(ctx context.Context, provider, fingerprint string, p pointer, body []byte) error {

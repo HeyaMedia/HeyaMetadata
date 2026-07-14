@@ -8,11 +8,13 @@ identity by itself.
 
 ### Catalog and editorial evidence
 
-MusicBrainz remains the initial artist, release-group, release, and recording
-spine. Discogs, free iTunes Search, Deezer, TIDAL, Qobuz, Amazon, Bandcamp,
-KKBOX, QQ Music, and NetEase may contribute storefront IDs, availability,
-credits, edition facts, artwork, previews, and links when an official or
-otherwise explicitly permitted integration exists.
+MusicBrainz remains a high-confidence release-group, release, and recording
+spine. Artist identity is provider-independent: directly ingested
+MusicBrainz, Apple/iTunes, and Deezer artists can each establish a canonical
+Heya artist. Discogs, free iTunes Search, Deezer, TIDAL, Qobuz, Amazon,
+Bandcamp, KKBOX, QQ Music, and NetEase may contribute storefront IDs,
+availability, credits, edition facts, artwork, previews, and links when an
+official or otherwise explicitly permitted integration exists.
 
 The AudioDB, Genius, Wikidata, Last.fm, and similar knowledge sources provide
 editorial facts, relationships, popularity, and discovery signals. LRCLIB is a

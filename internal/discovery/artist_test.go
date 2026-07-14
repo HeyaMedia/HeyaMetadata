@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -58,6 +59,62 @@ func TestReleaseHintEvidenceIsDeduplicated(t *testing.T) {
 	values = appendUniqueReleaseHint(values, hint)
 	if len(values) != 1 {
 		t.Fatalf("hints: %+v", values)
+	}
+}
+
+func TestReleaseHintIdentifiersAreNormalizedMergedAndOrderIndependent(t *testing.T) {
+	t.Parallel()
+	left := NormalizeRequest(Request{Kind: KindArtist, Query: "Yoshiko", Hints: Hints{Releases: []ReleaseHint{
+		{Title: "Freaks Out", Year: 2022, Type: "Single", Identifiers: []Identifier{{Scheme: "itunes_album", Value: "01630125755"}}},
+		{Title: "Freaks Out", Year: 2022, Type: "single", Identifiers: []Identifier{{Scheme: "deezer_album", Value: "123"}}},
+	}}})
+	right := NormalizeRequest(Request{Kind: KindArtist, Query: "Yoshiko", Hints: Hints{Releases: []ReleaseHint{
+		{Title: "Freaks Out", Year: 2022, Type: "single", Identifiers: []Identifier{{Scheme: "deezer", Value: "123"}, {Scheme: "apple", Value: "1630125755"}}},
+	}}})
+	if len(left.Hints.Releases) != 1 || len(left.Hints.Releases[0].Identifiers) != 2 {
+		t.Fatalf("normalized releases: %#v", left.Hints.Releases)
+	}
+	leftHash, _, err := RequestHash(left)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightHash, _, err := RequestHash(right)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leftHash != rightHash {
+		t.Fatalf("equivalent release identifiers produced different request hashes: %s != %s", leftHash, rightHash)
+	}
+}
+
+func TestArtistReleaseSearchIsConstrainedToExactNameCandidates(t *testing.T) {
+	var source mbArtistSearch
+	if err := json.Unmarshal([]byte(`{"artists":[{"id":"056e4f3e-d505-4dad-8ec1-d04f521cbb56","name":"Daft Punk"}]}`), &source); err != nil {
+		t.Fatal(err)
+	}
+	ids := releaseHintArtistIDs("Daft Punk", source)
+	query := artistReleaseSearchQuery("Homework", ids)
+	if !strings.Contains(query, `alias:"Homework"`) || !strings.Contains(query, `release:"Homework"`) || !strings.Contains(query, "arid:056e4f3e-d505-4dad-8ec1-d04f521cbb56") {
+		t.Fatalf("query does not preserve title variants and artist identity: %s", query)
+	}
+}
+
+func TestReleaseHintSearchHandlesColloquialTitles(t *testing.T) {
+	titles := releaseHintSearchTitles("Cowboy Bebop OST 1")
+	if len(titles) != 2 || titles[1] != "Cowboy Bebop" {
+		t.Fatalf("search titles: %#v", titles)
+	}
+	if !releaseHintGroupMatches(ReleaseHint{Title: "Cowboy Bebop OST 1", Year: 1998, Type: "album"}, titles[1], true, "COWBOY BEBOP", "1998-05-21", "Album") {
+		t.Fatal("soundtrack shorthand did not match the canonical release-group title")
+	}
+	if !releaseHintGroupMatches(ReleaseHint{Title: "Cross", Year: 2007, Type: "album"}, "Cross", false, "✝", "2007-06-06", "Album") {
+		t.Fatal("alias-backed search evidence was discarded because the canonical title uses a symbol")
+	}
+	if releaseHintGroupMatches(ReleaseHint{Title: "Cross", Year: 2007, Type: "album"}, "Cross", false, "Cross", "2017", "Album") {
+		t.Fatal("release year mismatch was accepted")
+	}
+	if releaseHintGroupMatches(ReleaseHint{Title: "Cross", Year: 2007, Type: "album"}, "Cross", false, "A Cross the Universe", "2008-11-24", "Album") {
+		t.Fatal("a fuzzy Lucene result was treated as invisible alias evidence")
 	}
 }
 

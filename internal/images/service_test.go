@@ -25,7 +25,7 @@ func TestProviderImageHostsAreExplicit(t *testing.T) {
 	tests := map[string]struct {
 		provider, host string
 		want           bool
-	}{"discogs": {"discogs", "i.discogs.com", true}, "discogs subdomain": {"discogs", "cdn.i.discogs.com", true}, "tvmaze": {"tvmaze", "static.tvmaze.com", true}, "anidb": {"anidb", "cdn-eu.anidb.net", true}, "openlibrary": {"openlibrary", "covers.openlibrary.org", true}, "openlibrary cdn": {"openlibrary", "archive.org", true}, "wrong provider": {"deezer", "i.discogs.com", false}, "arbitrary": {"wikidata", "example.com", false}, "commons": {"wikidata", "upload.wikimedia.org", true}}
+	}{"discogs": {"discogs", "i.discogs.com", true}, "discogs subdomain": {"discogs", "cdn.i.discogs.com", true}, "tvmaze": {"tvmaze", "static.tvmaze.com", true}, "anidb": {"anidb", "cdn-eu.anidb.net", true}, "cover art archive": {"coverartarchive", "coverartarchive.org", true}, "cover art archive redirect": {"coverartarchive", "archive.org", true}, "cover art archive redirect subdomain": {"coverartarchive", "ia800.us.archive.org", true}, "openlibrary": {"openlibrary", "covers.openlibrary.org", true}, "openlibrary cdn": {"openlibrary", "archive.org", true}, "wrong provider": {"deezer", "i.discogs.com", false}, "wrong archive provider": {"deezer", "archive.org", false}, "arbitrary": {"wikidata", "example.com", false}, "commons": {"wikidata", "upload.wikimedia.org", true}}
 	for name, test := range tests {
 		if got := providerHostAllowed(test.provider, test.host); got != test.want {
 			t.Errorf("%s: got %v want %v", name, got, test.want)

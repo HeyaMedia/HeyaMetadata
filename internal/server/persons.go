@@ -12,20 +12,17 @@ import (
 	"github.com/riverqueue/river"
 )
 
-type personCreditsInput struct {
-	Provider         string `path:"provider" minLength:"1" maxLength:"50"`
-	ProviderPersonID string `path:"providerPersonId" minLength:"1" maxLength:"200"`
-	Offset           int    `query:"offset" minimum:"0" default:"0"`
-	Limit            int    `query:"limit" minimum:"1" maximum:"250" default:"100"`
-	TMDBAPIKey       string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
-	TVDBAPIKey       string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
+type canonicalPersonCreditsInput struct {
+	ID         string `path:"id" format:"uuid"`
+	Offset     int    `query:"offset" minimum:"0" default:"0"`
+	Limit      int    `query:"limit" minimum:"1" maximum:"250" default:"100"`
+	TMDBAPIKey string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
+	TVDBAPIKey string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
 }
 type personSummary struct {
-	EntityID         string `json:"entity_id"`
-	DisplayName      string `json:"display_name"`
-	ProfileImageID   string `json:"profile_image_id,omitempty"`
-	Provider         string `json:"provider"`
-	ProviderPersonID string `json:"provider_person_id"`
+	EntityID       string `json:"entity_id" format:"uuid"`
+	DisplayName    string `json:"display_name"`
+	ProfileImageID string `json:"profile_image_id,omitempty" format:"uuid"`
 }
 type personCreditsOutput struct {
 	Body struct {
@@ -71,11 +68,11 @@ func registerPersons(api huma.API, runtime *platform.Runtime) {
 		}
 		return &canonicalPersonOutput{Body: document}, nil
 	})
-	huma.Register(api, huma.Operation{OperationID: "person-credits", Method: http.MethodGet, Path: "/api/v2/persons/{provider}/{providerPersonId}/credits", Summary: "Get a provider person's known canonical filmography", Tags: []string{"People", "Credits"}}, func(ctx context.Context, input *personCreditsInput) (*personCreditsOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "person-credits", Method: http.MethodGet, Path: "/api/v2/persons/{id}/credits", Summary: "Get complete filmography for a canonical person", Description: "All control flow uses the canonical Heya person ID; upstream person IDs remain passive provenance.", Tags: []string{"People", "Credits"}}, func(ctx context.Context, input *canonicalPersonCreditsInput) (*personCreditsOutput, error) {
 		if service == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
-		entityID, err := service.Resolve(ctx, input.Provider, input.ProviderPersonID)
+		entityID, err := service.CanonicalID(ctx, input.ID)
 		if err == people.ErrNotFound {
 			return nil, huma.Error404NotFound("person credits not found")
 		}
@@ -95,7 +92,7 @@ func registerPersons(api huma.API, runtime *platform.Runtime) {
 		offset, limit := metadataPage(input.Offset, input.Limit)
 		out := &personCreditsOutput{}
 		out.Body.Offset, out.Body.Limit = offset, limit
-		out.Body.Person = personSummary{EntityID: document.ID, DisplayName: document.Display.Title, ProfileImageID: document.Display.ImageID, Provider: input.Provider, ProviderPersonID: input.ProviderPersonID}
+		out.Body.Person = personSummary{EntityID: document.ID, DisplayName: document.Display.Title, ProfileImageID: document.Display.ImageID}
 		out.Body.Credits, out.Body.Total, err = service.Credits(ctx, entityID, offset, limit)
 		if err != nil {
 			return nil, err

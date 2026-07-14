@@ -110,8 +110,12 @@ func (s *Service) persist(ctx context.Context, workID string, data Data, normali
 		return Result{}, err
 	}
 
+	data.Composer.ResolutionState = "unresolved"
 	if data.Composer.ProviderPersonID != "" {
 		_ = tx.QueryRow(ctx, `SELECT entity_id::text FROM external_id_claims WHERE entity_kind='artist' AND provider='openopus' AND namespace='composer' AND normalized_value=$1 AND state='accepted'`, data.Composer.ProviderPersonID).Scan(&data.Composer.ArtistEntityID)
+		if data.Composer.ArtistEntityID != "" {
+			data.Composer.ResolutionState = "materialized"
+		}
 		metadata, _ := json.Marshal(map[string]any{"name": data.Composer.Name, "epoch": data.Composer.Epoch})
 		if _, err := tx.Exec(ctx, `INSERT INTO entity_relations(source_entity_id,target_entity_id,source_kind,target_kind,relation_type,provider,namespace,provider_value,metadata,state,source_observation_id,first_observed_at,last_observed_at)VALUES($1,NULLIF($2,'')::uuid,'musical_work','artist','composer','openopus','composer',$3,$4,'accepted',$5,$6,$6)ON CONFLICT(source_entity_id,relation_type,provider,namespace,provider_value)DO UPDATE SET target_entity_id=EXCLUDED.target_entity_id,metadata=EXCLUDED.metadata,state='accepted',source_observation_id=EXCLUDED.source_observation_id,last_observed_at=EXCLUDED.last_observed_at`, entityID, data.Composer.ArtistEntityID, data.Composer.ProviderPersonID, metadata, payload.ObservationID, payload.ObservedAt); err != nil {
 			return Result{}, err

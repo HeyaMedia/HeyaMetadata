@@ -35,7 +35,9 @@ const entries = computed<Entry[]>(() => {
       title,
       sub: [formatValue(meta.country), titleCase(meta.status), formatValue(meta.barcode)].filter(Boolean).join(' · '),
       date,
-      to: relation.target_entity_id ? entityPath({ id: relation.target_entity_id, kind: relation.target_kind }) : undefined,
+      to: relation.target_entity_id && relation.resolution_state !== 'unresolved'
+        ? entityPath({ id: relation.target_entity_id, kind: relation.target_kind })
+        : undefined,
     })
   }
   return out

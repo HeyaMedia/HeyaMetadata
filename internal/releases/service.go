@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/canonicalrefs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/changelog"
 	releasedomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/release"
 	"github.com/HeyaMedia/HeyaMetadata/internal/fingerprint"
@@ -73,7 +74,7 @@ func (s *Service) IngestMusicBrainzWithCredentials(ctx context.Context, mbid str
 		return result, err
 	}
 	records := append([]releasedomain.NormalizedRecord{record}, s.collectSupplements(ctx, record, jobID, credentials)...)
-	evidence := s.collectRecordingEvidence(ctx, records, jobID)
+	evidence := s.collectRecordingEvidence(ctx, records)
 	result, err = s.persist(ctx, records, evidence, jobID)
 	if err != nil {
 		return result, err
@@ -151,6 +152,9 @@ func (s *Service) persist(ctx context.Context, records []releasedomain.Normalize
 				return Result{}, err
 			}
 			_ = recordingVersion
+			if err = recordings.PersistWorkRelations(ctx, tx, recordingID, track.WorkRelations, r.ProviderRecord); err != nil {
+				return Result{}, err
+			}
 			if err = persistRecordingEvidence(ctx, tx, recordingID, track.Recording.ProviderID, evidence); err != nil {
 				return Result{}, err
 			}
@@ -178,6 +182,9 @@ func (s *Service) persist(ctx context.Context, records []releasedomain.Normalize
 			projected.Tracks = append(projected.Tracks, releasedomain.TrackDocument{ID: trackID, RecordingEntityID: recordingID, ProviderID: track.ProviderID, Position: track.Position, Number: track.Number, Title: track.Title, Sequence: track.Sequence, DurationMS: track.DurationMS, ArtistCredits: track.ArtistCredits, Recording: releasedomain.RecordingRef{ID: recordingID, Provider: track.Recording.Provider, Namespace: track.Recording.Namespace, ProviderID: track.Recording.ProviderID, Title: track.Recording.Title, DurationMS: track.Recording.DurationMS, ISRCs: track.Recording.ISRCs}, Sources: trackSources})
 		}
 		doc.Data.Media = append(doc.Data.Media, projected)
+	}
+	if err = hydrateReleaseCanonicalIDs(ctx, tx, &doc); err != nil {
+		return Result{}, err
 	}
 	docJSON, _ := json.Marshal(doc)
 	sum := sha256.Sum256(body)
@@ -234,6 +241,9 @@ func (s *Service) persistRecording(ctx context.Context, tx pgx.Tx, r releasedoma
 		return "", 0, loadErr
 	}
 	r = recordings.MergeData(existing.Data, r)
+	if err = hydrateRecordingCanonicalIDs(ctx, tx, &r); err != nil {
+		return "", 0, err
+	}
 	_, _ = tx.Exec(ctx, `INSERT INTO external_id_claims(entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at)VALUES($1,'recording',$2,$3,$4,'accepted',1,$5,$6,$6)ON CONFLICT(entity_kind,provider,namespace,normalized_value)DO UPDATE SET state='accepted',last_observed_at=EXCLUDED.last_observed_at WHERE external_id_claims.entity_id=EXCLUDED.entity_id`, id, r.Provider, r.Namespace, strings.ToLower(r.ProviderID), source.PrimaryObservationID, source.ObservedAt)
 	for _, isrc := range r.ISRCs {
 		value := strings.ToUpper(isrc)
@@ -301,17 +311,6 @@ func persistRecordingEvidence(ctx context.Context, tx pgx.Tx, recordingID, recor
 				}
 			}
 		}
-	}
-	for _, value := range bundle.Lyrics {
-		if value.RecordingProviderID != recordingProviderID {
-			continue
-		}
-		lyrics := value.Evidence
-		_, err := tx.Exec(ctx, `INSERT INTO recording_lyrics(recording_entity_id,provider,provider_record_id,track_name,artist_name,album_name,duration_ms,instrumental,plain_lyrics,synced_lyrics,content_checksum,source_observation_id,observed_at)VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,0),$8,NULLIF($9,''),NULLIF($10,''),$11,$12,$13)ON CONFLICT(recording_entity_id,provider,provider_record_id)DO UPDATE SET track_name=EXCLUDED.track_name,artist_name=EXCLUDED.artist_name,album_name=EXCLUDED.album_name,duration_ms=EXCLUDED.duration_ms,instrumental=EXCLUDED.instrumental,plain_lyrics=EXCLUDED.plain_lyrics,synced_lyrics=EXCLUDED.synced_lyrics,content_checksum=EXCLUDED.content_checksum,source_observation_id=EXCLUDED.source_observation_id,observed_at=EXCLUDED.observed_at,updated_at=now()`, recordingID, lyrics.Provider, lyrics.ProviderRecordID, lyrics.TrackName, lyrics.ArtistName, lyrics.AlbumName, lyrics.DurationMS, lyrics.Instrumental, lyrics.PlainLyrics, lyrics.SyncedLyrics, lyrics.ContentChecksum, lyrics.PrimaryObservationID, lyrics.ObservedAt)
-		if err != nil {
-			return err
-		}
-		_, _ = tx.Exec(ctx, `UPDATE provider_refresh_states SET last_attempt_at=$2,last_success_at=$2,last_observation_id=$3,current_job_id=NULL,next_eligible_at=$2+interval '30 days',failure_class=NULL,failure_message=NULL WHERE entity_id=$1 AND provider='lrclib'`, recordingID, lyrics.ObservedAt, lyrics.PrimaryObservationID)
 	}
 	return nil
 }
@@ -383,7 +382,102 @@ func (s *Service) Detail(ctx context.Context, id string) (releasedomain.DetailDo
 			}
 		}
 	}
+	if err := hydrateReleaseCanonicalIDs(ctx, s.runtime.DB, &d); err != nil {
+		return d, false, err
+	}
 	return d, time.Now().Before(fresh), nil
+}
+
+func hydrateReleaseCanonicalIDs(ctx context.Context, db canonicalrefs.Querier, document *releasedomain.DetailDocument) error {
+	credits := make([]*releasedomain.ArtistCredit, 0, len(document.Data.ArtistCredits))
+	recordingIDs := make([]string, 0)
+	for index := range document.Data.ArtistCredits {
+		credits = append(credits, &document.Data.ArtistCredits[index])
+	}
+	for mediumIndex := range document.Data.Media {
+		for trackIndex := range document.Data.Media[mediumIndex].Tracks {
+			track := &document.Data.Media[mediumIndex].Tracks[trackIndex]
+			track.LyricsAvailable = false
+			recordingIDs = append(recordingIDs, track.RecordingEntityID)
+			for creditIndex := range track.ArtistCredits {
+				credits = append(credits, &track.ArtistCredits[creditIndex])
+			}
+		}
+	}
+	if err := hydrateReleaseArtistCredits(ctx, db, credits); err != nil {
+		return err
+	}
+	availability, err := recordings.LyricsAvailability(ctx, db, recordingIDs)
+	if err != nil {
+		return err
+	}
+	for mediumIndex := range document.Data.Media {
+		for trackIndex := range document.Data.Media[mediumIndex].Tracks {
+			track := &document.Data.Media[mediumIndex].Tracks[trackIndex]
+			track.LyricsAvailable = availability[track.RecordingEntityID]
+		}
+	}
+	return nil
+}
+
+func hydrateRecordingCanonicalIDs(ctx context.Context, db canonicalrefs.Querier, recording *releasedomain.Recording) error {
+	credits := make([]*releasedomain.ArtistCredit, 0, len(recording.ArtistCredits))
+	for index := range recording.ArtistCredits {
+		credits = append(credits, &recording.ArtistCredits[index])
+	}
+	if err := hydrateReleaseArtistCredits(ctx, db, credits); err != nil {
+		return err
+	}
+	releaseRefs := make([]canonicalrefs.Ref, 0, len(recording.Releases))
+	groupRefs := make([]canonicalrefs.Ref, 0, len(recording.Releases))
+	for _, release := range recording.Releases {
+		releaseRefs = append(releaseRefs, canonicalrefs.Ref{Provider: "musicbrainz", Namespace: "release", Value: release.ProviderID})
+		groupRefs = append(groupRefs, canonicalrefs.Ref{Provider: "musicbrainz", Namespace: "release_group", Value: release.ReleaseGroupID})
+	}
+	releasesByRef, err := canonicalrefs.Resolve(ctx, db, "release", releaseRefs)
+	if err != nil {
+		return err
+	}
+	groupsByRef, err := canonicalrefs.Resolve(ctx, db, "release_group", groupRefs)
+	if err != nil {
+		return err
+	}
+	for index := range recording.Releases {
+		release := &recording.Releases[index]
+		releaseRef := canonicalrefs.Ref{Provider: "musicbrainz", Namespace: "release", Value: release.ProviderID}
+		groupRef := canonicalrefs.Ref{Provider: "musicbrainz", Namespace: "release_group", Value: release.ReleaseGroupID}
+		release.ReleaseEntityID = releasesByRef[canonicalrefs.Key(releaseRef)]
+		release.ReleaseResolutionState = "unresolved"
+		if release.ReleaseEntityID != "" {
+			release.ReleaseResolutionState = "materialized"
+		}
+		release.ReleaseGroupEntityID = groupsByRef[canonicalrefs.Key(groupRef)]
+		release.ReleaseGroupResolutionState = "unresolved"
+		if release.ReleaseGroupEntityID != "" {
+			release.ReleaseGroupResolutionState = "materialized"
+		}
+	}
+	return nil
+}
+
+func hydrateReleaseArtistCredits(ctx context.Context, db canonicalrefs.Querier, credits []*releasedomain.ArtistCredit) error {
+	refs := make([]canonicalrefs.Ref, 0, len(credits))
+	for _, credit := range credits {
+		refs = append(refs, canonicalrefs.Ref{Provider: credit.ArtistProvider, Namespace: credit.ArtistNamespace, Value: credit.ArtistID})
+	}
+	resolved, err := canonicalrefs.Resolve(ctx, db, "artist", refs)
+	if err != nil {
+		return err
+	}
+	for _, credit := range credits {
+		ref := canonicalrefs.Ref{Provider: credit.ArtistProvider, Namespace: credit.ArtistNamespace, Value: credit.ArtistID}
+		credit.ArtistEntityID = resolved[canonicalrefs.Key(ref)]
+		credit.ResolutionState = "unresolved"
+		if credit.ArtistEntityID != "" {
+			credit.ResolutionState = "materialized"
+		}
+	}
+	return nil
 }
 func (s *Service) Resolve(ctx context.Context, provider, namespace, value string) (string, error) {
 	var id string

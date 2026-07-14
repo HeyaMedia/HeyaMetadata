@@ -39,12 +39,7 @@ func NormalizeRecording(body []byte, observationID string, observedAt time.Time)
 				Title string `json:"title"`
 			} `json:"release-group"`
 		} `json:"releases"`
-		Relations []struct {
-			Type string `json:"type"`
-			URL  *struct {
-				Resource string `json:"resource"`
-			} `json:"url"`
-		} `json:"relations"`
+		Relations []mbRelation `json:"relations"`
 	}
 	if err := json.Unmarshal(body, &source); err != nil {
 		return releasedomain.NormalizedRecording{}, fmt.Errorf("decode MusicBrainz recording: %w", err)
@@ -86,6 +81,7 @@ func NormalizeRecording(body []byte, observationID string, observedAt time.Time)
 			recording.Links = append(recording.Links, releasedomain.Link{Type: normalizeToken(value.Type), URL: strings.TrimSpace(value.URL.Resource)})
 		}
 	}
+	works := workRelations(source.Relations)
 	sort.Slice(recording.Genres, func(i, j int) bool { return recording.Genres[i].Name < recording.Genres[j].Name })
 	sort.Slice(recording.Tags, func(i, j int) bool { return recording.Tags[i].Name < recording.Tags[j].Name })
 	sort.Slice(recording.Releases, func(i, j int) bool { return recording.Releases[i].ProviderID < recording.Releases[j].ProviderID })
@@ -93,5 +89,47 @@ func NormalizeRecording(body []byte, observationID string, observedAt time.Time)
 	for _, isrc := range recording.ISRCs {
 		external = append(external, releasedomain.ExternalID{Provider: "isrc", Namespace: "recording", Value: isrc, Evidence: "provider_assertion"})
 	}
-	return releasedomain.NormalizedRecording{ProviderRecord: releasedomain.ProviderRecord{Provider: "musicbrainz", Namespace: "recording", Value: id, PrimaryObservationID: observationID, NormalizerVersion: releasedomain.RecordingNormalizerVersion, ObservedAt: observedAt, SchemaVersion: releasedomain.NormalizedSchemaVersion}, ExternalIDs: external, Recording: recording}, nil
+	return releasedomain.NormalizedRecording{ProviderRecord: releasedomain.ProviderRecord{Provider: "musicbrainz", Namespace: "recording", Value: id, PrimaryObservationID: observationID, NormalizerVersion: releasedomain.RecordingNormalizerVersion, ObservedAt: observedAt, SchemaVersion: releasedomain.NormalizedSchemaVersion}, ExternalIDs: external, Recording: recording, WorkRelations: works}, nil
+}
+
+type mbRelation struct {
+	Type       string   `json:"type"`
+	Attributes []string `json:"attributes"`
+	URL        *struct {
+		Resource string `json:"resource"`
+	} `json:"url"`
+	Work *struct {
+		ID       string `json:"id"`
+		Title    string `json:"title"`
+		Language string `json:"language"`
+	} `json:"work"`
+}
+
+func workRelations(values []mbRelation) []releasedomain.WorkRelation {
+	seen := map[string]bool{}
+	out := make([]releasedomain.WorkRelation, 0)
+	for _, value := range values {
+		if value.Work == nil || normalizeToken(value.Type) != "performance" {
+			continue
+		}
+		id := strings.ToLower(strings.TrimSpace(value.Work.ID))
+		if !mbidPattern.MatchString(id) || seen[id] {
+			continue
+		}
+		seen[id] = true
+		attributes := append([]string(nil), value.Attributes...)
+		for index := range attributes {
+			attributes[index] = normalizeToken(attributes[index])
+		}
+		sort.Strings(attributes)
+		out = append(out, releasedomain.WorkRelation{
+			ProviderID: id,
+			Title:      strings.TrimSpace(value.Work.Title),
+			Language:   strings.ToLower(strings.TrimSpace(value.Work.Language)),
+			Type:       "performance",
+			Attributes: attributes,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ProviderID < out[j].ProviderID })
+	return out
 }

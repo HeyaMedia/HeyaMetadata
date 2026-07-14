@@ -15,6 +15,8 @@ import (
 	animeservice "github.com/HeyaMedia/HeyaMetadata/internal/anime"
 	"github.com/HeyaMedia/HeyaMetadata/internal/artists"
 	"github.com/HeyaMedia/HeyaMetadata/internal/books"
+	"github.com/HeyaMedia/HeyaMetadata/internal/discovery"
+	"github.com/HeyaMedia/HeyaMetadata/internal/fingerprintmatch"
 	"github.com/HeyaMedia/HeyaMetadata/internal/images"
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/manga"
@@ -72,6 +74,28 @@ type entityMetadataOutput struct {
 	}
 }
 
+type entityCredit struct {
+	PersonEntityID   string `json:"person_entity_id" format:"uuid"`
+	Provider         string `json:"provider" doc:"Passive provenance; never use for identity or follow-up routing"`
+	ProviderPersonID string `json:"provider_person_id" doc:"Passive provenance; use person_entity_id for all control flow"`
+	DisplayName      string `json:"display_name"`
+	CreditType       string `json:"credit_type" enum:"cast,crew"`
+	Character        string `json:"character,omitempty"`
+	Department       string `json:"department,omitempty"`
+	Job              string `json:"job,omitempty"`
+	Order            int    `json:"order,omitempty"`
+	ProfileImageID   string `json:"profile_image_id,omitempty" format:"uuid"`
+}
+
+type entityCreditsOutput struct {
+	Body struct {
+		Results []entityCredit `json:"results"`
+		Total   int            `json:"total"`
+		Offset  int            `json:"offset"`
+		Limit   int            `json:"limit"`
+	}
+}
+
 type resolutionInput struct {
 	Prefer            string `header:"Prefer"`
 	TMDBAPIKey        string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
@@ -84,16 +108,17 @@ type resolutionInput struct {
 	GoogleBooksAPIKey string `header:"X-Heya-Google-Books-API-Key" doc:"Optional request-scoped Google Books API key; never persisted"`
 	MALClientID       string `header:"X-Heya-MAL-Client-ID" doc:"Optional request-scoped MyAnimeList client ID; never persisted"`
 	Body              struct {
-		Kind      string `json:"kind" enum:"movie,artist,release_group,release,recording,musical_work,tv_show,anime,book_work,book_edition,manga,manga_volume,manga_edition,comic_volume,comic_edition,author,person"`
-		Provider  string `json:"provider" example:"tmdb"`
-		Namespace string `json:"namespace" example:"movie"`
-		Value     string `json:"value" example:"603"`
+		CandidateRef string `json:"candidate_ref" format:"uuid"`
+		Kind         string `json:"-"`
+		Provider     string `json:"-"`
+		Namespace    string `json:"-"`
+		Value        string `json:"-"`
 	}
 }
 type resolutionBody struct {
 	State    string       `json:"state" enum:"completed,accepted"`
 	Entity   any          `json:"entity,omitempty"`
-	EntityID string       `json:"entity_id,omitempty"`
+	EntityID string       `json:"entity_id,omitempty" format:"uuid"`
 	Job      *jobResource `json:"job,omitempty"`
 }
 type resolutionOutput struct {
@@ -114,7 +139,7 @@ type jobResource struct {
 	ID       int64  `json:"id"`
 	Kind     string `json:"kind"`
 	State    string `json:"state"`
-	EntityID string `json:"entity_id,omitempty"`
+	EntityID string `json:"entity_id,omitempty" format:"uuid"`
 	Error    string `json:"error,omitempty"`
 }
 type jobOutput struct{ Body jobResource }
@@ -143,7 +168,7 @@ type changesInput struct {
 }
 type changeEntry struct {
 	Sequence          int64    `json:"sequence"`
-	EntityID          string   `json:"entity_id"`
+	EntityID          string   `json:"entity_id" format:"uuid"`
 	EntityKind        string   `json:"entity_kind"`
 	Slug              string   `json:"slug"`
 	ChangeType        string   `json:"change_type"`
@@ -206,9 +231,9 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 				return nil, err
 			}
 			if !fresh {
-				if mbid, claimErr := artistService.MusicBrainzID(ctx, input.ID); claimErr == nil {
+				if provider, providerID, claimErr := artistService.RefreshRoot(ctx, input.ID); claimErr == nil {
 					if credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey); credentialErr == nil {
-						_, _ = jobs.InsertArtist(ctx, runtime, client, jobs.ArtistIngestArgs{MusicBrainzID: mbid, CredentialRef: credentialRef, Reason: "stale_read"}, jobs.PriorityStaleRead)
+						_, _ = jobs.InsertArtist(ctx, runtime, client, jobs.ArtistIngestArgs{Provider: provider, ProviderID: providerID, CredentialRef: credentialRef, Reason: "stale_read"}, jobs.PriorityStaleRead)
 					}
 				}
 				document.Freshness.State = "stale"
@@ -350,7 +375,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		return presentEntity(ctx, runtime, input.ID, kind, document, localeFromEntity(input))
 	})
 
-	huma.Register(api, huma.Operation{OperationID: "entity-credits", Method: http.MethodGet, Path: "/api/v2/entities/{id}/credits", Summary: "Get canonical cast and crew credits", Tags: []string{"Entities", "Credits"}}, func(ctx context.Context, input *entityCreditsInput) (*entityMetadataOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "entity-credits", Method: http.MethodGet, Path: "/api/v2/entities/{id}/credits", Summary: "Get canonical cast and crew credits", Description: "Every credit carries a canonical Heya person_entity_id. Provider fields are passive provenance only.", Tags: []string{"Entities", "Credits"}}, func(ctx context.Context, input *entityCreditsInput) (*entityCreditsOutput, error) {
 		if runtime == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
@@ -373,9 +398,50 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		return ratingProjectionPage(ctx, runtime, input.ID, offset, limit)
 	})
 
-	huma.Register(api, huma.Operation{OperationID: "resolve-entity", Method: http.MethodPost, Path: "/api/v2/resolutions", Summary: "Resolve or ingest an external entity ID", Tags: []string{"Entities"}, DefaultStatus: http.StatusOK, Responses: map[string]*huma.Response{"202": acceptedJSONResponse("#/components/schemas/ResolutionBody")}}, func(ctx context.Context, input *resolutionInput) (*resolutionOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "resolve-entity", Method: http.MethodPost, Path: "/api/v2/resolutions", Summary: "Select an opaque discovery candidate", Description: "The candidate reference is issued by HeyaMetadata. Provider identity and ingestion routing remain internal.", Tags: []string{"Entities"}, DefaultStatus: http.StatusOK, Responses: map[string]*huma.Response{"202": acceptedJSONResponse("#/components/schemas/ResolutionBody")}}, func(ctx context.Context, input *resolutionInput) (*resolutionOutput, error) {
 		if service == nil || client == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
+		}
+		selection, selectionErr := discovery.ResolveCandidate(ctx, runtime, input.Body.CandidateRef)
+		if selectionErr == pgx.ErrNoRows {
+			fingerprintSelection, fingerprintErr := fingerprintmatch.ResolveCandidate(ctx, runtime, input.Body.CandidateRef)
+			if fingerprintErr == nil {
+				selection.Kind = fingerprintSelection.Kind
+				selection.Provider = fingerprintSelection.Provider
+				selection.Namespace = fingerprintSelection.Namespace
+				selection.Value = fingerprintSelection.Value
+				selectionErr = nil
+			} else if fingerprintErr != pgx.ErrNoRows {
+				return nil, fingerprintErr
+			}
+		}
+		if selectionErr == pgx.ErrNoRows {
+			return nil, huma.Error404NotFound("candidate reference is unknown or expired")
+		}
+		if selectionErr != nil {
+			return nil, selectionErr
+		}
+		input.Body.Kind = selection.Kind
+		input.Body.Provider = selection.Provider
+		input.Body.Namespace = selection.Namespace
+		input.Body.Value = selection.Value
+		if selection.Provider == "heya" && selection.Namespace == "entity" {
+			entityID, kind, err := resolveActiveEntity(ctx, runtime, selection.Value)
+			if err != nil || kind != selection.Kind {
+				return nil, huma.Error404NotFound("canonical candidate no longer exists")
+			}
+			if kind == "person" {
+				document, detailErr := peopleService.Detail(ctx, entityID)
+				if detailErr != nil {
+					return nil, detailErr
+				}
+				return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: document}}, nil
+			}
+			var document json.RawMessage
+			if err := runtime.DB.QueryRow(ctx, `SELECT document FROM api_documents WHERE entity_id=$1 AND document_kind='detail'`, entityID).Scan(&document); err != nil {
+				return nil, err
+			}
+			return &resolutionOutput{Status: http.StatusOK, Body: resolutionBody{State: "completed", EntityID: entityID, Entity: document}}, nil
 		}
 		if input.Body.Kind == "person" {
 			if !strings.EqualFold(input.Body.Namespace, "person") {
@@ -406,14 +472,19 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if err != artists.ErrNotFound {
 				return nil, err
 			}
-			if !strings.EqualFold(input.Body.Provider, "musicbrainz") || !strings.EqualFold(input.Body.Namespace, "artist") {
+			provider := strings.ToLower(strings.TrimSpace(input.Body.Provider))
+			if !strings.EqualFold(input.Body.Namespace, "artist") || provider != "musicbrainz" && provider != "apple" && provider != "deezer" {
 				return nil, huma.Error404NotFound("external ID is not known and no collector accepts it")
 			}
 			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
 			if credentialErr != nil {
 				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
 			}
-			inserted, insertErr := jobs.InsertArtist(ctx, runtime, client, jobs.ArtistIngestArgs{MusicBrainzID: strings.ToLower(input.Body.Value), CredentialRef: credentialRef, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
+			providerID := strings.TrimSpace(input.Body.Value)
+			if provider == "musicbrainz" {
+				providerID = strings.ToLower(providerID)
+			}
+			inserted, insertErr := jobs.InsertArtist(ctx, runtime, client, jobs.ArtistIngestArgs{Provider: provider, ProviderID: providerID, CredentialRef: credentialRef, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
 			if insertErr != nil {
 				return nil, insertErr
 			}
@@ -695,15 +766,15 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		}
 		input.ID = resolvedID
 		if kind == "artist" {
-			mbid, err := artistService.MusicBrainzID(ctx, input.ID)
+			provider, providerID, err := artistService.RefreshRoot(ctx, input.ID)
 			if err != nil {
-				return nil, huma.Error404NotFound("entity has no MusicBrainz artist claim")
+				return nil, huma.Error404NotFound("entity has no refreshable artist identity")
 			}
 			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
 			if credentialErr != nil {
 				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
 			}
-			inserted, err := jobs.InsertArtist(ctx, runtime, client, jobs.ArtistIngestArgs{MusicBrainzID: mbid, CredentialRef: credentialRef, Reason: "manual_refresh"}, jobs.PriorityInteractive)
+			inserted, err := jobs.InsertArtist(ctx, runtime, client, jobs.ArtistIngestArgs{Provider: provider, ProviderID: providerID, CredentialRef: credentialRef, Reason: "manual_refresh"}, jobs.PriorityInteractive)
 			if err != nil {
 				return nil, err
 			}
@@ -947,7 +1018,7 @@ func searchAllEntities(ctx context.Context, runtime *platform.Runtime, input *se
 		limit = 20
 	}
 	kind := strings.ToLower(strings.TrimSpace(input.Kind))
-	cacheInput, _ := json.Marshal([]any{strings.ToLower(query), kind, limit, input.Year, strings.ToLower(input.Genre), strings.ToUpper(input.Country), strings.ToLower(input.Language), strings.ToLower(input.Status)})
+	cacheInput, _ := json.Marshal([]any{"source-quality-ranking/v1", strings.ToLower(query), kind, limit, input.Year, strings.ToLower(input.Genre), strings.ToUpper(input.Country), strings.ToLower(input.Language), strings.ToLower(input.Status)})
 	digest := sha256.Sum256(cacheInput)
 	cacheKey := "heya:metadata:v2:search:" + hex.EncodeToString(digest[:])
 	if cached, err := runtime.Redis.Get(ctx, cacheKey).Bytes(); err == nil {
@@ -956,20 +1027,19 @@ func searchAllEntities(ctx context.Context, runtime *platform.Runtime, input *se
 			return result, nil
 		}
 	}
-	provider := ""
+	// Exact identifier lookup is intentionally scheme-agnostic. The local
+	// search path may return every canonical entity carrying the value; callers
+	// submit schemes as generic evidence to /discoveries when identification or
+	// conflict handling is required.
 	value := query
-	if parts := strings.SplitN(query, ":", 2); len(parts) == 2 {
-		provider = strings.ToLower(parts[0])
-		value = parts[1]
-	}
 	rows, err := runtime.DB.Query(ctx, `WITH matches AS (
-		SELECT entity_id,0 AS tier,1::double precision AS score FROM external_id_claims WHERE state='accepted' AND lower(normalized_value)=lower($1) AND ($2='' OR provider=$2)
+		SELECT entity_id,0 AS tier,1::double precision AS score,1000 AS source_quality FROM external_id_claims WHERE state='accepted' AND lower(normalized_value)=lower($1) AND $2::text=''
 		UNION ALL
-		SELECT entity_id,CASE WHEN normalized_value=lower(unaccent($3)) THEN 1 WHEN normalized_value LIKE lower(unaccent($3))||'%' THEN 2 ELSE 3 END,similarity(normalized_value,lower(unaccent($3))) FROM search_names WHERE normalized_value=lower(unaccent($3)) OR normalized_value LIKE lower(unaccent($3))||'%' OR similarity(normalized_value,lower(unaccent($3)))>=0.25
-	), ranked AS (SELECT entity_id,min(tier) tier,max(score) score FROM matches GROUP BY entity_id)
+		SELECT entity_id,CASE WHEN normalized_value=lower(unaccent($3)) THEN 1 WHEN normalized_value LIKE lower(unaccent($3))||'%' THEN 2 ELSE 3 END,similarity(normalized_value,lower(unaccent($3))),source_quality FROM search_names WHERE normalized_value=lower(unaccent($3)) OR normalized_value LIKE lower(unaccent($3))||'%' OR similarity(normalized_value,lower(unaccent($3)))>=0.25
+	), ranked AS (SELECT DISTINCT ON (entity_id) entity_id,tier,score,source_quality FROM matches ORDER BY entity_id,tier,score DESC,source_quality DESC)
 	SELECT se.summary FROM ranked JOIN search_entities se ON se.entity_id=ranked.entity_id
 	WHERE ($5=0 OR se.release_year=$5) AND ($6='' OR EXISTS(SELECT 1 FROM unnest(se.genres) genre WHERE lower(genre)=lower($6))) AND ($7='' OR upper($7)=ANY(se.countries)) AND ($8='' OR lower($8)=ANY(se.languages)) AND ($9='' OR se.status=lower($9)) AND ($10='' OR se.kind=$10)
-	ORDER BY ranked.tier,ranked.score DESC,se.popularity DESC NULLS LAST,se.display_title LIMIT $4`, value, provider, query, limit, input.Year, input.Genre, input.Country, input.Language, input.Status, kind)
+		ORDER BY ranked.tier,ranked.score DESC,ranked.source_quality DESC,se.popularity DESC NULLS LAST,se.display_title LIMIT $4`, value, "", query, limit, input.Year, input.Genre, input.Country, input.Language, input.Status, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -1069,26 +1139,25 @@ func metadataPage(offset, limit int) (int, int) {
 	}
 	return offset, limit
 }
-func creditProjectionPage(ctx context.Context, runtime *platform.Runtime, entityID, creditType string, offset, limit int) (*entityMetadataOutput, error) {
-	out := &entityMetadataOutput{}
+func creditProjectionPage(ctx context.Context, runtime *platform.Runtime, entityID, creditType string, offset, limit int) (*entityCreditsOutput, error) {
+	out := &entityCreditsOutput{}
 	out.Body.Offset, out.Body.Limit = offset, limit
 	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM entity_credit_projections WHERE entity_id=$1 AND ($2='' OR credit_type=$2)`, entityID, creditType).Scan(&out.Body.Total); err != nil {
 		return nil, err
 	}
-	rows, err := runtime.DB.Query(ctx, `SELECT jsonb_strip_nulls(jsonb_build_object('person_entity_id',person_entity_id,'provider',provider,'provider_person_id',provider_person_id,'display_name',display_name,'credit_type',credit_type,'character',character_name,'department',department,'job',job,'order',NULLIF(credit_order,0),'profile_image_id',profile_image_id))FROM entity_credit_projections WHERE entity_id=$1 AND ($2='' OR credit_type=$2) ORDER BY CASE credit_type WHEN 'cast' THEN 0 ELSE 1 END,credit_order,id OFFSET $3 LIMIT $4`, entityID, creditType, offset, limit)
+	rows, err := runtime.DB.Query(ctx, `SELECT person_entity_id::text,provider,provider_person_id,display_name,credit_type,COALESCE(character_name,''),COALESCE(department,''),COALESCE(job,''),credit_order,COALESCE(profile_image_id::text,'')FROM entity_credit_projections WHERE entity_id=$1 AND ($2='' OR credit_type=$2) ORDER BY CASE credit_type WHEN 'cast' THEN 0 ELSE 1 END,credit_order,id OFFSET $3 LIMIT $4`, entityID, creditType, offset, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []json.RawMessage{}
+	out.Body.Results = []entityCredit{}
 	for rows.Next() {
-		var body []byte
-		if err = rows.Scan(&body); err != nil {
+		var credit entityCredit
+		if err = rows.Scan(&credit.PersonEntityID, &credit.Provider, &credit.ProviderPersonID, &credit.DisplayName, &credit.CreditType, &credit.Character, &credit.Department, &credit.Job, &credit.Order, &credit.ProfileImageID); err != nil {
 			return nil, err
 		}
-		items = append(items, json.RawMessage(body))
+		out.Body.Results = append(out.Body.Results, credit)
 	}
-	out.Body.Results = items
 	return out, rows.Err()
 }
 func ratingProjectionPage(ctx context.Context, runtime *platform.Runtime, entityID string, offset, limit int) (*entityMetadataOutput, error) {

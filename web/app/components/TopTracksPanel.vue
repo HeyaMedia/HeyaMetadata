@@ -47,7 +47,23 @@ function metric(track: TopTrack): string {
   return ''
 }
 
-const linkTag = resolveComponent('NuxtLink')
+// A track links to its canonical recording only when materialized; otherwise it
+// stays display-only (linking out to the provider page when a url exists).
+function recordingLink(track: TopTrack): string | undefined {
+  if (!track.recording_entity_id || track.resolution_state === 'unresolved') return undefined
+  return `/recordings/${track.recording_entity_id}`
+}
+
+// Plain anchors (not NuxtLink) so we fully control the click: a normal click
+// opens the quick-look drawer; a modifier/middle click falls through to the
+// browser and opens the full recording page in a new tab.
+const { open } = useSongPanel()
+function onTrackClick(event: MouseEvent, track: TopTrack) {
+  if (!recordingLink(track)) return
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1) return
+  event.preventDefault()
+  open(track.recording_entity_id)
+}
 </script>
 
 <template>
@@ -64,15 +80,15 @@ const linkTag = resolveComponent('NuxtLink')
         <li v-for="track in tracks" :key="`${track.rank}:${track.title}`" class="tracks__row">
           <span class="tracks__rank">{{ track.rank }}</span>
           <component
-            :is="track.recording_entity_id ? linkTag : (track.url ? 'a' : 'span')"
-            :to="track.recording_entity_id ? `/recordings/${track.recording_entity_id}` : undefined"
-            :href="!track.recording_entity_id && track.url ? track.url : undefined"
-            :target="!track.recording_entity_id && track.url ? '_blank' : undefined"
-            :rel="!track.recording_entity_id && track.url ? 'noopener noreferrer' : undefined"
+            :is="recordingLink(track) || track.url ? 'a' : 'span'"
+            :href="recordingLink(track) || track.url || undefined"
+            :target="!recordingLink(track) && track.url ? '_blank' : undefined"
+            :rel="!recordingLink(track) && track.url ? 'noopener noreferrer' : undefined"
             class="tracks__title"
-            :class="{ 'is-canonical': track.recording_entity_id, 'is-ghost': !track.recording_entity_id && !track.url }"
+            :class="{ 'is-canonical': recordingLink(track), 'is-ghost': !recordingLink(track) && !track.url }"
+            @click="onTrackClick($event, track)"
           >
-            {{ track.title }}<template v-if="!track.recording_entity_id && track.url"> ↗</template>
+            {{ track.title }}<template v-if="!recordingLink(track) && track.url"> ↗</template>
           </component>
           <span v-if="metric(track)" class="tracks__metric">{{ metric(track) }}</span>
         </li>

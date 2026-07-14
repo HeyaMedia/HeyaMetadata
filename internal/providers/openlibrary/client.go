@@ -46,6 +46,13 @@ func (c *Client) Search(ctx context.Context, query string, limit int) (providers
 	values := url.Values{"q": {query}, "limit": {strconv.Itoa(limit)}, "fields": {"key,title,subtitle,author_key,author_name,first_publish_year,edition_key,edition_count,isbn,language,subject,cover_i,ratings_average,ratings_count"}}
 	return c.get(ctx, "/search.json", values, providers.Payload{Provider: "openlibrary", ProviderNamespace: "work_search", ProviderRecordID: query}, 6*time.Hour)
 }
+func (c *Client) LookupISBN(ctx context.Context, isbn string) (providers.Payload, error) {
+	isbn = strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(isbn)))
+	if len(isbn) != 10 && len(isbn) != 13 {
+		return providers.Payload{}, fmt.Errorf("Open Library ISBN lookup requires ISBN-10 or ISBN-13")
+	}
+	return c.get(ctx, "/isbn/"+url.PathEscape(isbn)+".json", nil, providers.Payload{Provider: "openlibrary", ProviderNamespace: "isbn_lookup", ProviderRecordID: isbn}, 12*time.Hour)
+}
 func (c *Client) Collect(ctx context.Context, id providers.Identifier) ([]providers.Payload, error) {
 	value := strings.ToUpper(strings.TrimSpace(id.Value))
 	if id.Provider != "openlibrary" || !keyPattern.MatchString(value) {

@@ -1,7 +1,9 @@
 package anime
 
 import (
+	"github.com/HeyaMedia/HeyaMetadata/internal/episodic"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/animelists"
 	"net/http"
 	"testing"
 	"time"
@@ -57,5 +59,54 @@ func TestTVDBAnimeMappingPreservesTVDBAndRelativeAniDBNumbers(t *testing.T) {
 	}
 	if len(record.Seasons) != 1 || record.Seasons[0].Number != 1 {
 		t.Fatalf("seasons: %+v", record.Seasons)
+	}
+}
+
+func TestNonRootAnimeSeparatesSeriesLevelIdentifiers(t *testing.T) {
+	values := []episodic.ExternalID{
+		{Provider: "anidb", Namespace: "anime", Value: "10944"},
+		{Provider: "myanimelist", Namespace: "anime", Value: "25777"},
+		{Provider: "imdb", Namespace: "title", Value: "tt2560140"},
+		{Provider: "tmdb", Namespace: "tv", Value: "1429"},
+		{Provider: "tvdb", Namespace: "series", Value: "267440"},
+	}
+	entityIDs, seriesIDs := splitAnimeSeriesExternalIDs(values)
+	if len(entityIDs) != 2 || len(seriesIDs) != 3 {
+		t.Fatalf("entity=%+v series=%+v", entityIDs, seriesIDs)
+	}
+	for _, value := range entityIDs {
+		if isAnimeSeriesExternalID(value) {
+			t.Fatalf("series identity escaped onto a season entity: %+v", value)
+		}
+	}
+}
+
+func TestAnimeListSeriesIdentifiersAreRootScoped(t *testing.T) {
+	var entry animelists.Entry
+	entry.TVDBID = 267440
+	entry.TMDBID.TV = 1429
+	entry.IMDbIDs = []string{"tt2560140"}
+	values := animeListSeriesExternalIDs(entry)
+	if len(values) != 3 {
+		t.Fatalf("series IDs: %+v", values)
+	}
+	for _, value := range values {
+		if !isAnimeSeriesExternalID(value) {
+			t.Fatalf("unexpected entity-scoped ID: %+v", value)
+		}
+	}
+}
+
+func TestTVDBAnimeSeasonSupplementUsesSeasonIdentity(t *testing.T) {
+	payload := providers.Payload{ObservationID: "obs", ObservedAt: time.Unix(1, 0), Body: []byte(`{"data":{"id":267440,"name":"Attack on Titan","seasons":[{"id":777,"number":2,"name":"Season 2"}],"episodes":[]}}`)}
+	record, err := normalizeTVDBAnime(payload, 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Namespace != "season" || record.ProviderID != "777" {
+		t.Fatalf("provider identity: %s/%s", record.Namespace, record.ProviderID)
+	}
+	if len(record.ExternalIDs) != 1 || record.ExternalIDs[0].Namespace != "season" || record.ExternalIDs[0].Value != "777" {
+		t.Fatalf("external IDs: %+v", record.ExternalIDs)
 	}
 }

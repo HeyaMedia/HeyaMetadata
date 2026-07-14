@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/musiccredits"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
@@ -26,7 +27,11 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/textmatch"
 )
 
-const SyncVersion = "mixed-artist-catalog/v18"
+const SyncVersion = "mixed-artist-catalog/v19"
+
+// MusicBrainz uses this synthetic artist for compilation credits. Its browse
+// catalog is effectively unbounded and is not a meaningful artist discography.
+const variousArtistsMusicBrainzID = "89ad4ac3-39f7-470e-963a-56509c546377"
 
 type ReleaseGroup struct {
 	ID             string   `json:"id"`
@@ -63,7 +68,7 @@ type Result struct {
 	PublicClusters int
 }
 
-func SyncArtist(ctx context.Context, runtime *platform.Runtime, artistEntityID, mbid string, jobID int64) (result Result, returnErr error) {
+func SyncArtist(ctx context.Context, runtime *platform.Runtime, artistEntityID, mbid string, jobID int64, releaseEvidence ...ReleaseEvidence) (result Result, returnErr error) {
 	mbid = strings.ToLower(strings.TrimSpace(mbid))
 	if _, err := runtime.DB.Exec(ctx, `INSERT INTO artist_catalog_sync_runs(river_job_id,artist_entity_id,musicbrainz_id,sync_version,state)VALUES($1,$2,$3,$4,'working')ON CONFLICT(river_job_id)DO UPDATE SET sync_version=EXCLUDED.sync_version,state='working',pages=0,release_groups=0,error=NULL,completed_at=NULL`, jobID, artistEntityID, mbid, SyncVersion); err != nil {
 		return result, err
@@ -73,17 +78,32 @@ func SyncArtist(ctx context.Context, runtime *platform.Runtime, artistEntityID, 
 			_, _ = runtime.DB.Exec(context.WithoutCancel(ctx), `UPDATE artist_catalog_sync_runs SET state='failed',error=$2,pages=$3,release_groups=$4,completed_at=now()WHERE river_job_id=$1`, jobID, returnErr.Error(), result.Pages, result.Clusters)
 		}
 	}()
+	if artistCatalogExcluded(mbid) {
+		if _, err := runtime.DB.Exec(ctx, `UPDATE entity_relations SET state='superseded',last_observed_at=now() WHERE source_entity_id=$1 AND source_kind='artist' AND relation_type='discography'`, artistEntityID); err != nil {
+			return result, err
+		}
+		if _, err := runtime.DB.Exec(ctx, `UPDATE artist_catalog_promotions SET state='superseded',updated_at=now() WHERE artist_entity_id=$1`, artistEntityID); err != nil {
+			return result, err
+		}
+		_, err := runtime.DB.Exec(ctx, `UPDATE artist_catalog_sync_runs SET state='completed',pages=0,release_groups=0,error=NULL,completed_at=now() WHERE river_job_id=$1`, jobID)
+		return result, err
+	}
 
 	aliases, claims, err := artistContext(ctx, runtime, artistEntityID)
 	if err != nil {
 		return result, err
 	}
-	mb, pages, err := collectMusicBrainz(ctx, runtime, mbid, jobID)
-	if err != nil {
-		return result, err
+	sets := map[string]map[string][]candidate{}
+	mb := []candidate{}
+	if mbid != "" {
+		var pages int
+		mb, pages, err = collectMusicBrainz(ctx, runtime, mbid, jobID)
+		if err != nil {
+			return result, err
+		}
+		result.Pages = pages
+		sets["musicbrainz"] = map[string][]candidate{mbid: mb}
 	}
-	result.Pages = pages
-	sets := map[string]map[string][]candidate{"musicbrainz": {mbid: mb}}
 	if ids := claims["apple"]; len(ids) > 0 {
 		sets["apple"], err = collectApple(ctx, runtime, ids, jobID)
 		if err != nil {
@@ -102,15 +122,22 @@ func SyncArtist(ctx context.Context, runtime *platform.Runtime, artistEntityID, 
 			return result, err
 		}
 	}
-	if runtime.Config.Providers.LastFM.APIKey != "" {
+	if mbid != "" && runtime.Config.Providers.LastFM.APIKey != "" {
 		sets["lastfm"], err = collectLastFM(ctx, runtime, mbid, jobID)
 		if err != nil {
 			return result, err
 		}
 	}
+	if err := appendExactReleaseEvidence(ctx, runtime, sets, aliases, claims, releaseEvidence, jobID); err != nil {
+		return result, err
+	}
 
-	selected := selectProviderIdentities(sets, aliases)
-	selected, result.Gated = gateSelectedStorefronts(selected)
+	directRoots, err := directArtistCatalogRoots(ctx, runtime, artistEntityID)
+	if err != nil {
+		return result, err
+	}
+	selected := selectProviderIdentities(sets, aliases, directRoots)
+	selected, result.Gated = gateSelectedStorefronts(selected, directRoots)
 	all := append([]candidate(nil), mb...)
 	for _, provider := range []string{"discogs", "apple", "deezer", "lastfm"} {
 		all = append(all, selected[provider]...)
@@ -145,6 +172,198 @@ func SyncArtist(ctx context.Context, runtime *platform.Runtime, artistEntityID, 
 	}
 	_, err = runtime.DB.Exec(ctx, `UPDATE artist_catalog_sync_runs SET state='completed',pages=$2,release_groups=$3,error=NULL,completed_at=now()WHERE river_job_id=$1`, jobID, result.Pages, result.Clusters)
 	return result, err
+}
+
+func appendExactReleaseEvidence(ctx context.Context, runtime *platform.Runtime, sets map[string]map[string][]candidate, aliases []string, claims map[string][]string, values []ReleaseEvidence, jobID int64) error {
+	seen := map[string]bool{}
+	for _, value := range values {
+		value.Provider = strings.ToLower(strings.TrimSpace(value.Provider))
+		value.Namespace = strings.ToLower(strings.TrimSpace(value.Namespace))
+		value.ID = strings.TrimSpace(value.ID)
+		key := value.Provider + "\x00" + value.Namespace + "\x00" + value.ID
+		if value.ID == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		var item candidate
+		var rootID string
+		var err error
+		switch {
+		case value.Provider == "apple" && value.Namespace == "album":
+			item, rootID, err = collectExactAppleRelease(ctx, runtime, value.ID, aliases, claims["apple"], jobID)
+		case value.Provider == "deezer" && value.Namespace == "album":
+			item, rootID, err = collectExactDeezerRelease(ctx, runtime, value.ID, aliases, claims["deezer"], jobID)
+		default:
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if rootID == "" || item.ID == "" {
+			continue
+		}
+		if sets[value.Provider] == nil {
+			sets[value.Provider] = map[string][]candidate{}
+		}
+		if !candidateExists(sets[value.Provider][rootID], item) {
+			sets[value.Provider][rootID] = append(sets[value.Provider][rootID], item)
+		}
+	}
+	return nil
+}
+
+func collectExactAppleRelease(ctx context.Context, runtime *platform.Runtime, albumID string, aliases, artistIDs []string, jobID int64) (candidate, string, error) {
+	if len(artistIDs) == 0 {
+		return candidate{}, "", nil
+	}
+	base := apple.New(runtime.Config.Providers.Apple)
+	r, err := resolver(runtime, base.Capability(), jobID)
+	if err != nil {
+		return candidate{}, "", err
+	}
+	client := apple.NewCached(runtime.Config.Providers.Apple, r, "")
+	payload, err := client.CollectITunesAlbum(ctx, albumID)
+	if err != nil {
+		return candidate{}, "", err
+	}
+	if payload.StatusCode == http.StatusNotFound {
+		return candidate{}, "", nil
+	}
+	if payload.StatusCode != http.StatusOK {
+		return candidate{}, "", &providers.StatusError{Provider: "apple", StatusCode: payload.StatusCode}
+	}
+	var envelope struct {
+		Results []struct {
+			WrapperType    string `json:"wrapperType"`
+			CollectionID   int64  `json:"collectionId"`
+			CollectionName string `json:"collectionName"`
+			CollectionType string `json:"collectionType"`
+			ArtistID       int64  `json:"artistId"`
+			ArtistName     string `json:"artistName"`
+			ReleaseDate    string `json:"releaseDate"`
+			TrackCount     int    `json:"trackCount"`
+			URL            string `json:"collectionViewUrl"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(payload.Body, &envelope); err != nil {
+		return candidate{}, "", fmt.Errorf("decode exact Apple album evidence: %w", err)
+	}
+	for _, value := range envelope.Results {
+		if !strings.EqualFold(value.WrapperType, "collection") || strconv.FormatInt(value.CollectionID, 10) != albumID || strings.TrimSpace(value.CollectionName) == "" {
+			continue
+		}
+		rootID := creditedArtistRoot(strconv.FormatInt(value.ArtistID, 10), value.ArtistName, artistIDs, aliases)
+		if rootID == "" {
+			return candidate{}, "", nil
+		}
+		title, kind := storefrontTitle(value.CollectionName, value.CollectionType, value.TrackCount)
+		return candidate{Provider: "apple", Namespace: "album", ID: albumID, Title: title, Date: value.ReleaseDate, Kind: kind, ArtistName: value.ArtistName, URL: value.URL, ObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, Metadata: map[string]any{"track_count": value.TrackCount, "storefront_title": value.CollectionName, "supplied_identifier": true}}, rootID, nil
+	}
+	return candidate{}, "", nil
+}
+
+func collectExactDeezerRelease(ctx context.Context, runtime *platform.Runtime, albumID string, aliases, artistIDs []string, jobID int64) (candidate, string, error) {
+	if len(artistIDs) == 0 {
+		return candidate{}, "", nil
+	}
+	base := deezer.New(runtime.Config.Providers.Deezer)
+	r, err := resolver(runtime, base.Capability(), jobID)
+	if err != nil {
+		return candidate{}, "", err
+	}
+	client := deezer.NewCached(runtime.Config.Providers.Deezer, r)
+	payloads, err := client.Collect(ctx, providers.Identifier{Provider: "deezer", Namespace: "album", Value: albumID})
+	if err != nil {
+		return candidate{}, "", err
+	}
+	if len(payloads) == 0 || payloads[0].StatusCode == http.StatusNotFound {
+		return candidate{}, "", nil
+	}
+	payload := payloads[0]
+	if payload.StatusCode != http.StatusOK {
+		return candidate{}, "", &providers.StatusError{Provider: "deezer", StatusCode: payload.StatusCode}
+	}
+	var value struct {
+		ID          int64  `json:"id"`
+		Title       string `json:"title"`
+		Link        string `json:"link"`
+		ReleaseDate string `json:"release_date"`
+		RecordType  string `json:"record_type"`
+		TrackCount  int    `json:"nb_tracks"`
+		Artist      struct {
+			ID   int64  `json:"id"`
+			Name string `json:"name"`
+		} `json:"artist"`
+		Contributors []struct {
+			ID   int64  `json:"id"`
+			Name string `json:"name"`
+		} `json:"contributors"`
+	}
+	if err := json.Unmarshal(payload.Body, &value); err != nil {
+		return candidate{}, "", fmt.Errorf("decode exact Deezer album evidence: %w", err)
+	}
+	if strconv.FormatInt(value.ID, 10) != albumID || strings.TrimSpace(value.Title) == "" {
+		return candidate{}, "", nil
+	}
+	creditIDs := []string{strconv.FormatInt(value.Artist.ID, 10)}
+	creditNames := []string{value.Artist.Name}
+	for _, contributor := range value.Contributors {
+		creditIDs = append(creditIDs, strconv.FormatInt(contributor.ID, 10))
+		creditNames = append(creditNames, contributor.Name)
+	}
+	rootID := ""
+	for index, creditID := range creditIDs {
+		name := ""
+		if index < len(creditNames) {
+			name = creditNames[index]
+		}
+		if rootID = creditedArtistRoot(creditID, name, artistIDs, aliases); rootID != "" {
+			break
+		}
+	}
+	if rootID == "" {
+		return candidate{}, "", nil
+	}
+	return candidate{Provider: "deezer", Namespace: "album", ID: albumID, Title: value.Title, Date: value.ReleaseDate, Kind: normalizeKind(value.RecordType), ArtistName: strings.Join(cleanCreditNames(creditNames), " & "), URL: value.Link, ObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, Metadata: map[string]any{"track_count": value.TrackCount, "supplied_identifier": true}}, rootID, nil
+}
+
+func creditedArtistRoot(providerArtistID, credit string, artistIDs, aliases []string) string {
+	for _, artistID := range artistIDs {
+		if providerArtistID != "" && providerArtistID != "0" && providerArtistID == artistID {
+			return artistID
+		}
+	}
+	if len(artistIDs) == 1 && musiccredits.ContainsName(credit, aliases, equivalentArtistCredit) {
+		return artistIDs[0]
+	}
+	return ""
+}
+
+func cleanCreditNames(values []string) []string {
+	result := []string{}
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		key := strings.ToLower(value)
+		if value != "" && !seen[key] {
+			seen[key] = true
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func candidateExists(values []candidate, wanted candidate) bool {
+	for _, value := range values {
+		if value.Provider == wanted.Provider && value.Namespace == wanted.Namespace && value.ID == wanted.ID {
+			return true
+		}
+	}
+	return false
+}
+
+func artistCatalogExcluded(mbid string) bool {
+	return strings.EqualFold(strings.TrimSpace(mbid), variousArtistsMusicBrainzID)
 }
 
 func artistContext(ctx context.Context, runtime *platform.Runtime, entityID string) ([]string, map[string][]string, error) {
@@ -256,8 +475,19 @@ func collectApple(ctx context.Context, runtime *platform.Runtime, ids []string, 
 		if err = json.Unmarshal(p.Body, &body); err != nil {
 			return nil, err
 		}
+		artistNames := []string{}
 		for _, v := range body.Results {
-			if v.WrapperType != "collection" || strconv.FormatInt(v.ArtistID, 10) != id || v.CollectionID < 1 || v.CollectionName == "" {
+			if strings.EqualFold(v.WrapperType, "artist") && strconv.FormatInt(v.ArtistID, 10) == id && strings.TrimSpace(v.ArtistName) != "" {
+				artistNames = append(artistNames, v.ArtistName)
+			}
+		}
+		for _, v := range body.Results {
+			if !strings.EqualFold(v.WrapperType, "collection") || v.CollectionID < 1 || v.CollectionName == "" {
+				continue
+			}
+			direct := strconv.FormatInt(v.ArtistID, 10) == id
+			credited := musiccredits.ContainsName(v.ArtistName, artistNames, equivalentArtistCredit)
+			if !direct && !credited {
 				continue
 			}
 			title, kind := storefrontTitle(v.CollectionName, v.CollectionType, v.TrackCount)
@@ -429,14 +659,38 @@ func collectLastFM(ctx context.Context, runtime *platform.Runtime, mbid string, 
 	return map[string][]candidate{mbid: out}, nil
 }
 
-func selectProviderIdentities(sets map[string]map[string][]candidate, aliases []string) map[string][]candidate {
+func selectProviderIdentities(sets map[string]map[string][]candidate, aliases []string, directRoots map[string]string) map[string][]candidate {
 	selected := map[string][]candidate{"musicbrainz": firstSet(sets["musicbrainz"])}
 	anchors := selected["musicbrainz"]
+	anchorProvider := "musicbrainz"
+	if len(anchors) == 0 {
+		anchorProvider = ""
+		for _, provider := range []string{"apple", "deezer"} {
+			rootID := directRoots[provider]
+			if rootID == "" || len(sets[provider][rootID]) == 0 {
+				continue
+			}
+			selected[provider] = sets[provider][rootID]
+			anchors = selected[provider]
+			anchorProvider = provider
+			break
+		}
+	}
+	if len(anchors) == 0 {
+		return selected
+	}
 	// Trust is directional. Two same-name storefront catalogs are not allowed
 	// to validate each other without first overlapping an anchored catalog.
 	for _, p := range []string{"discogs", "apple", "deezer", "lastfm"} {
+		if p == anchorProvider {
+			continue
+		}
 		choices := sets[p]
 		if len(choices) == 0 {
+			continue
+		}
+		if rootID := directRoots[p]; rootID != "" && len(choices[rootID]) > 0 {
+			selected[p] = choices[rootID]
 			continue
 		}
 		best, bestScore, tied := "", 0, false
@@ -470,10 +724,8 @@ func catalogArtistCompatible(values []candidate, aliases []string) bool {
 			continue
 		}
 		sawName = true
-		for _, a := range aliases {
-			if textmatch.EquivalentRelease(stripDiscogsSuffix(v.ArtistName), 0, a, 0) {
-				return true
-			}
+		if musiccredits.ContainsName(stripDiscogsSuffix(v.ArtistName), aliases, equivalentArtistCredit) {
+			return true
 		}
 	}
 	return len(values) > 0 && (!sawName || len(aliases) == 0)
@@ -498,10 +750,39 @@ func overlap(a, b []candidate) int {
 // page with meaningful MusicBrainz overlap is kept whole so genuinely digital-
 // only releases survive. A wildly larger page is reduced to independently
 // anchored releases; the exact provider response remains retained evidence.
-func gateSelectedStorefronts(selected map[string][]candidate) (map[string][]candidate, int) {
+func gateSelectedStorefronts(selected map[string][]candidate, directRoots map[string]string) (map[string][]candidate, int) {
 	anchors := selected["musicbrainz"]
+	anchorProvider := "musicbrainz"
+	if len(anchors) == 0 {
+		anchorProvider = ""
+		for _, provider := range []string{"apple", "deezer"} {
+			if directRoots[provider] != "" && len(selected[provider]) > 0 {
+				anchors = selected[provider]
+				anchorProvider = provider
+				for index := range selected[provider] {
+					if selected[provider][index].Metadata == nil {
+						selected[provider][index].Metadata = map[string]any{}
+					}
+					selected[provider][index].Metadata["catalog_identity_gate"] = "canonical_artist_provider_root"
+				}
+				break
+			}
+		}
+	}
 	dropped := 0
 	for _, provider := range []string{"apple", "deezer"} {
+		if directRoots[provider] != "" && len(selected[provider]) > 0 {
+			for index := range selected[provider] {
+				if selected[provider][index].Metadata == nil {
+					selected[provider][index].Metadata = map[string]any{}
+				}
+				selected[provider][index].Metadata["catalog_identity_gate"] = "canonical_artist_provider_root"
+			}
+			continue
+		}
+		if provider == anchorProvider {
+			continue
+		}
 		plausible := storefrontCatalogPlausible(selected[provider], anchors)
 		kept, n := gateStorefrontCandidates(selected[provider], anchors)
 		if plausible {
@@ -792,11 +1073,40 @@ func identityGatedStorefrontCluster(group cluster) bool {
 		if source.Provider != "apple" && source.Provider != "deezer" {
 			continue
 		}
-		if source.Metadata["catalog_identity_gate"] == "musicbrainz_overlap_plausible_page" {
+		if source.Metadata["catalog_identity_gate"] == "musicbrainz_overlap_plausible_page" || source.Metadata["catalog_identity_gate"] == "canonical_artist_provider_root" {
 			return true
 		}
 	}
 	return false
+}
+
+func directArtistCatalogRoots(ctx context.Context, runtime *platform.Runtime, artistEntityID string) (map[string]string, error) {
+	rows, err := runtime.DB.Query(ctx, `
+		SELECT DISTINCT record.provider,record.provider_record_id
+		FROM normalized_records record
+		JOIN external_id_claims claim
+		  ON claim.entity_id=record.entity_id AND claim.entity_kind='artist'
+		 AND claim.provider=record.provider AND claim.namespace=record.provider_namespace
+		 AND claim.normalized_value=record.provider_record_id AND claim.state='accepted'
+		WHERE record.entity_id=$1 AND record.entity_kind='artist'
+		  AND record.provider IN('apple','deezer') AND record.provider_namespace='artist'
+		ORDER BY record.provider,record.provider_record_id`, artistEntityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[string]string{}
+	for rows.Next() {
+		var provider, value string
+		if err := rows.Scan(&provider, &value); err != nil {
+			return nil, err
+		}
+		if result[provider] != "" && result[provider] != value {
+			return nil, fmt.Errorf("artist %s has multiple direct %s roots", artistEntityID, provider)
+		}
+		result[provider] = value
+	}
+	return result, rows.Err()
 }
 
 func metadataInt(metadata map[string]any, key string) int {

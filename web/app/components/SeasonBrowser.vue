@@ -30,13 +30,14 @@ const allEpisodes = computed<Episode[]>(() =>
   }),
 )
 
-const seasonList = computed<{ number: number; name: string; count: number }[]>(() => {
-  const declared = (props.seasons ?? []).map(s => ({ number: Number(s.number), name: formatValue(s.name) }))
+const seasonList = computed<{ number: number; name: string; count: number; id?: string }[]>(() => {
+  const declared = (props.seasons ?? []).map(s => ({ number: Number(s.number), name: formatValue(s.name), id: s.id as string | undefined }))
   const numbers = new Set<number>(declared.map(s => s.number))
   for (const ep of allEpisodes.value) if (ep.season != null) numbers.add(ep.season)
   return [...numbers].filter(n => Number.isFinite(n)).sort((a, b) => a - b).map(number => ({
     number,
     name: declared.find(s => s.number === number)?.name || `Season ${number}`,
+    id: declared.find(s => s.number === number)?.id,
     count: allEpisodes.value.filter(ep => ep.season === number).length,
   }))
 })
@@ -49,6 +50,8 @@ const activeSeason = computed(() => {
   const firstWithEpisodes = seasonList.value.find(s => s.count > 0)
   return (firstWithEpisodes ?? seasonList.value[0])?.number ?? null
 })
+// The active season's standalone page id, for a one-click jump to /seasons/{id}.
+const activeSeasonMeta = computed(() => seasonList.value.find(s => s.number === activeSeason.value))
 
 const shownEpisodes = computed(() => {
   const list = hasSeasons.value ? allEpisodes.value.filter(ep => ep.season === activeSeason.value) : allEpisodes.value
@@ -70,19 +73,24 @@ function toggle(key: string) { openKey.value = openKey.value === key ? null : ke
       <span class="seasons__count">{{ allEpisodes.length }} total</span>
     </header>
 
-    <div v-if="hasSeasons" class="seasons__pills" role="tablist" aria-label="Seasons">
-      <button
-        v-for="season in seasonList"
-        :key="season.number"
-        type="button"
-        role="tab"
-        :aria-selected="season.number === activeSeason"
-        class="season-pill"
-        :class="{ 'is-active': season.number === activeSeason }"
-        @click="selectSeason(season.number)"
-      >
-        {{ season.name }}<small>{{ season.count }}</small>
-      </button>
+    <div v-if="hasSeasons" class="seasons__nav">
+      <div class="seasons__pills" role="tablist" aria-label="Seasons">
+        <button
+          v-for="season in seasonList"
+          :key="season.number"
+          type="button"
+          role="tab"
+          :aria-selected="season.number === activeSeason"
+          class="season-pill"
+          :class="{ 'is-active': season.number === activeSeason }"
+          @click="selectSeason(season.number)"
+        >
+          {{ season.name }}<small>{{ season.count }}</small>
+        </button>
+      </div>
+      <NuxtLink v-if="activeSeasonMeta?.id" :to="`/seasons/${activeSeasonMeta.id}`" class="btn--link seasons__open">
+        View full season ↗
+      </NuxtLink>
     </div>
 
     <ul class="episode-list">
@@ -124,7 +132,17 @@ function toggle(key: string) { openKey.value = openKey.value === key ? null : ke
 }
 .section-head h2 { margin: 0.3rem 0 0; font-size: 1.2rem; font-weight: 500; }
 .seasons__count { color: var(--muted-2); font-family: var(--font-mono); font-size: 0.68rem; }
-.seasons__pills { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.25rem; }
+.seasons__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+}
+.seasons__pills { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.seasons__open { flex: none; color: var(--gold); font-size: 0.72rem; white-space: nowrap; }
+.seasons__open:hover { text-decoration: underline; }
 .season-pill {
   display: inline-flex;
   align-items: center;

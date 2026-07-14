@@ -689,7 +689,7 @@ func seriesMemberships(values []string, scope, observationID string) []SeriesMem
 			continue
 		}
 		seen[key] = true
-		result = append(result, SeriesMembership{Name: name, Position: position, Provider: "openlibrary", Scope: scope, ObservationID: observationID})
+		result = append(result, SeriesMembership{Name: name, Position: position, Provider: "openlibrary", Scope: scope, ObservationID: observationID, ResolutionState: "unresolved"})
 	}
 	sort.SliceStable(result, func(i, j int) bool {
 		if strings.EqualFold(result[i].Name, result[j].Name) {

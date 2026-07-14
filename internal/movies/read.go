@@ -12,6 +12,7 @@ import (
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/accessstats"
 	moviedomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/movie"
+	"github.com/HeyaMedia/HeyaMetadata/internal/resourceid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -24,6 +25,9 @@ func (s *Service) Detail(ctx context.Context, entityID string) (moviedomain.Deta
 				return moviedomain.DetailDocument{}, false, err
 			}
 			if err := hydrateCreditPersonIDs(ctx, s.runtime.DB, &document); err != nil {
+				return moviedomain.DetailDocument{}, false, err
+			}
+			if err := hydrateCollectionIDs(ctx, s.runtime.DB, &document); err != nil {
 				return moviedomain.DetailDocument{}, false, err
 			}
 			_ = accessstats.Track(ctx, s.runtime.Redis, entityID)
@@ -50,12 +54,58 @@ func (s *Service) Detail(ctx context.Context, entityID string) (moviedomain.Deta
 	if err := hydrateCreditPersonIDs(ctx, s.runtime.DB, &document); err != nil {
 		return moviedomain.DetailDocument{}, false, err
 	}
+	if err := hydrateCollectionIDs(ctx, s.runtime.DB, &document); err != nil {
+		return moviedomain.DetailDocument{}, false, err
+	}
 	ttl := time.Until(freshUntil)
 	if ttl > 0 {
 		_ = s.runtime.Redis.Set(ctx, cacheKey, body, ttl).Err()
 	}
 	_ = accessstats.Track(ctx, s.runtime.Redis, entityID)
 	return document, time.Now().Before(freshUntil), nil
+}
+
+func hydrateCollectionIDs(ctx context.Context, db recommendationQuerier, document *moviedomain.DetailDocument) error {
+	collection := document.Data.Collection
+	if collection == nil {
+		return nil
+	}
+	if collection.Provider == "" {
+		collection.Provider = "tmdb"
+	}
+	collection.ID = resourceid.For("movie_collection", collection.Provider+":"+collection.ProviderID)
+	if len(collection.Members) == 0 {
+		return nil
+	}
+	values := make([]string, 0, len(collection.Members))
+	for _, member := range collection.Members {
+		values = append(values, member.ProviderID)
+	}
+	rows, err := db.Query(ctx, `SELECT normalized_value,entity_id::text FROM external_id_claims WHERE entity_kind='movie' AND provider=$1 AND namespace='movie' AND state='accepted' AND normalized_value=ANY($2)`, collection.Provider, values)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	resolved := map[string]string{}
+	for rows.Next() {
+		var value, entityID string
+		if err := rows.Scan(&value, &entityID); err != nil {
+			return err
+		}
+		resolved[value] = entityID
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for index := range collection.Members {
+		member := &collection.Members[index]
+		member.EntityID = resolved[member.ProviderID]
+		member.ResolutionState = "unresolved"
+		if member.EntityID != "" {
+			member.ResolutionState = "materialized"
+		}
+	}
+	return nil
 }
 
 type recommendationQuerier interface {
@@ -96,6 +146,10 @@ func hydrateRecommendationIDs(ctx context.Context, db recommendationQuerier, doc
 	for i := range document.Data.Recommendations {
 		recommendation := &document.Data.Recommendations[i]
 		recommendation.EntityID = resolved[recommendation.Provider+":"+recommendation.ProviderTargetID]
+		recommendation.ResolutionState = "unresolved"
+		if recommendation.EntityID != "" {
+			recommendation.ResolutionState = "materialized"
+		}
 	}
 	return nil
 }

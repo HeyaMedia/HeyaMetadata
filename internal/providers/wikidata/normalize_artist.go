@@ -55,27 +55,21 @@ func NormalizeArtist(body []byte, expectedID, observationID string, observedAt t
 			record.Names = append(record.Names, artistdomain.Name{Value: value, Language: language, Type: "label", Primary: language == "en"})
 		}
 	}
-	for language, aliases := range source.Aliases {
-		for _, alias := range aliases {
-			if value := strings.TrimSpace(alias.Value); value != "" {
-				record.Names = append(record.Names, artistdomain.Name{Value: value, Language: language, Type: "alias"})
-			}
-		}
-	}
+	// Wikidata artist aliases are not scoped tightly enough for canonical artist
+	// identity. They frequently contain members, fictional personas, former
+	// projects, and other stage-name entities (for example Gorillaz aliases list
+	// 2D, Noodle, Murdoc, and Russel). MusicBrainz supplies artist-scoped aliases;
+	// keep Wikidata's multilingual labels but do not turn its aliases into names
+	// or search keys.
 	for language, description := range source.Descriptions {
 		if value := strings.TrimSpace(description.Value); value != "" {
 			record.Annotations = append(record.Annotations, artistdomain.Text{Value: value, Language: language, Type: "description"})
 		}
 	}
-	identityProperties := map[string]struct{ provider, namespace string }{
-		"P434": {"musicbrainz", "artist"}, "P1953": {"discogs", "artist"}, "P1902": {"spotify", "artist"},
-		"P2850": {"apple", "artist"}, "P345": {"imdb", "name"}, "P1728": {"allmusic", "artist"},
-	}
-	for property, target := range identityProperties {
-		for _, value := range claimStrings(source.Claims[property]) {
-			record.IdentityCandidates = append(record.IdentityCandidates, artistdomain.IdentityCandidate{Provider: target.provider, Namespace: target.namespace, NormalizedValue: value, Confidence: 1, Evidence: "wikidata_" + property})
-		}
-	}
+	// Wikidata may group several distinct MusicBrainz artists and stage-name
+	// identities under one real-world person. Its authority identifiers are
+	// therefore descriptive evidence only; MusicBrainz supplies the canonical
+	// artist crosswalk used by the merge layer.
 	linkProperties := map[string]string{"P856": "official", "P2397": "youtube", "P2002": "twitter", "P2003": "instagram", "P2013": "facebook", "P7085": "tiktok"}
 	for property, kind := range linkProperties {
 		for _, value := range claimStrings(source.Claims[property]) {

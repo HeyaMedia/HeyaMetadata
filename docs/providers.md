@@ -18,17 +18,28 @@ Resolution order is:
 1. Read the small Redis pointer and optional hot response body.
 2. On a Redis miss, find a still-reusable observation in Postgres.
 3. Load and verify its content-addressed body from S3.
-4. On an S3 `NoSuchKey`, invalidate the pointer, mark the blob missing, and
-   fetch upstream.
-5. Before fetching, acquire a Redis lock for the full request fingerprint and
+4. Accept either the stored gzip wrapper or the provider payload returned by a
+   gateway that transparently decoded that wrapper, then verify the provider
+   payload checksum.
+5. On an S3 `NoSuchKey` or checksum failure, evict the object and pointer, mark
+   the blob missing or corrupt, and fetch upstream.
+6. Before fetching, acquire a Redis lock for the full request fingerprint and
    double-check shared storage after acquiring it.
-6. Persist one immutable observation, then publish the Redis pointer/body.
+7. Persist one immutable observation, then publish the Redis pointer/body.
 
 Redis is an accelerator and coordination layer, not the source of truth. A
 successful TMDB response is reusable for 48 hours; a 404 is reusable for one
 hour. Authentication, authorization, throttling, and server failures are not
 reused. Bodies up to 1 MiB stay hot in Redis for up to one hour. Raw TMDB
 evidence remains under the independent 48-hour S3 lifecycle prefix.
+
+The gzip storage wrapper is tracked in `source_blobs.compression`; new internal
+objects do not advertise it as HTTP `Content-Encoding`, so S3 gateways cannot
+silently transform opaque bytes in transit. The resolver remains compatible
+with older objects that do carry that header. A corrupt durable entry is
+self-healing and never becomes a client validation error: one worker removes
+and refetches it under the normal per-request lock while concurrent workers
+reuse the repaired observation.
 
 `reusable_until` answers “may this response avoid an upstream request?” while
 `source_blobs.expires_at` answers “how long may the evidence bytes exist?” Keep
@@ -275,6 +286,14 @@ can cause a ban. XML `<error>` envelopes are classified separately from HTTP
 status and are never shared except a one-hour explicit not-found response. Raw
 XML remains XML evidence and is stored with an `.xml.gz` object suffix rather
 than being disguised as JSON.
+
+Anime Lists mapping is granularity-aware. Multiple AniDB AIDs may point at one
+TVDB/TMDB/IMDb series, so reverse TVDB lookup prefers the season-one or
+unscoped mapping. Later seasons retain their season-specific AniDB, MAL,
+AniList, TVDB-season, and Fanart-season evidence; broad series identifiers are
+stored behind a shared TVDB-series anchor and promoted only to the root anime.
+Per-entry and per-season normalizer keys prevent one shared mapping, TVDB, or
+Fanart observation from overwriting another season's normalized record.
 
 TVMaze supports TVMaze show/person IDs plus IMDb, TVDB, and TVRage show lookup.
 External lookup is retained as supporting evidence, then unlocks a second rich

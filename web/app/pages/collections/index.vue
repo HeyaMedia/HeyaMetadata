@@ -27,7 +27,7 @@ const filmTotal = computed(() =>
     <LoadingSkeleton v-if="pending" layout="grid" shape="landscape" :count="6" />
 
     <div v-else-if="data?.length" class="collection-grid">
-      <CollectionCard v-for="item in data" :key="item.provider_id" :collection="item" />
+      <CollectionCard v-for="item in data" :key="item.id" :collection="item" />
     </div>
 
     <EmptyState

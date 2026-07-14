@@ -4,7 +4,7 @@ package discovery
 
 import "time"
 
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 const (
 	KindMovie        = "movie"
@@ -21,10 +21,21 @@ const (
 )
 
 type Request struct {
-	Kind  string `json:"kind"`
-	Query string `json:"query"`
-	Limit int    `json:"limit,omitempty"`
-	Hints Hints  `json:"hints,omitempty"`
+	Kind        string       `json:"kind"`
+	Query       string       `json:"query,omitempty"`
+	Identifiers []Identifier `json:"identifiers,omitempty" maxItems:"50"`
+	Limit       int          `json:"limit,omitempty"`
+	Hints       Hints        `json:"hints,omitempty"`
+}
+type Identifier struct {
+	Scheme string `json:"scheme" minLength:"1" maxLength:"50"`
+	Value  string `json:"value" minLength:"1" maxLength:"500"`
+}
+type IdentifierEvidence struct {
+	Scheme  string `json:"scheme"`
+	Value   string `json:"value"`
+	Outcome string `json:"outcome" enum:"resolved,corroborating,unused,unsupported,conflict"`
+	Detail  string `json:"detail,omitempty"`
 }
 type Hints struct {
 	Country       string        `json:"country,omitempty"`
@@ -38,9 +49,9 @@ type Hints struct {
 	EndDate       string        `json:"end_date,omitempty"`
 	Aliases       []string      `json:"aliases,omitempty"`
 	Artists       []string      `json:"artists,omitempty"`
-	ArtistIDs     []string      `json:"artist_ids,omitempty"`
+	ArtistIDs     []string      `json:"-"`
 	Composers     []string      `json:"composers,omitempty"`
-	ComposerIDs   []string      `json:"composer_ids,omitempty"`
+	ComposerIDs   []string      `json:"-"`
 	Catalogue     string        `json:"catalogue,omitempty"`
 	Tracks        []string      `json:"tracks,omitempty"`
 	Network       string        `json:"network,omitempty"`
@@ -62,9 +73,10 @@ type EpisodeHint struct {
 	Number int    `json:"number,omitempty"`
 }
 type ReleaseHint struct {
-	Title string `json:"title"`
-	Year  int    `json:"year,omitempty"`
-	Type  string `json:"type,omitempty"`
+	Title       string       `json:"title"`
+	Year        int          `json:"year,omitempty"`
+	Type        string       `json:"type,omitempty"`
+	Identifiers []Identifier `json:"identifiers,omitempty" maxItems:"20"`
 }
 type Evidence struct {
 	Field   string  `json:"field"`
@@ -113,7 +125,7 @@ type Display struct {
 	Catalogue      string          `json:"catalogue,omitempty"`
 }
 type ArtistDisplay struct {
-	ID   string `json:"id,omitempty"`
+	ID   string `json:"-"`
 	Name string `json:"name"`
 	Join string `json:"join,omitempty"`
 }
@@ -125,26 +137,29 @@ type Resolution struct {
 }
 type Candidate struct {
 	Rank             int           `json:"rank"`
+	CandidateRef     string        `json:"candidate_ref" format:"uuid"`
 	Confidence       float64       `json:"confidence"`
 	Match            string        `json:"match"`
-	ProviderScore    int           `json:"provider_score,omitempty"`
-	Identity         ExternalID    `json:"identity"`
+	ProviderScore    int           `json:"-"`
+	Identity         ExternalID    `json:"-"`
 	Display          Display       `json:"display"`
 	MatchedReleases  []ReleaseHint `json:"matched_releases,omitempty"`
 	MatchedTracks    []string      `json:"matched_tracks,omitempty"`
 	MatchedEpisodes  []EpisodeHint `json:"matched_episodes,omitempty"`
 	Evidence         []Evidence    `json:"evidence"`
-	ExistingEntityID string        `json:"existing_entity_id,omitempty"`
-	Resolution       Resolution    `json:"resolution"`
+	ExistingEntityID string        `json:"-"`
+	Resolution       Resolution    `json:"-"`
 }
 type Result struct {
-	SchemaVersion  int         `json:"schema_version"`
-	Kind           string      `json:"kind"`
-	Query          string      `json:"query"`
-	Status         string      `json:"status"`
-	Recommendation string      `json:"recommendation"`
-	Candidates     []Candidate `json:"candidates"`
-	Providers      []string    `json:"providers"`
-	ObservedAt     time.Time   `json:"observed_at"`
-	Warnings       []string    `json:"warnings,omitempty"`
+	SchemaVersion      int                  `json:"schema_version"`
+	Kind               string               `json:"kind"`
+	Query              string               `json:"query,omitempty"`
+	Status             string               `json:"status" enum:"completed,needs_selection"`
+	Recommendation     string               `json:"recommendation"`
+	EntityID           string               `json:"entity_id,omitempty" format:"uuid"`
+	Candidates         []Candidate          `json:"candidates,omitempty"`
+	IdentifierEvidence []IdentifierEvidence `json:"identifier_evidence,omitempty"`
+	Providers          []string             `json:"-"`
+	ObservedAt         time.Time            `json:"observed_at"`
+	Warnings           []string             `json:"warnings,omitempty"`
 }

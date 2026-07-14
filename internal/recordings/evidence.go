@@ -30,7 +30,7 @@ func (s *Service) RefreshLyricsEvidence(ctx context.Context, entityID string, jo
 	if err != nil {
 		return err
 	}
-	client := lrclib.NewBackgroundCached(s.runtime.Config.Providers.LRCLIB, resolver)
+	client := lrclib.NewCached(s.runtime.Config.Providers.LRCLIB, resolver)
 	var lastErr error
 	for _, signature := range signatures {
 		payload, fetchErr := client.Get(ctx, signature)

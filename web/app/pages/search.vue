@@ -23,13 +23,18 @@ const { data: searchData, pending } = await useAsyncData(
 const results = computed(() => searchData.value?.results ?? [])
 
 // ---- Discovery / resolution (in-memory) ----------------------------------
+// Provider-transparent flow: discovery returns either a unique entity_id (go
+// straight there) or needs_selection candidates. Selection posts only the
+// opaque candidate_ref. No provider identity is ever displayed or constructed.
 const discovering = ref(false)
 const discoveryError = ref('')
 const candidates = ref<DiscoveryCandidate[]>([])
-const resolvingKey = ref('')
+const resolvingRef = ref('')
+// Kind reported by discovery, used only to pick the canonical detail route.
+const resolvedKind = ref('')
 
 // Reset discovery when the query changes.
-watch([q, kind], () => { candidates.value = []; discoveryError.value = '' })
+watch([q, kind], () => { candidates.value = []; discoveryError.value = ''; resolvedKind.value = '' })
 
 async function runDiscovery() {
   if (!q.value || !canDiscover.value || discovering.value) return
@@ -37,19 +42,29 @@ async function runDiscovery() {
   discoveryError.value = ''
   candidates.value = []
   try {
-    let result = await api.createDiscovery({ kind: kind.value, query: q.value, limit: 12 })
-    if (result.state !== 'completed') result = await api.pollDiscovery(result.id)
-    if (result.state === 'failed') throw new Error(result.error || 'Upstream discovery failed')
-    candidates.value = result.result?.candidates ?? []
+    let discovery = await api.createDiscovery({ kind: kind.value, query: q.value, limit: 12 })
+    if (discovery.state !== 'completed' && discovery.state !== 'failed') {
+      discovery = await api.pollDiscovery(discovery.id)
+    }
+    if (discovery.state === 'failed') throw new Error(discovery.error || 'Upstream discovery failed')
+    const result = discovery.result ?? {}
+    resolvedKind.value = result.kind || kind.value
+    // Unique identity → straight to the canonical entity, no selection needed.
+    if (result.entity_id) {
+      await navigateTo(entityPath({ id: result.entity_id, kind: resolvedKind.value }))
+      return
+    }
+    if (result.status === 'needs_selection') {
+      candidates.value = result.candidates ?? []
+      if (!candidates.value.length) discoveryError.value = 'Discovery found no candidates to choose from.'
+    } else {
+      discoveryError.value = 'Discovery finished without a canonical match.'
+    }
   } catch (reason: any) {
     discoveryError.value = reason?.message || 'Discovery failed'
   } finally {
     discovering.value = false
   }
-}
-
-function candidateKey(candidate: DiscoveryCandidate) {
-  return `${candidate.identity.provider}:${candidate.identity.namespace}:${candidate.identity.value}`
 }
 
 function candidateSubtitle(candidate: DiscoveryCandidate) {
@@ -58,15 +73,11 @@ function candidateSubtitle(candidate: DiscoveryCandidate) {
 }
 
 async function resolveCandidate(candidate: DiscoveryCandidate) {
-  const key = candidateKey(candidate)
-  if (candidate.existing_entity_id) {
-    await navigateTo(entityPath({ id: candidate.existing_entity_id, kind: candidate.resolution.kind }))
-    return
-  }
-  resolvingKey.value = key
+  if (resolvingRef.value) return
+  resolvingRef.value = candidate.candidate_ref
   discoveryError.value = ''
   try {
-    const result = await api.createResolution(candidate.resolution)
+    const result = await api.createResolution({ candidate_ref: candidate.candidate_ref })
     let entityId: string | undefined = result.entity_id
     if (!entityId) {
       if (!result.job?.id) throw new Error('Resolution returned no entity or job')
@@ -74,11 +85,11 @@ async function resolveCandidate(candidate: DiscoveryCandidate) {
       entityId = job.entity_id
     }
     if (!entityId) throw new Error('Ingestion completed without an entity ID')
-    await navigateTo(entityPath({ id: entityId, kind: candidate.resolution.kind }))
+    await navigateTo(entityPath({ id: entityId, kind: resolvedKind.value || kind.value }))
   } catch (reason: any) {
     discoveryError.value = reason?.message || 'Resolution failed'
   } finally {
-    resolvingKey.value = ''
+    resolvingRef.value = ''
   }
 }
 </script>
@@ -114,12 +125,11 @@ async function resolveCandidate(candidate: DiscoveryCandidate) {
       </MediaGrid>
 
       <section v-if="candidates.length" class="candidates">
-        <h3 class="candidates__title">{{ candidates.length }} upstream candidates</h3>
-        <article v-for="candidate in candidates" :key="candidateKey(candidate)" class="candidate">
+        <h3 class="candidates__title">{{ candidates.length }} candidates need selection</h3>
+        <article v-for="candidate in candidates" :key="candidate.candidate_ref" class="candidate">
           <div class="candidate__rank">{{ String(candidate.rank).padStart(2, '0') }}</div>
           <div class="candidate__main">
             <div class="candidate__head">
-              <span class="candidate__provider">{{ candidate.identity.provider }}</span>
               <h4>{{ formatValue(candidate.display.title || candidate.display.name) || 'Untitled' }}</h4>
             </div>
             <p v-if="candidateSubtitle(candidate)" class="candidate__sub">{{ candidateSubtitle(candidate) }}</p>
@@ -133,8 +143,8 @@ async function resolveCandidate(candidate: DiscoveryCandidate) {
             <strong>{{ percent(candidate.confidence) }}</strong>
             <span>{{ candidate.match || 'candidate' }}</span>
           </div>
-          <button type="button" class="btn btn--green" :disabled="resolvingKey === candidateKey(candidate)" @click="resolveCandidate(candidate)">
-            {{ resolvingKey === candidateKey(candidate) ? 'Building…' : candidate.existing_entity_id ? 'Open entity' : 'Resolve' }}
+          <button type="button" class="btn btn--green" :disabled="resolvingRef === candidate.candidate_ref" @click="resolveCandidate(candidate)">
+            {{ resolvingRef === candidate.candidate_ref ? 'Building…' : 'Resolve' }}
           </button>
         </article>
       </section>

@@ -20,15 +20,24 @@ relationship sequence, not another artist.
 Automatic artist identity requires a durable provider assertion:
 
 - the same accepted external provider ID;
+- a directly ingested MusicBrainz, Apple/iTunes, or Deezer artist record;
 - an explicit cross-provider relationship from a retained source record; or
+- an exact-name, uniquely winning catalog reconciliation with at least two
+  compatible releases; or
 - a reviewed mapping/import whose provenance is retained.
 
-Names, sort names, transliterations, matching biographies, country, dates, or
-catalog overlap may rank reconciliation candidates but never auto-merge them.
-MusicBrainz artist MBIDs are the initial identity spine because MusicBrainz
-preserves artist-credit structure and exposes explicit URL relationships to
-many supplemental catalogs. This is precedence for identity bootstrap, not a
-claim that MusicBrainz wins every metadata field.
+Names, sort names, transliterations, matching biographies, country, dates, or a
+single shared release may rank reconciliation candidates but never auto-merge
+them. MusicBrainz is a high-confidence identity source because it preserves
+artist-credit structure and exposes explicit URL relationships, but it is not
+mandatory. An artist present only in Apple/iTunes or Deezer receives a normal
+canonical Heya UUID and can own a public discography.
+
+Credit punctuation is presentation, never merge authority. The literal artist
+name is resolved first. Only after that fails may retained credits be parsed for
+common joins such as `feat.`, `featuring`, `ft.`, `&`, `and`, `x`, `×`, `/`,
+`;`, spaced `:`, `with`/`w/`, `vs.`, `presents`, or `meets`. Structured
+provider artist IDs always outrank parsed names.
 
 ## Release group / album concept
 
@@ -99,18 +108,19 @@ Normalized records preserve every source claim. Combination is deterministic:
 
 An artist discography is rebuilt from retained provider evidence; it is not a
 union of every result returned for the artist name. MusicBrainz release groups
-form the initial spine. Every selected Discogs, Apple, Deezer, and Last.fm
-artist catalog must overlap that spine uniquely, so an Apple page cannot make a
-same-name Deezer page appear trustworthy merely because those two storefronts
-overlap each other.
+are preferred high-confidence anchors when present. A directly normalized
+Apple or Deezer artist record is also an authoritative catalog root and remains
+so when the artist later gains a MusicBrainz ID. Unclaimed same-name storefront
+pages must overlap an anchored catalog uniquely, so two search results cannot
+make each other appear trustworthy merely because their names match.
 
-Apple and Deezer pages with MusicBrainz overlap and a plausible catalog size
-may contribute digital-only releases that have not reached MusicBrainz yet. A
-single release from such a page can be promoted with explicit
-`identity_gated_artist_catalog` provenance and lower confidence than
-multi-provider consensus. A disproportionately large fused page is reduced to
-releases independently matching the MusicBrainz spine; its other records remain
-in the expiring raw provider observation but never enter the public catalog.
+Direct Apple and Deezer roots, and supplemental pages with anchored overlap and
+a plausible catalog size, may contribute digital-only releases that have not
+reached MusicBrainz yet. Exact release identifiers supplied as discovery
+evidence are fetched, checked against the accepted artist credit, and folded
+into the same catalog. A disproportionately large unclaimed fused page is
+reduced to independently anchored releases; its other records remain in the
+expiring raw provider observation but never enter the public catalog.
 Discogs masters/issues need an existing independently ingested target or another
 authoritative catalog provider. Last.fm may add popularity evidence and aliases
 to a cluster, but never creates or promotes one.
@@ -192,17 +202,31 @@ hour, and are erased immediately after completion. AcoustID keys may be supplied
 with `X-Heya-AcoustID-API-Key`; the key uses the opaque Redis credential handoff
 and is never stored in River or Postgres.
 
-The same release job performs LRCLIB's bounded, cached exact-signature lookup
-with track, artist, album, and rounded duration. Exact responses run through
-the shared Redis/S3 provider cache and observation system before plain and synchronized
-forms are stored on the recording. `GET
-/api/v2/recordings/{heya_id}/lyrics` returns the LRCLIB record ID, content
-checksum, source observation, retrieval time, and lyric forms. A missing lyric
-is negative-cached and does not fail release ingestion.
+Release ingestion schedules LRCLIB evidence for each materialized recording but
+does not call LRCLIB inline. A single-worker background job uses the documented
+`/api/get` exact-signature lookup with track, artist, album, and rounded
+duration. Responses run through the shared Redis/S3 provider cache and
+observation system before plain and synchronized forms are stored on the
+recording. `GET /api/v2/recordings/{heya_id}/lyrics` returns the LRCLIB record
+ID, content checksum, source observation, retrieval time, lyric forms,
+`source_recording_id`, and `scope`. Exact recording evidence has scope
+`recording` and may include synchronized text. When MusicBrainz explicitly
+links multiple recordings as performances of the same work, untimed plain
+lyrics may be inherited with scope `musical_work`; synchronized timestamps are
+never copied between recordings. A missing lyric is negative-cached and never
+fails or delays release ingestion.
 
-LRCLIB's uncached lookup may itself fan out to external sources and therefore
-runs only on an internal, single-worker background queue. It cannot stall
-interactive resolution, and no public endpoint can enqueue it.
+Release-group and issued-release tracklists expose `lyrics_available` beside
+each canonical `recording_entity_id`. The flag is hydrated with one batched
+database query per album response, so clients can show availability badges
+without issuing one lyrics request per track. Full text remains exclusive to
+the recording lyrics endpoint. Instrumental recordings do not inherit lyrics
+from another performance of their work.
+
+LRCLIB can take several seconds to return even a cached hit and may enqueue
+missing-track work internally. The lookup therefore runs only on HeyaMetadata's
+single-worker background queue. It cannot stall interactive resolution, and no
+public endpoint can enqueue it.
 
 ## Implemented release and recording slice
 

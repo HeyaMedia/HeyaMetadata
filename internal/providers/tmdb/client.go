@@ -27,14 +27,34 @@ type Client struct {
 // FindTVByIMDb resolves an explicit IMDb identifier through TMDB's external-ID
 // index. The returned payload is evidence; CollectTV performs the detail fetch.
 func (c *Client) FindTVByIMDb(ctx context.Context, imdbID string) (providers.Payload, error) {
+	return c.FindByIMDb(ctx, imdbID)
+}
+
+// FindByIMDb returns every TMDB media candidate attached to an IMDb title ID.
+// Domain routing remains the caller's responsibility; the public API never
+// exposes the resulting TMDB identity.
+func (c *Client) FindByIMDb(ctx context.Context, imdbID string) (providers.Payload, error) {
 	imdbID = strings.TrimSpace(imdbID)
 	if !strings.HasPrefix(imdbID, "tt") {
-		return providers.Payload{}, fmt.Errorf("TMDB TV lookup requires an IMDb title ID")
+		return providers.Payload{}, fmt.Errorf("TMDB lookup requires an IMDb title ID")
 	}
 	return c.get(ctx, "find/"+url.PathEscape(imdbID), url.Values{
 		"external_source": {"imdb_id"},
 		"language":        {c.config.Language},
-	}, providers.Payload{Provider: "tmdb", ProviderNamespace: "tv_external_lookup", ProviderRecordID: imdbID, RequestKey: "find/" + imdbID + "?external_source=imdb_id&language=" + c.config.Language})
+	}, providers.Payload{Provider: "tmdb", ProviderNamespace: "external_lookup", ProviderRecordID: imdbID, RequestKey: "find/" + imdbID + "?external_source=imdb_id&language=" + c.config.Language})
+}
+
+// TVExternalIDs fetches only the compact TMDB TV identity bridge needed to
+// route a fresh TMDB TV ID into the canonical television pipeline.
+func (c *Client) TVExternalIDs(ctx context.Context, id string) (providers.Payload, error) {
+	value, err := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+	if err != nil || value < 1 {
+		return providers.Payload{}, fmt.Errorf("invalid TMDB TV ID %q", id)
+	}
+	return c.get(ctx, fmt.Sprintf("tv/%d/external_ids", value), url.Values{}, providers.Payload{
+		Provider: "tmdb", ProviderNamespace: "tv_external_ids", ProviderRecordID: strconv.FormatInt(value, 10),
+		RequestKey: fmt.Sprintf("tv/%d/external_ids", value),
+	})
 }
 
 // CollectTV fetches a TV detail document plus every season document so the

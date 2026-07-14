@@ -16,35 +16,34 @@ const { data, pending } = useAsyncData(
 
 interface Person { name: string; role: string; imageId?: string; order: number; to?: string }
 
+// Navigation is canonical-only: person_entity_id or nothing. No provider route.
 function personLink(credit: Credit): string | undefined {
-  if (credit.person_entity_id) return entityPath({ id: credit.person_entity_id, kind: 'person' })
-  if (credit.provider && credit.provider_person_id) {
-    return `/people/${encodeURIComponent(credit.provider)}/${encodeURIComponent(credit.provider_person_id)}`
-  }
-  return undefined
+  return credit.person_entity_id ? entityPath({ id: credit.person_entity_id, kind: 'person' }) : undefined
 }
 
 function dedupe(credits: Credit[], type: 'cast' | 'crew'): Person[] {
   const byKey = new Map<string, Person>()
-  for (const credit of credits) {
+  credits.forEach((credit, index) => {
     const isCast = (credit.credit_type ?? 'cast') === 'cast'
-    if (type === 'cast' ? !isCast : isCast) continue
+    if (type === 'cast' ? !isCast : isCast) return
     const name = formatValue(credit.display_name)
-    if (!name) continue
+    if (!name) return
     const role = isCast ? formatValue(credit.character) : titleCase(credit.job ?? credit.credit_type)
-    const key = isCast ? name.toLowerCase() : `${name.toLowerCase()}::${role.toLowerCase()}`
+    // Identity key is the canonical person id — never the display name — so
+    // namesakes are never merged. A credit lacking one stays distinct.
+    const pid = credit.person_entity_id
+    const key = pid ? (isCast ? pid : `${pid}::${role.toLowerCase()}`) : `anon:${index}`
     const existing = byKey.get(key)
     const order = credit.order ?? 999
     const to = personLink(credit)
-    const isTmdb = credit.provider === 'tmdb'
     if (!existing) {
       byKey.set(key, { name, role, imageId: credit.profile_image_id, order, to })
     } else {
       if (!existing.imageId && credit.profile_image_id) existing.imageId = credit.profile_image_id
-      if (to && (!existing.to || isTmdb)) existing.to = to
+      if (to && !existing.to) existing.to = to
       if (order < existing.order) { existing.order = order; if (isCast && role) existing.role = role }
     }
-  }
+  })
   return [...byKey.values()].sort((a, b) => a.order - b.order)
 }
 

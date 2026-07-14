@@ -55,11 +55,15 @@ type ProjectedMetric struct {
 }
 type ProjectedRelationship struct {
 	Relationship
-	Provider string `json:"provider"`
+	Provider        string `json:"provider"`
+	EntityID        string `json:"entity_id,omitempty" format:"uuid"`
+	ResolutionState string `json:"resolution_state" enum:"materialized,unresolved"`
 }
 type ProjectedSimilarArtist struct {
 	SimilarArtist
-	Provider string `json:"provider"`
+	Provider        string `json:"provider"`
+	EntityID        string `json:"entity_id,omitempty" format:"uuid"`
+	ResolutionState string `json:"resolution_state" enum:"materialized,unresolved"`
 }
 
 type DetailData struct {
@@ -80,7 +84,7 @@ type DetailData struct {
 type DetailDocument struct {
 	SchemaVersion     int                     `json:"schema_version"`
 	ProjectionVersion int64                   `json:"projection_version"`
-	ID                string                  `json:"id"`
+	ID                string                  `json:"id" format:"uuid"`
 	Kind              string                  `json:"kind"`
 	Slug              string                  `json:"slug"`
 	Display           Display                 `json:"display"`
@@ -92,7 +96,7 @@ type DetailDocument struct {
 type SummaryDocument struct {
 	SchemaVersion     int          `json:"schema_version"`
 	ProjectionVersion int64        `json:"projection_version"`
-	ID                string       `json:"id"`
+	ID                string       `json:"id" format:"uuid"`
 	Kind              string       `json:"kind"`
 	Slug              string       `json:"slug"`
 	Display           Display      `json:"display"`

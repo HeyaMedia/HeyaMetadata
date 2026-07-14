@@ -20,7 +20,10 @@ const items = computed(() =>
     title: formatValue(rec.title ?? rec.name ?? rec.original_title) || 'Untitled',
     year: recYear(rec),
     imageId: rec.image_id as string | undefined,
-    to: rec.entity_id ? entityPath({ id: rec.entity_id, kind: rec.kind || props.kind }) : undefined,
+    // Link only a materialized recommendation; unresolved stays display-only.
+    to: rec.entity_id && rec.resolution_state !== 'unresolved'
+      ? entityPath({ id: rec.entity_id, kind: rec.kind || props.kind })
+      : undefined,
   })),
 )
 const linkTag = resolveComponent('NuxtLink')
@@ -34,7 +37,7 @@ const linkTag = resolveComponent('NuxtLink')
         <span class="rec-card__body">
           <small>{{ rec.year || '—' }}</small>
           <strong>{{ rec.title }}</strong>
-          <span class="rec-card__status" :class="{ 'is-canonical': rec.to }">{{ rec.to ? 'Canonical ↗' : 'Not ingested' }}</span>
+          <span class="rec-card__status" :class="{ 'is-canonical': rec.to }">{{ rec.to ? 'Canonical ↗' : 'Not materialized' }}</span>
         </span>
       </component>
     </template>

@@ -1,6 +1,6 @@
 # HeyaMetadata V2 prerequisites for the Heya migration
 
-Status: blocking handoff contract
+Status: metadata-side prerequisites implemented; Heya integration proof pending
 Audience: HeyaMetadata implementers and reviewers
 Consumer: Heya (the media-server repository at `../Heya`)
 Related document: `HEYAMEDIA_V2_MIGRATION.md`
@@ -31,23 +31,29 @@ Normative terms are used as follows:
 
 ## 2. Readiness decision
 
-As of this document's creation, HeyaMetadata V2 is not ready for a
-no-regression Heya cutover.
+As of 2026-07-13, the metadata-side start gates identified by this audit have
+been implemented. In particular:
 
-The primary missing requirements are:
+1. TV/anime show, season, and episode projections and standalone resources are
+   present;
+2. canonical artist top tracks are exposed;
+3. community skip segments are explicitly owned by Heya rather than this
+   metadata service;
+4. asynchronous `202` responses are typed in OpenAPI and the generated client;
+5. book-series membership is retained as a provider-backed relationship and is
+   explicitly `unresolved` until a canonical series model exists;
+6. provider-transparent discovery now accepts generic identifier evidence,
+   crosswalks and selects ingestion internally, and returns only Heya UUIDs or
+   opaque candidate references;
+7. nested relation closure covers people, discography, releases, recordings,
+   seasons, episodes, recommendations, and movie collections with Heya UUIDs or
+   an explicit unresolved state.
 
-1. complete TV/anime, season, and episode projections;
-2. canonical artist top tracks;
-3. an explicit replacement for the old service's community segment endpoints;
-4. a generated API contract that accurately models asynchronous `202`
-   responses;
-5. book-series support, or an explicit product decision to drop it;
-6. consumer-shaped acceptance coverage proving the old service can be disabled.
-
-Movies, people, canonical discovery/resolution, change feed concepts, artwork
-materialization, and most music and publication identity are suitable
-foundations. They still need end-to-end evidence, but they do not presently
-appear to require a redesign.
+The remaining cutover proof belongs to the Heya integration: run its scanner,
+adapter, persistence, image, change-feed, and segment tests with the old service
+disabled. The authoritative implementation handoff is
+`HEYAMEDIA_V2_MIGRATION.md`; the concise identity contract is
+`docs/client-resolution-flow.md`.
 
 ## 3. Scope and ownership
 
@@ -102,7 +108,7 @@ is disabled.
 | TV/anime season and episode shapes are complete | Start | DTOs, provider canaries, projection tests |
 | Episode numbering semantics are documented | Start | fixtures for regular episodes, specials, and anime absolute numbering |
 | Artist top tracks contract exists | Start | endpoint/projection, Last.fm canary, coverage entry |
-| Book-series decision is recorded | Start | implemented contract or accepted-removal decision |
+| Book-series decision is recorded | Start | provider membership retained; canonical series deferred with explicit unresolved state |
 | Existing movie/person/music/book capabilities remain green | Start | targeted domain and coverage suites |
 | Segment ownership is decided and implemented | Cutover | segment workers pass with old service unavailable |
 | Change-feed consumer behavior is proven | Cutover | replay/idempotency/restart tests |
@@ -116,7 +122,7 @@ depend on them.
 
 ### 5.1 Canonical identity
 
-Every root entity returned to Heya MUST have:
+Every independently addressable entity returned to Heya MUST have:
 
 ```json
 {
@@ -169,29 +175,43 @@ person
 Season and episode resources may use their existing dedicated resource types;
 their resource UUIDs MUST be stable and bookmarkable.
 
-### 5.2 Search, discovery, and resolution
+### 5.2 Provider-transparent search, discovery, and resolution
 
 The intended workflow MUST remain:
 
 ```text
-local search
-  -> upstream discovery only on miss
-  -> explicit candidate selection
-  -> resolution of only the selected candidate
-  -> job polling when asynchronous
-  -> canonical entity read
+identifiers present
+  -> discovery with every identifier and fact
+query-only input
+  -> local search
+  -> discovery with query and facts only on miss
+completed discovery
+  -> result.entity_id -> canonical entity read directly
+  -> needs_selection -> resolve selected candidate_ref
+     -> job polling only when asynchronous -> canonical entity read
 ```
 
 Requirements:
 
 - Search MUST be side-effect free.
-- Discovery MUST NOT create canonical identity.
-- A discovery candidate MUST contain a complete, opaque `resolution` payload;
-  Heya MUST NOT reconstruct provider namespaces or resolution input.
+- Identifier-bearing requests MUST enter discovery before fuzzy local search.
+- Local search is the recommended fast path only for query-only matching.
+- Discovery MAY materialize a uniquely identified fresh entity inside its
+  durable worker and return its Heya `entity_id` directly.
+- A discovery candidate MUST contain only an opaque `candidate_ref` for
+  selection; Heya MUST NOT receive or reconstruct provider namespaces or
+  resolution input.
 - Candidates SHOULD include evidence suitable for safe selection: title/name,
-  alternate names, year/date, provider IDs, image, type/kind, and the structured
+  alternate names, year/date, image, type/kind, and the structured
   hints that matched.
-- Existing matches MUST return `existing_entity_id` when known.
+- Existing or uniquely resolved matches MUST return result-level `entity_id`.
+- A result-level `entity_id` MUST proceed directly to canonical read without a
+  resolution request.
+- Discovery MUST accept arbitrary `{scheme,value}` identifier evidence, work
+  without a title when an identifier is sufficient, and deduplicate requests
+  independently of identifier ordering.
+- Conflicting identifiers MUST remain reviewable and return only opaque
+  candidate references.
 - Ambiguous candidates MUST remain distinguishable. V2 MUST NOT silently merge
   them merely because names are similar.
 - Resolution requests MUST be idempotent under retries and concurrency.
@@ -336,8 +356,8 @@ Each entry MUST contain enough information to:
 - invalidate a cached projection and derived local read model.
 
 When a season, episode, track placement, issued release, credit, image selection,
-or relation changes, the feed MUST identify a parent/root entity Heya can
-re-fetch. It is acceptable to emit the show/artist/release-group root as long as
+or relation changes, the feed MUST identify a parent canonical entity Heya can
+re-fetch. It is acceptable to emit the parent show, artist, or release group as long as
 that behavior is documented and complete.
 
 Cursor requirements:
@@ -359,14 +379,11 @@ the canonical document `schema_version` MUST have documented compatibility
 rules. Breaking response changes require a schema/API version change, not an
 in-place semantic mutation.
 
-## 6. TV and anime: blocking projection requirements
+## 6. TV and anime projection requirements
 
-This is the largest current functional gap.
-
-The current public `episodic.Season` only exposes ID, provider ID, number, name,
-episode order, and dates. The current `episodic.Episode` only exposes IDs,
-titles, number schemes, air date, runtime, and one summary. Heya currently
-persists and uses more information than those types can carry.
+These requirements are now represented through the complete episodic
+normalization, merge, persistence, standalone resource, and image path. They
+remain acceptance criteria for the Heya integration.
 
 The work MUST update the complete path:
 
@@ -562,7 +579,7 @@ Required semantics:
   Heya integer episode slot MUST be documented.
 - Conflicting number evidence MUST retain provenance and resolve
   deterministically.
-- A refresh that changes provider ordering MUST not create a duplicate canonical
+- A refresh that changes source-number ordering MUST not create a duplicate canonical
   episode UUID.
 - Two specials released on the same day MUST remain distinct.
 - Season association MUST be based on the selected season scheme, not blindly
@@ -589,14 +606,19 @@ not merely representable.
 
 At minimum validate:
 
-- TVMaze-rooted conventional show identity;
+- TMDB, IMDb, TVDB, and TVMaze evidence independently resolve conventional
+  shows to the same canonical Heya UUID;
 - TMDB enrichment for artwork, videos, recommendations, ratings and credits;
 - TVDB enrichment for season/episode IDs and numbering;
-- AniDB-rooted anime identity;
+- supported anime identifiers independently resolve to canonical Heya UUIDs;
 - anime alternate/native titles and absolute numbering;
 - language-aware show, season and episode artwork;
 - merge behavior when providers disagree about episode count or numbering;
 - partial provider failure without erasing previously valid metadata.
+
+Provider selection, crosswalk order, and the internal TV/anime persistence
+spines are private HeyaMetadata implementation details. They MUST NOT become
+HeyaMedia routing rules.
 
 ### 6.6 TV/anime coverage entries
 
@@ -633,15 +655,15 @@ anime.episode.specials
 Equivalent anime-specific coverage entries SHOULD be present where provider
 behavior differs from conventional TV.
 
-## 7. Music: blocking artist top-tracks requirement
+## 7. Music: artist top-tracks requirement
 
 Heya uses provider top tracks as an artist's "Popular Tracks" rail, matches them
 to locally owned recordings, exposes them through its API and Subsonic, and uses
 the resulting local rows as playable recommendations.
 
-V2 artist detail currently exposes metrics and similar artists but no ranked
-top-track evidence. This MUST be added unless the product explicitly replaces
-the feature with a different ranking source before migration.
+V2 exposes the bounded canonical endpoint
+`GET /api/v2/entities/{artist_id}/top-tracks`. Materialized rows carry
+`recording_entity_id`; unresolved provider observations remain non-navigable.
 
 ### 7.1 Acceptable contract shapes
 
@@ -750,15 +772,10 @@ The service MUST make clear which lists are complete and which are previews.
 
 ### 9.1 Book-series relationship
 
-Heya currently has local `series_name` and `series_number` fields. V2 book work
-and edition documents currently do not expose series membership.
-
-Before Heya begins its book adapter, the team MUST choose one of:
-
-1. implement canonical/book-provider series relationships; or
-2. explicitly approve removal of book-series metadata during migration.
-
-Implementation is preferred.
+V2 book work and edition documents preserve `series` membership, name, decimal
+position, provider, provenance, and work/edition scope. A canonical series
+entity is deferred; every current membership therefore reports
+`resolution_state: unresolved` and Heya must not navigate by provider ID.
 
 An implemented series relationship SHOULD expose:
 
@@ -829,7 +846,7 @@ The following MUST remain true:
 - person detail carries names, biography, dates, gender, birthplace,
   known-for department, homepage, popularity, localized biographies and image
   IDs where evidence exists;
-- reverse filmography resolves provider-person inputs to the canonical person;
+- reverse filmography is read using only the canonical person UUID;
 - multiple profile images can be selected/materialized through opaque IDs;
 - names alone are never used as person identity.
 
@@ -885,7 +902,8 @@ Heya before cutover.
 If the team instead assigns this to HeyaMetadata, V2 MUST provide an equivalent
 documented contract and preserve the runtime-aware candidate behavior.
 
-The handoff is blocked until one implementation exists. Acceptance is simple:
+This is a Heya-owned cutover gate, not a HeyaMetadata API blocker. Acceptance is
+simple:
 
 1. disable the old heya.media process;
 2. run movie, conventional TV, and anime segment workers;
@@ -942,8 +960,14 @@ green merely because nothing asserts them.
 - local search hit performs no discovery or resolution;
 - miss follows discovery and only the selected candidate is resolved;
 - unsafe ambiguity remains unresolved;
-- exact ingestible root ID resolves directly;
-- supplemental provider ID does not invent a root namespace;
+- identifier-bearing input enters discovery without fuzzy search first;
+- query-only input uses local search and discovery only on a miss;
+- exact identifier evidence is resolved or crosswalked internally to a Heya UUID;
+- mixed known and fresh identifiers are all verified before identity completes;
+- agreeing mixed evidence converges on one Heya UUID and conflicting evidence
+  returns opaque reviewable candidates;
+- no external identifier requires the client to invent a provider namespace;
+- identifier evidence is evaluated before fuzzy title/name search;
 - retry and concurrent resolution produce one entity;
 - restart resumes a persisted discovery/job ID.
 
@@ -1005,8 +1029,8 @@ The final proof MUST run with old metadata infrastructure disabled:
 
 ```text
 scanner
-  -> local search
-  -> discovery/resolution on miss
+  -> identifier discovery, or query-only local search followed by discovery on miss
+  -> direct canonical read from result.entity_id, or opaque resolution only for needs_selection
   -> canonical UUID persistence
   -> kind-specific canonical reads
   -> local Heya read-model persistence
@@ -1034,10 +1058,11 @@ When the prerequisites are complete, provide all of the following:
    - successful drift check.
 
 3. **Example payloads**
-   - immediate and asynchronous discovery;
-   - immediate and asynchronous resolution;
+   - discovery completing with a direct `result.entity_id`;
+   - discovery completing with opaque candidates;
+   - immediate and asynchronous resolution of a selected candidate;
    - terminal job success/failure;
-   - one document for every root kind Heya consumes;
+   - one document for every canonical kind Heya consumes;
    - standalone season and episode;
    - top tracks;
    - image `202` and completed bytes request;
@@ -1076,7 +1101,8 @@ Once the start gates are complete, the Heya-side migration can safely proceed:
    workflow interfaces;
 3. add canonical UUID/kind/projection-version persistence and backfill existing
    provider-ID mappings;
-4. implement the durable search/discovery/resolution/job state machine;
+4. implement the durable identifier-first discovery, query-only search, optional
+   opaque resolution, and job state machine;
 5. preserve ambiguity for manual scanner decisions;
 6. split `tv_show` and `anime` rather than mapping both to the old `tv` kind;
 7. decode kind-specific documents and populate Heya's local relational read
@@ -1105,7 +1131,8 @@ back:
 
 ### Identity and workflow
 
-- [ ] Search/discovery/resolution ownership is unchanged and tested.
+- [ ] Identifier-first discovery, query-only search, and optional opaque
+  resolution ownership are documented and tested.
 - [ ] Durable resources support restart/resume.
 - [ ] Concurrent/retried resolution cannot fork identity.
 - [ ] Redirect, merge and deletion behavior is public.

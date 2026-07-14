@@ -8,7 +8,7 @@ type ExternalID struct {
 	Value     string `json:"value"`
 }
 type Author struct {
-	ID          string       `json:"id,omitempty"`
+	ID          string       `json:"id,omitempty" format:"uuid"`
 	Name        string       `json:"name"`
 	ExternalIDs []ExternalID `json:"external_ids,omitempty"`
 }
@@ -31,16 +31,17 @@ type PublicationClassification struct {
 	Scope  string `json:"scope" enum:"work"`
 }
 type SeriesMembership struct {
-	EntityID      string `json:"entity_id,omitempty"`
-	ProviderID    string `json:"provider_id,omitempty"`
-	Name          string `json:"name"`
-	Position      string `json:"position,omitempty"`
-	Provider      string `json:"provider"`
-	Scope         string `json:"scope" enum:"work,edition"`
-	ObservationID string `json:"observation_id,omitempty"`
+	EntityID        string `json:"entity_id,omitempty" format:"uuid"`
+	ProviderID      string `json:"provider_id,omitempty"`
+	Name            string `json:"name"`
+	Position        string `json:"position,omitempty"`
+	Provider        string `json:"provider"`
+	Scope           string `json:"scope" enum:"work,edition"`
+	ObservationID   string `json:"observation_id,omitempty"`
+	ResolutionState string `json:"resolution_state" enum:"materialized,unresolved"`
 }
 type EditionSummary struct {
-	ID            string             `json:"id"`
+	ID            string             `json:"id" format:"uuid"`
 	Title         string             `json:"title"`
 	PublishedDate string             `json:"published_date,omitempty"`
 	Publishers    []string           `json:"publishers,omitempty"`
@@ -59,7 +60,7 @@ type Freshness struct {
 type Document struct {
 	SchemaVersion     int    `json:"schema_version"`
 	ProjectionVersion int64  `json:"projection_version"`
-	ID                string `json:"id"`
+	ID                string `json:"id" format:"uuid"`
 	Kind              string `json:"kind"`
 	Slug              string `json:"slug"`
 	Display           struct {
@@ -86,7 +87,7 @@ type Document struct {
 		Editions         []EditionSummary          `json:"editions,omitempty"`
 		Series           []SeriesMembership        `json:"series,omitempty"`
 		Images           []Image                   `json:"images,omitempty"`
-		WorkID           string                    `json:"work_id,omitempty"`
+		WorkID           string                    `json:"work_id,omitempty" format:"uuid"`
 	} `json:"data"`
 	Freshness  Freshness              `json:"freshness"`
 	Provenance map[string][]SourceRef `json:"provenance"`
@@ -98,7 +99,7 @@ type SourceRef struct {
 type Summary struct {
 	SchemaVersion     int    `json:"schema_version"`
 	ProjectionVersion int64  `json:"projection_version"`
-	ID                string `json:"id"`
+	ID                string `json:"id" format:"uuid"`
 	Kind              string `json:"kind"`
 	Slug              string `json:"slug"`
 	Display           struct {

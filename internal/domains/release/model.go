@@ -6,8 +6,8 @@ import "time"
 
 const (
 	NormalizedSchemaVersion    = 1
-	NormalizerVersion          = "musicbrainz-release/v1"
-	RecordingNormalizerVersion = "musicbrainz-recording/v1"
+	NormalizerVersion          = "musicbrainz-release/v2"
+	RecordingNormalizerVersion = "musicbrainz-recording/v2"
 	MergeVersion               = "release-merge/v1"
 	RecordingMergeVersion      = "recording-merge/v2"
 	ProjectionSchemaVersion    = 1
@@ -32,10 +32,12 @@ type ArtistCredit struct {
 	Position        int    `json:"position"`
 	Name            string `json:"name"`
 	JoinPhrase      string `json:"join_phrase,omitempty"`
+	ArtistEntityID  string `json:"artist_entity_id,omitempty" format:"uuid"`
 	ArtistProvider  string `json:"artist_provider"`
 	ArtistNamespace string `json:"artist_namespace"`
 	ArtistID        string `json:"artist_id"`
 	ArtistName      string `json:"artist_name"`
+	ResolutionState string `json:"resolution_state,omitempty" enum:"materialized,unresolved"`
 }
 type Label struct {
 	ProviderID    string `json:"provider_id,omitempty"`
@@ -58,6 +60,13 @@ type Recording struct {
 	Releases       []RecordingRelease `json:"releases,omitempty"`
 	Links          []Link             `json:"links,omitempty"`
 }
+type WorkRelation struct {
+	ProviderID string   `json:"provider_id"`
+	Title      string   `json:"title,omitempty"`
+	Language   string   `json:"language,omitempty"`
+	Type       string   `json:"type"`
+	Attributes []string `json:"attributes,omitempty"`
+}
 type WeightedTerm struct {
 	ProviderID string `json:"provider_id,omitempty"`
 	Name       string `json:"name"`
@@ -68,13 +77,17 @@ type Rating struct {
 	Votes int     `json:"votes"`
 }
 type RecordingRelease struct {
-	ProviderID        string `json:"provider_id"`
-	Title             string `json:"title"`
-	Status            string `json:"status,omitempty"`
-	Date              string `json:"date,omitempty"`
-	Country           string `json:"country,omitempty"`
-	ReleaseGroupID    string `json:"release_group_id,omitempty"`
-	ReleaseGroupTitle string `json:"release_group_title,omitempty"`
+	ReleaseEntityID             string `json:"release_entity_id,omitempty" format:"uuid"`
+	ReleaseGroupEntityID        string `json:"release_group_entity_id,omitempty" format:"uuid"`
+	ProviderID                  string `json:"provider_id"`
+	Title                       string `json:"title"`
+	Status                      string `json:"status,omitempty"`
+	Date                        string `json:"date,omitempty"`
+	Country                     string `json:"country,omitempty"`
+	ReleaseGroupID              string `json:"release_group_id,omitempty"`
+	ReleaseGroupTitle           string `json:"release_group_title,omitempty"`
+	ReleaseResolutionState      string `json:"release_resolution_state,omitempty" enum:"materialized,unresolved"`
+	ReleaseGroupResolutionState string `json:"release_group_resolution_state,omitempty" enum:"materialized,unresolved"`
 }
 type Link struct {
 	Type string `json:"type"`
@@ -84,6 +97,7 @@ type NormalizedRecording struct {
 	ProviderRecord ProviderRecord `json:"provider_record"`
 	ExternalIDs    []ExternalID   `json:"external_ids"`
 	Recording      Recording      `json:"recording"`
+	WorkRelations  []WorkRelation `json:"work_relations,omitempty"`
 }
 type Track struct {
 	ProviderID    string         `json:"provider_id"`
@@ -94,6 +108,7 @@ type Track struct {
 	DurationMS    int64          `json:"duration_ms,omitempty"`
 	ArtistCredits []ArtistCredit `json:"artist_credits"`
 	Recording     Recording      `json:"recording"`
+	WorkRelations []WorkRelation `json:"work_relations,omitempty"`
 	PreviewURL    string         `json:"-"`
 }
 type Medium struct {
@@ -128,7 +143,7 @@ type Display struct {
 	Year  int    `json:"year,omitempty"`
 }
 type RecordingRef struct {
-	ID         string   `json:"id"`
+	ID         string   `json:"id" format:"uuid"`
 	Provider   string   `json:"provider"`
 	Namespace  string   `json:"namespace"`
 	ProviderID string   `json:"provider_id"`
@@ -137,8 +152,9 @@ type RecordingRef struct {
 	ISRCs      []string `json:"isrcs,omitempty"`
 }
 type TrackDocument struct {
-	ID                string         `json:"id"`
-	RecordingEntityID string         `json:"recording_entity_id,omitempty"`
+	ID                string         `json:"id" format:"uuid"`
+	RecordingEntityID string         `json:"recording_entity_id,omitempty" format:"uuid"`
+	LyricsAvailable   bool           `json:"lyrics_available"`
 	ProviderID        string         `json:"provider_id"`
 	Position          string         `json:"position"`
 	Number            string         `json:"number"`
@@ -166,7 +182,7 @@ type EditionSource struct {
 	Link       string `json:"link,omitempty"`
 }
 type MediumDocument struct {
-	ID         string          `json:"id"`
+	ID         string          `json:"id" format:"uuid"`
 	Position   int             `json:"position"`
 	Title      string          `json:"title,omitempty"`
 	Format     string          `json:"format,omitempty"`
@@ -192,7 +208,7 @@ type SourceRef struct {
 type DetailDocument struct {
 	SchemaVersion     int                    `json:"schema_version"`
 	ProjectionVersion int64                  `json:"projection_version"`
-	ID                string                 `json:"id"`
+	ID                string                 `json:"id" format:"uuid"`
 	Kind              string                 `json:"kind"`
 	Slug              string                 `json:"slug"`
 	Display           Display                `json:"display"`
@@ -218,7 +234,7 @@ type ReleaseData struct {
 type RecordingDocument struct {
 	SchemaVersion     int                    `json:"schema_version"`
 	ProjectionVersion int64                  `json:"projection_version"`
-	ID                string                 `json:"id"`
+	ID                string                 `json:"id" format:"uuid"`
 	Kind              string                 `json:"kind"`
 	Slug              string                 `json:"slug"`
 	Display           Display                `json:"display"`

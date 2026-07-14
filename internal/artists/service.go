@@ -46,16 +46,10 @@ func NewService(runtime *platform.Runtime) *Service { return &Service{runtime: r
 
 func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID int64, credentials providercredentials.Credentials) (result Result, returnErr error) {
 	mbid = strings.ToLower(strings.TrimSpace(mbid))
-	if riverJobID > 0 {
-		if _, err := s.runtime.DB.Exec(ctx, `INSERT INTO artist_ingestion_runs (river_job_id,musicbrainz_id,state) VALUES ($1,$2,'working') ON CONFLICT (river_job_id) DO UPDATE SET state='working',error=NULL,completed_at=NULL`, riverJobID, mbid); err != nil {
-			return Result{}, fmt.Errorf("start artist ingestion run: %w", err)
-		}
-		defer func() {
-			if returnErr != nil {
-				_, _ = s.runtime.DB.Exec(context.WithoutCancel(ctx), `UPDATE artist_ingestion_runs SET state='failed',error=$2,completed_at=now() WHERE river_job_id=$1`, riverJobID, returnErr.Error())
-			}
-		}()
+	if err := s.startIngestionRun(ctx, "musicbrainz", mbid, riverJobID); err != nil {
+		return Result{}, err
 	}
+	defer s.finishFailedIngestionRun(ctx, riverJobID, &returnErr)
 	mbCapability := musicbrainz.New(s.runtime.Config.Providers.MusicBrainz).Capability()
 	mbResolver, err := providercache.New(s.runtime, artistdomain.MusicBrainzNormalizerVersion, mbCapability.RawRetention, mbCapability.ResponseCache, riverJobID)
 	if err != nil {
@@ -240,6 +234,28 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 	return result, nil
 }
 
+func (s *Service) startIngestionRun(ctx context.Context, provider, providerID string, riverJobID int64) error {
+	if riverJobID <= 0 {
+		return nil
+	}
+	var musicBrainzID any
+	if provider == "musicbrainz" {
+		musicBrainzID = providerID
+	}
+	_, err := s.runtime.DB.Exec(ctx, `INSERT INTO artist_ingestion_runs(river_job_id,musicbrainz_id,provider,provider_id,state)VALUES($1,$2,$3,$4,'working')ON CONFLICT(river_job_id)DO UPDATE SET musicbrainz_id=EXCLUDED.musicbrainz_id,provider=EXCLUDED.provider,provider_id=EXCLUDED.provider_id,state='working',entity_id=NULL,error=NULL,completed_at=NULL`, riverJobID, musicBrainzID, provider, providerID)
+	if err != nil {
+		return fmt.Errorf("start %s artist ingestion run: %w", provider, err)
+	}
+	return nil
+}
+
+func (s *Service) finishFailedIngestionRun(ctx context.Context, riverJobID int64, returnErr *error) {
+	if riverJobID <= 0 || returnErr == nil || *returnErr == nil {
+		return
+	}
+	_, _ = s.runtime.DB.Exec(context.WithoutCancel(ctx), `UPDATE artist_ingestion_runs SET state='failed',error=$2,completed_at=now() WHERE river_job_id=$1`, riverJobID, (*returnErr).Error())
+}
+
 func (s *Service) collectLastFMArtistByName(ctx context.Context, client *lastfm.Client, capability providers.Capability, mbid string, expectedNames []string, riverJobID int64) (artistdomain.NormalizedRecordV1, string, error) {
 	var lastErr error
 	for _, name := range lastFMNameCandidates(expectedNames) {
@@ -395,31 +411,58 @@ func (s *Service) recordNormalized(ctx context.Context, record artistdomain.Norm
 	return id, nil
 }
 
-func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful []artistdomain.NormalizedRecordV1, jobID int64) (Result, error) {
+func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful []artistdomain.NormalizedRecordV1, jobID int64, preferredEntityIDs ...string) (Result, error) {
+	if len(normalizedIDs) == 0 || len(successful) == 0 || len(normalizedIDs) != len(successful) {
+		return Result{}, fmt.Errorf("artist merge requires aligned normalized records")
+	}
 	tx, err := s.runtime.DB.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return Result{}, err
 	}
 	defer tx.Rollback(ctx)
 	entityIDs := map[string]bool{}
-	var allCandidates []artistdomain.IdentityCandidate
-	spineMusicBrainzID := successful[0].ProviderRecord.Value
-	for _, record := range successful {
-		for _, candidate := range record.IdentityCandidates {
-			if candidate.Confidence < 1 {
-				continue
+	primary := successful[0]
+	spineMusicBrainzID := ""
+	if primary.ProviderRecord.Provider == "musicbrainz" && primary.ProviderRecord.Namespace == "artist" {
+		spineMusicBrainzID = primary.ProviderRecord.Value
+	}
+	// The directly collected provider record is an identity root. MusicBrainz may
+	// additionally assert explicit provider links, but Apple and Deezer are also
+	// allowed to establish an artist when MusicBrainz has no entry.
+	allCandidates := authoritativeArtistCandidates(primary)
+	for _, candidate := range allCandidates {
+		var id string
+		err := tx.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind='artist' AND provider=$1 AND namespace=$2 AND normalized_value=$3 AND state='accepted'`, candidate.Provider, candidate.Namespace, candidate.NormalizedValue).Scan(&id)
+		if err == nil {
+			compatible, compatibilityErr := artistEntityAcceptsRoot(ctx, tx, id, primary, spineMusicBrainzID)
+			if compatibilityErr != nil {
+				return Result{}, compatibilityErr
 			}
-			if candidate.Provider == "musicbrainz" && candidate.Namespace == "artist" && candidate.NormalizedValue != spineMusicBrainzID {
-				continue
-			}
-			allCandidates = append(allCandidates, candidate)
-			var id string
-			err := tx.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind='artist' AND provider=$1 AND namespace=$2 AND normalized_value=$3 AND state='accepted'`, candidate.Provider, candidate.Namespace, candidate.NormalizedValue).Scan(&id)
-			if err == nil {
+			if compatible {
 				entityIDs[id] = true
-			} else if err != pgx.ErrNoRows {
-				return Result{}, err
 			}
+		} else if err != pgx.ErrNoRows {
+			return Result{}, err
+		}
+	}
+	for _, preferredEntityID := range preferredEntityIDs {
+		preferredEntityID = strings.TrimSpace(preferredEntityID)
+		if preferredEntityID == "" {
+			continue
+		}
+		var kind string
+		if err := tx.QueryRow(ctx, `SELECT kind FROM entities WHERE id=$1 AND deleted_at IS NULL`, preferredEntityID).Scan(&kind); err != nil {
+			return Result{}, fmt.Errorf("load catalog-matched artist %s: %w", preferredEntityID, err)
+		}
+		if kind != "artist" {
+			return Result{}, fmt.Errorf("catalog-matched entity %s is not an artist", preferredEntityID)
+		}
+		compatible, compatibilityErr := artistEntityAcceptsRoot(ctx, tx, preferredEntityID, primary, spineMusicBrainzID)
+		if compatibilityErr != nil {
+			return Result{}, compatibilityErr
+		}
+		if compatible {
+			entityIDs[preferredEntityID] = true
 		}
 	}
 	if len(entityIDs) > 1 {
@@ -460,22 +503,32 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	if err := tx.QueryRow(ctx, `SELECT slug FROM entities WHERE id=$1 FOR UPDATE`, entityID).Scan(&slug); err != nil {
 		return Result{}, err
 	}
-	for _, record := range successful {
-		for _, candidate := range record.IdentityCandidates {
-			if candidate.Confidence < 1 {
-				continue
+	for _, candidate := range allCandidates {
+		source := artistIdentitySource(successful, candidate)
+		var claimedEntityID, claimState string
+		claimErr := tx.QueryRow(ctx, `SELECT entity_id,state FROM external_id_claims WHERE entity_kind='artist' AND provider=$1 AND namespace=$2 AND normalized_value=$3 FOR UPDATE`, candidate.Provider, candidate.Namespace, candidate.NormalizedValue).Scan(&claimedEntityID, &claimState)
+		switch {
+		case claimErr == pgx.ErrNoRows:
+			_, err = tx.Exec(ctx, `INSERT INTO external_id_claims (entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at) VALUES ($1,'artist',$2,$3,$4,'accepted',$5,$6,$7,$7)`, entityID, candidate.Provider, candidate.Namespace, candidate.NormalizedValue, candidate.Confidence, source.PrimaryObservationID, source.ObservedAt)
+		case claimErr != nil:
+			return Result{}, claimErr
+		case claimedEntityID == entityID || claimState != "accepted":
+			_, err = tx.Exec(ctx, `UPDATE external_id_claims SET entity_id=$1,state='accepted',confidence=$2,source_observation_id=$3,last_observed_at=$4 WHERE entity_kind='artist' AND provider=$5 AND namespace=$6 AND normalized_value=$7`, entityID, candidate.Confidence, source.PrimaryObservationID, source.ObservedAt, candidate.Provider, candidate.Namespace, candidate.NormalizedValue)
+		default:
+			// A secondary provider identifier attached to a different MB artist
+			// is ambiguous evidence, not permission to merge the two artists.
+			// Keep the exact MusicBrainz root strict; quarantine other collisions.
+			if candidate.Provider == "musicbrainz" && candidate.Namespace == "artist" {
+				return Result{}, fmt.Errorf("MusicBrainz artist %s belongs to another canonical artist", candidate.NormalizedValue)
 			}
-			if candidate.Provider == "musicbrainz" && candidate.Namespace == "artist" && candidate.NormalizedValue != spineMusicBrainzID {
-				continue
-			}
-			tag, err := tx.Exec(ctx, `INSERT INTO external_id_claims (entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at) VALUES ($1,'artist',$2,$3,$4,'accepted',$5,$6,$7,$7) ON CONFLICT (entity_kind,provider,namespace,normalized_value) DO UPDATE SET last_observed_at=EXCLUDED.last_observed_at,source_observation_id=EXCLUDED.source_observation_id WHERE external_id_claims.entity_id=EXCLUDED.entity_id`, entityID, candidate.Provider, candidate.Namespace, candidate.NormalizedValue, candidate.Confidence, record.ProviderRecord.PrimaryObservationID, record.ProviderRecord.ObservedAt)
-			if err != nil {
-				return Result{}, err
-			}
-			if tag.RowsAffected() == 0 {
-				return Result{}, fmt.Errorf("external ID %s.%s:%s belongs to another artist", candidate.Provider, candidate.Namespace, candidate.NormalizedValue)
-			}
+			_, err = tx.Exec(ctx, `UPDATE external_id_claims SET state='disputed',last_observed_at=$1 WHERE entity_kind='artist' AND provider=$2 AND namespace=$3 AND normalized_value=$4`, source.ObservedAt, candidate.Provider, candidate.Namespace, candidate.NormalizedValue)
 		}
+		if err != nil {
+			return Result{}, err
+		}
+	}
+	if err := disputeNonAuthoritativeArtistClaims(ctx, tx, entityID, allCandidates); err != nil {
+		return Result{}, err
 	}
 	for _, id := range normalizedIDs {
 		if _, err := tx.Exec(ctx, `UPDATE normalized_records SET entity_id=$1 WHERE id=$2`, entityID, id); err != nil {
@@ -502,6 +555,19 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 		records = append(records, artistdomain.RecordInput{ID: id, Record: record})
 	}
 	rows.Close()
+	acceptedIdentities, err := acceptedArtistIdentityKeys(ctx, tx, entityID)
+	if err != nil {
+		return Result{}, err
+	}
+	for index := range records {
+		candidates := records[index].Record.IdentityCandidates[:0]
+		for _, candidate := range records[index].Record.IdentityCandidates {
+			if acceptedIdentities[artistIdentityKey(candidate.Provider, candidate.Namespace, candidate.NormalizedValue)] {
+				candidates = append(candidates, candidate)
+			}
+		}
+		records[index].Record.IdentityCandidates = candidates
+	}
 	// Last.fm now serves the same placeholder star for artist images. Retire any
 	// candidates created by older normalizers whenever the artist is refreshed.
 	if _, err := tx.Exec(ctx, `DELETE FROM image_candidates WHERE entity_id=$1 AND provider='lastfm'`, entityID); err != nil {
@@ -538,6 +604,9 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	}
 	now := time.Now().UTC()
 	projection := artistdomain.Combine(entityID, slug, version, records, imageIDs, now)
+	if err := hydrateArtistRelationIDs(ctx, tx, &projection.Detail); err != nil {
+		return Result{}, err
+	}
 	topTracksChanged, err := replaceTopTracks(ctx, tx, entityID, successful, version)
 	if err != nil {
 		return Result{}, err
@@ -600,6 +669,139 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 		return Result{}, err
 	}
 	return Result{EntityID: entityID, NormalizedID: normalizedIDs[0], ProjectionVersion: version, Detail: projection.Detail}, nil
+}
+
+func artistIdentitySource(records []artistdomain.NormalizedRecordV1, candidate artistdomain.IdentityCandidate) artistdomain.ProviderRecord {
+	for _, record := range records {
+		if record.ProviderRecord.Provider == candidate.Provider && record.ProviderRecord.Namespace == candidate.Namespace && record.ProviderRecord.Value == candidate.NormalizedValue {
+			return record.ProviderRecord
+		}
+	}
+	return records[0].ProviderRecord
+}
+
+func authoritativeArtistCandidates(spine artistdomain.NormalizedRecordV1) []artistdomain.IdentityCandidate {
+	seen := map[string]bool{}
+	result := make([]artistdomain.IdentityCandidate, 0, len(spine.IdentityCandidates))
+	for _, candidate := range spine.IdentityCandidates {
+		if candidate.Confidence < 1 || strings.TrimSpace(candidate.NormalizedValue) == "" {
+			continue
+		}
+		if candidate.Provider == "musicbrainz" && candidate.Namespace == "artist" && spine.ProviderRecord.Provider == "musicbrainz" && candidate.NormalizedValue != spine.ProviderRecord.Value {
+			continue
+		}
+		key := artistIdentityKey(candidate.Provider, candidate.Namespace, candidate.NormalizedValue)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, candidate)
+	}
+	return result
+}
+
+func artistEntityAcceptsRoot(ctx context.Context, tx pgx.Tx, entityID string, root artistdomain.NormalizedRecordV1, musicBrainzID string) (bool, error) {
+	// Exact Apple/Deezer provider records are independent roots. A later
+	// MusicBrainz link may attach to them, but a non-MusicBrainz root must never
+	// displace an already accepted, different ID from the same provider.
+	if musicBrainzID == "" {
+		var conflicting bool
+		err := tx.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM external_id_claims
+				WHERE entity_id=$1 AND entity_kind='artist' AND provider=$2 AND namespace=$3
+				  AND state='accepted' AND normalized_value<>$4)`, entityID, root.ProviderRecord.Provider, root.ProviderRecord.Namespace, root.ProviderRecord.Value).Scan(&conflicting)
+		return !conflicting, err
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT normalized_value
+		FROM external_id_claims
+		WHERE entity_id=$1 AND entity_kind='artist' AND provider='musicbrainz' AND namespace='artist' AND state='accepted'
+		UNION
+		SELECT provider_record_id
+		FROM normalized_records
+		WHERE entity_id=$1 AND entity_kind='artist' AND provider='musicbrainz' AND provider_namespace='artist'`, entityID)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var root string
+		if err := rows.Scan(&root); err != nil {
+			return false, err
+		}
+		if !strings.EqualFold(root, musicBrainzID) {
+			return false, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func acceptedArtistIdentityKeys(ctx context.Context, tx pgx.Tx, entityID string) (map[string]bool, error) {
+	rows, err := tx.Query(ctx, `SELECT provider,namespace,normalized_value FROM external_id_claims WHERE entity_id=$1 AND entity_kind='artist' AND state='accepted'`, entityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[string]bool{}
+	for rows.Next() {
+		var provider, namespace, value string
+		if err := rows.Scan(&provider, &namespace, &value); err != nil {
+			return nil, err
+		}
+		result[artistIdentityKey(provider, namespace, value)] = true
+	}
+	return result, rows.Err()
+}
+
+func disputeNonAuthoritativeArtistClaims(ctx context.Context, tx pgx.Tx, entityID string, authoritative []artistdomain.IdentityCandidate) error {
+	accepted := map[string]bool{}
+	for _, candidate := range authoritative {
+		accepted[artistIdentityKey(candidate.Provider, candidate.Namespace, candidate.NormalizedValue)] = true
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT claim.id,claim.provider,claim.namespace,claim.normalized_value,
+		       EXISTS(
+			   SELECT 1 FROM normalized_records record
+			   WHERE record.entity_id=claim.entity_id AND record.entity_kind='artist'
+			     AND record.provider=claim.provider
+			     AND record.provider_namespace=claim.namespace
+			     AND record.provider_record_id=claim.normalized_value
+		       ) AS directly_observed
+		FROM external_id_claims claim
+		WHERE claim.entity_id=$1 AND claim.entity_kind='artist' AND claim.state='accepted'`, entityID)
+	if err != nil {
+		return err
+	}
+	var disputedIDs []string
+	for rows.Next() {
+		var id, provider, namespace, value string
+		var directlyObserved bool
+		if err := rows.Scan(&id, &provider, &namespace, &value, &directlyObserved); err != nil {
+			rows.Close()
+			return err
+		}
+		if !directlyObserved && !accepted[artistIdentityKey(provider, namespace, value)] {
+			disputedIDs = append(disputedIDs, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(disputedIDs) == 0 {
+		return nil
+	}
+	_, err = tx.Exec(ctx, `UPDATE external_id_claims SET state='disputed',last_observed_at=now() WHERE id=ANY($1::uuid[])`, disputedIDs)
+	return err
+}
+
+func artistIdentityKey(provider, namespace, value string) string {
+	return strings.ToLower(strings.TrimSpace(provider)) + "\x00" + strings.ToLower(strings.TrimSpace(namespace)) + "\x00" + strings.TrimSpace(value)
 }
 
 func replaceTopTracks(ctx context.Context, tx pgx.Tx, entityID string, records []artistdomain.NormalizedRecordV1, projectionVersion int64) (bool, error) {

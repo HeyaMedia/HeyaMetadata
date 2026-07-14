@@ -14,7 +14,7 @@ type Text struct {
 	Primary  bool   `json:"primary,omitempty"`
 }
 type Image struct {
-	ID       string `json:"id"`
+	ID       string `json:"id" format:"uuid"`
 	Class    string `json:"class"`
 	Provider string `json:"provider"`
 	Width    int    `json:"width,omitempty"`
@@ -35,7 +35,7 @@ type Freshness struct {
 type Document struct {
 	SchemaVersion     int    `json:"schema_version"`
 	ProjectionVersion int64  `json:"projection_version"`
-	ID                string `json:"id"`
+	ID                string `json:"id" format:"uuid"`
 	Kind              string `json:"kind"`
 	Slug              string `json:"slug"`
 	Display           struct {

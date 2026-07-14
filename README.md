@@ -44,9 +44,9 @@ running while Air replaces the backend. In the `mprocs` UI, press `r` on the
 proxy pane when changing the proxy implementation itself.
 
 The Nuxt app is the Metadata Observatory: a development workbench for local
-search, upstream discovery, candidate resolution, River progress, localized
-presentation, artwork, provenance, ratings, external IDs, raw canonical JSON,
-provider refreshes, and in-memory request-scoped credentials. See
+query search, identifier-first discovery, optional candidate resolution, River
+progress, localized presentation, artwork, provenance, ratings, external IDs,
+raw canonical JSON, provider refreshes, and in-memory request-scoped credentials. See
 [`docs/metadata-observatory.md`](./docs/metadata-observatory.md).
 
 The `dev-web` target raises the child process file-descriptor limit to avoid
@@ -141,9 +141,9 @@ go run ./cmd/heya-metadata discover musical-work \
 go run ./cmd/heya-metadata musical-work ingest --openopus 16406 --wait 90s
 ```
 
-LRCLIB's slower external-source fan-out is an internal scheduled job on a
-single-worker background queue. There is deliberately no public endpoint for
-starting evidence refreshes.
+LRCLIB's slow `/api/get` lookup is an internal scheduled job on a single-worker
+background queue. It never blocks release ingestion, and there is deliberately
+no public endpoint for starting evidence refreshes.
 
 The smoke command enqueues a real River job and waits for the separate worker.
 It writes an immutable, gzip-compressed, content-addressed observation to S3,
@@ -208,12 +208,15 @@ and movie metadata is available through paginated
 `GET /api/v2/entities/{id}/credits` and `/ratings`; ordinary detail embeds at
 most 50 credits.
 
-`GET /api/v2/search` is the low-latency canonical index and accepts a `kind`
-filter. Warm results are served from Redis; upstream providers never block this
-route. `POST /api/v2/discoveries` is the durable smart-search surface for
-unknown identities. Identical normalized requests share a high-priority River
-job and six-hour result, and candidates include confidence, evidence,
-ambiguity, existing canonical IDs, and a ready-to-submit resolution body.
+`GET /api/v2/search` is the low-latency canonical index for query-only matching
+and accepts a `kind` filter. Warm results are served from Redis; upstream
+providers never block this route. When identifiers are available, submit all of
+them directly to `POST /api/v2/discoveries`; query-only callers use search first
+and discovery on a miss. Identical normalized discovery requests share a
+high-priority River job and six-hour result. A unique result returns
+`result.entity_id` for a direct canonical read. Ambiguity returns confidence,
+evidence, and opaque `candidate_ref` values; only then does the client call
+`/api/v2/resolutions`.
 Movie, Artist, Release Group, Recording, Musical Work, TV Show, Anime, and Book
 Work have provider-backed discovery.
 TV and Anime retain separate canonical kinds, jobs, tables, and API families.
@@ -221,13 +224,15 @@ The complete consuming-server state machine, including both asynchronous poll
 boundaries, is documented in
 [Canonical entity lookup and resolution flow](./docs/client-resolution-flow.md).
 
-MusicBrainz artist IDs now run through a canonical artist pipeline that uses
-explicit MusicBrainz URL relationships to unlock Apple, Deezer, Discogs,
-Last.fm, and Wikidata evidence. Names alone never merge artists. Providers and
-music entity kinds whose canonical merge is not implemented yet still run through
-River, the shared exact-response cache, Postgres observations, and expiring S3
-evidence. The generic collector CLI takes the collector separately from the
-identifier source, which is useful for supplemental sources such as Last.fm:
+MusicBrainz, Apple/iTunes, and Deezer artist IDs now run through the canonical
+artist pipeline. MusicBrainz relationships can unlock supplemental Apple,
+Deezer, Discogs, Last.fm, and Wikidata evidence, but an Apple- or Deezer-only
+artist does not need a MusicBrainz record to receive a Heya UUID and public
+discography. Names alone never merge artists. Providers and music entity kinds
+whose canonical merge is not implemented yet still run through River, the
+shared exact-response cache, Postgres observations, and expiring S3 evidence.
+The generic collector CLI takes the collector separately from the identifier
+source, which is useful for supplemental sources such as Last.fm:
 
 ```bash
 go run ./cmd/heya-metadata provider collect \
@@ -237,6 +242,9 @@ go run ./cmd/heya-metadata provider collect \
 go run ./cmd/heya-metadata provider collect \
   --provider lastfm --id-provider musicbrainz --namespace artist \
   --value b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d
+
+go run ./cmd/heya-metadata artist ingest --apple 591024034
+go run ./cmd/heya-metadata artist ingest --deezer 5287498
 ```
 
 `--api-key` hands a caller token to the worker through the same short-lived,

@@ -28,7 +28,12 @@ func RequestHash(request Request) (string, []byte, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	sum := sha256.Sum256(body)
+	// Include ranking/control-flow semantics in the cache identity. Otherwise a
+	// deployment can keep serving an old completed decision for six hours after
+	// reconciliation logic changes, even though the normalized request is the
+	// same.
+	hashInput := append([]byte("discovery-request/v10\x00"), body...)
+	sum := sha256.Sum256(hashInput)
 	return hex.EncodeToString(sum[:]), body, nil
 }
 func EnsureRun(ctx context.Context, runtime *platform.Runtime, request Request) (Run, error) {
@@ -104,18 +109,54 @@ func Start(ctx context.Context, runtime *platform.Runtime, hash string) error {
 	return err
 }
 func Complete(ctx context.Context, runtime *platform.Runtime, hash string, result Result) error {
+	tx, err := runtime.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var runID string
+	var expiresAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT id,now()+interval '6 hours' FROM discovery_runs WHERE request_hash=$1 FOR UPDATE`, hash).Scan(&runID, &expiresAt); err != nil {
+		return err
+	}
+	for index := range result.Candidates {
+		candidate := &result.Candidates[index]
+		resolution := candidate.Resolution
+		// Once an upstream identity is already claimed by a canonical entity,
+		// the opaque reference must resolve through that Heya identity. The
+		// provider resolution remains private evidence and must not win merely
+		// because the discovery collector populated it first.
+		if candidate.ExistingEntityID != "" {
+			resolution = Resolution{Kind: result.Kind, Provider: "heya", Namespace: "entity", Value: candidate.ExistingEntityID}
+		}
+		if resolution.Kind == "" || resolution.Provider == "" || resolution.Namespace == "" || resolution.Value == "" {
+			continue
+		}
+		if err := tx.QueryRow(ctx, `INSERT INTO discovery_candidate_refs(discovery_run_id,resolution_kind,resolution_provider,resolution_namespace,resolution_value,expires_at)VALUES($1,$2,$3,$4,$5,$6)ON CONFLICT(discovery_run_id,resolution_kind,resolution_provider,resolution_namespace,resolution_value)DO UPDATE SET expires_at=EXCLUDED.expires_at,updated_at=now() RETURNING candidate_ref::text`, runID, resolution.Kind, resolution.Provider, resolution.Namespace, resolution.Value, expiresAt).Scan(&candidate.CandidateRef); err != nil {
+			return err
+		}
+	}
 	body, err := json.Marshal(result)
 	if err != nil {
 		return err
 	}
-	_, err = runtime.DB.Exec(ctx, `UPDATE discovery_runs SET state='completed',document=$2,error=NULL,completed_at=now(),updated_at=now(),expires_at=now()+interval '6 hours' WHERE request_hash=$1`, hash, body)
+	_, err = tx.Exec(ctx, `UPDATE discovery_runs SET state='completed',document=$2,error=NULL,completed_at=now(),updated_at=now(),expires_at=$3 WHERE request_hash=$1`, hash, body, expiresAt)
 	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 	if run, getErr := GetRunByHash(ctx, runtime, hash); getErr == nil {
 		cacheRun(ctx, runtime, run)
 	}
 	return nil
+}
+
+func ResolveCandidate(ctx context.Context, runtime *platform.Runtime, candidateRef string) (Resolution, error) {
+	var result Resolution
+	err := runtime.DB.QueryRow(ctx, `SELECT resolution_kind,resolution_provider,resolution_namespace,resolution_value FROM discovery_candidate_refs WHERE candidate_ref=$1 AND expires_at>now()`, candidateRef).Scan(&result.Kind, &result.Provider, &result.Namespace, &result.Value)
+	return result, err
 }
 func Fail(ctx context.Context, runtime *platform.Runtime, hash string, failure error) {
 	_, _ = runtime.DB.Exec(context.WithoutCancel(ctx), `UPDATE discovery_runs SET state='failed',error=$2,completed_at=now(),updated_at=now(),expires_at=now()+interval '10 minutes' WHERE request_hash=$1`, hash, failure.Error())

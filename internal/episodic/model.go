@@ -30,8 +30,8 @@ type EpisodeNumber struct {
 	Provider string  `json:"provider,omitempty"`
 }
 type Episode struct {
-	ID             string          `json:"id,omitempty"`
-	SeasonID       string          `json:"season_id,omitempty"`
+	ID             string          `json:"id,omitempty" format:"uuid"`
+	SeasonID       string          `json:"season_id,omitempty" format:"uuid"`
 	ProviderID     string          `json:"provider_id,omitempty"`
 	ExternalIDs    []ExternalID    `json:"external_ids"`
 	Titles         []Title         `json:"titles"`
@@ -46,7 +46,7 @@ type Episode struct {
 	Images         []Image         `json:"images"`
 }
 type Season struct {
-	ID                string       `json:"id,omitempty"`
+	ID                string       `json:"id,omitempty" format:"uuid"`
 	ProviderID        string       `json:"provider_id,omitempty"`
 	Number            int          `json:"number"`
 	Name              string       `json:"name,omitempty"`
@@ -63,26 +63,28 @@ type Season struct {
 	EpisodeIDs        []string     `json:"episode_ids"`
 }
 type Network struct {
-	EntityID       string       `json:"entity_id,omitempty"`
-	Name           string       `json:"name"`
-	Country        string       `json:"country,omitempty"`
-	Type           string       `json:"type,omitempty"`
-	ExternalIDs    []ExternalID `json:"external_ids"`
-	LogoImageID    string       `json:"logo_image_id,omitempty"`
-	LogoURL        string       `json:"-"`
-	LogoProvider   string       `json:"-"`
-	LogoProviderID string       `json:"-"`
+	EntityID        string       `json:"entity_id,omitempty" format:"uuid"`
+	Name            string       `json:"name"`
+	Country         string       `json:"country,omitempty"`
+	Type            string       `json:"type,omitempty"`
+	ExternalIDs     []ExternalID `json:"external_ids"`
+	LogoImageID     string       `json:"logo_image_id,omitempty"`
+	LogoURL         string       `json:"-"`
+	LogoProvider    string       `json:"-"`
+	LogoProviderID  string       `json:"-"`
+	ResolutionState string       `json:"resolution_state" enum:"materialized,unresolved"`
 }
 type Organization struct {
-	EntityID       string       `json:"entity_id,omitempty"`
-	Name           string       `json:"name"`
-	Country        string       `json:"country,omitempty"`
-	Type           string       `json:"type,omitempty"`
-	ExternalIDs    []ExternalID `json:"external_ids"`
-	LogoImageID    string       `json:"logo_image_id,omitempty"`
-	LogoURL        string       `json:"-"`
-	LogoProvider   string       `json:"-"`
-	LogoProviderID string       `json:"-"`
+	EntityID        string       `json:"entity_id,omitempty" format:"uuid"`
+	Name            string       `json:"name"`
+	Country         string       `json:"country,omitempty"`
+	Type            string       `json:"type,omitempty"`
+	ExternalIDs     []ExternalID `json:"external_ids"`
+	LogoImageID     string       `json:"logo_image_id,omitempty"`
+	LogoURL         string       `json:"-"`
+	LogoProvider    string       `json:"-"`
+	LogoProviderID  string       `json:"-"`
+	ResolutionState string       `json:"resolution_state" enum:"materialized,unresolved"`
 }
 type Link struct {
 	Type string `json:"type"`
@@ -106,16 +108,17 @@ type Certification struct {
 	Order       int    `json:"order,omitempty"`
 }
 type Recommendation struct {
-	Provider      string       `json:"provider"`
-	ProviderID    string       `json:"provider_id"`
-	EntityID      string       `json:"entity_id,omitempty"`
-	Title         string       `json:"title"`
-	OriginalTitle string       `json:"original_title,omitempty"`
-	FirstAirDate  string       `json:"first_air_date,omitempty"`
-	ExternalIDs   []ExternalID `json:"external_ids"`
-	ImageID       string       `json:"image_id,omitempty"`
-	ImageURL      string       `json:"-"`
-	ProviderScore float64      `json:"provider_score,omitempty"`
+	Provider        string       `json:"provider"`
+	ProviderID      string       `json:"provider_id"`
+	EntityID        string       `json:"entity_id,omitempty" format:"uuid"`
+	Title           string       `json:"title"`
+	OriginalTitle   string       `json:"original_title,omitempty"`
+	FirstAirDate    string       `json:"first_air_date,omitempty"`
+	ExternalIDs     []ExternalID `json:"external_ids"`
+	ImageID         string       `json:"image_id,omitempty"`
+	ImageURL        string       `json:"-"`
+	ProviderScore   float64      `json:"provider_score,omitempty"`
+	ResolutionState string       `json:"resolution_state" enum:"materialized,unresolved"`
 }
 type Image struct {
 	ID            string  `json:"id,omitempty"`
@@ -137,7 +140,7 @@ type Rating struct {
 	Votes    int     `json:"votes,omitempty"`
 }
 type Credit struct {
-	PersonEntityID   string `json:"person_entity_id,omitempty"`
+	PersonEntityID   string `json:"person_entity_id" format:"uuid"`
 	Provider         string `json:"provider"`
 	ProviderPersonID string `json:"provider_person_id"`
 	DisplayName      string `json:"display_name"`
@@ -252,7 +255,7 @@ type SourceRef struct {
 type Document struct {
 	SchemaVersion     int                    `json:"schema_version"`
 	ProjectionVersion int64                  `json:"projection_version"`
-	ID                string                 `json:"id"`
+	ID                string                 `json:"id" format:"uuid"`
 	Kind              string                 `json:"kind"`
 	Slug              string                 `json:"slug"`
 	Display           Display                `json:"display"`
@@ -264,7 +267,7 @@ type Document struct {
 type Summary struct {
 	SchemaVersion     int       `json:"schema_version"`
 	ProjectionVersion int64     `json:"projection_version"`
-	ID                string    `json:"id"`
+	ID                string    `json:"id" format:"uuid"`
 	Kind              string    `json:"kind"`
 	Slug              string    `json:"slug"`
 	Display           Display   `json:"display"`

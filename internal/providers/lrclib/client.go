@@ -29,16 +29,14 @@ type Client struct {
 	gate   *providers.RequestGate
 }
 
+const requestTimeout = 35 * time.Second
+
 func New(config config.LRCLIBConfig) *Client {
-	return newClient(config, providers.NewHTTPClient(6*time.Second))
+	return newClient(config, providers.NewHTTPClient(requestTimeout))
 }
 
 func NewCached(config config.LRCLIBConfig, resolver providers.PayloadResolver) *Client {
-	return newClient(config, providers.NewCachedHTTPClient(6*time.Second, resolver))
-}
-
-func NewBackgroundCached(config config.LRCLIBConfig, resolver providers.PayloadResolver) *Client {
-	return newClient(config, providers.NewCachedHTTPClient(35*time.Second, resolver))
+	return newClient(config, providers.NewCachedHTTPClient(requestTimeout, resolver))
 }
 
 func newClient(config config.LRCLIBConfig, client *providers.HTTPClient) *Client {
@@ -54,15 +52,10 @@ func (c *Client) Capability() providers.Capability {
 	}
 }
 
+// Get calls LRCLIB's documented exact metadata endpoint. Even hits can take
+// several seconds, so callers must keep this lookup on a background worker.
 func (c *Client) Get(ctx context.Context, signature Signature) (providers.Payload, error) {
 	return c.get(ctx, "/api/get", signature)
-}
-
-// GetCached asks only LRCLIB's own database. It is the bounded, interactive
-// enrichment path; Get may invoke LRCLIB's external-source fan-out and belongs
-// in a later low-priority background refresh job.
-func (c *Client) GetCached(ctx context.Context, signature Signature) (providers.Payload, error) {
-	return c.get(ctx, "/api/get-cached", signature)
 }
 
 func (c *Client) get(ctx context.Context, path string, signature Signature) (providers.Payload, error) {

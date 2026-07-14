@@ -79,8 +79,10 @@ movie-ingest:
 	$(GO) run ./cmd/heya-metadata movie ingest --tmdb $(TMDB_ID)
 
 artist-ingest:
-	@test -n "$(MUSICBRAINZ_ID)" || { echo "MUSICBRAINZ_ID is required"; exit 1; }
-	$(GO) run ./cmd/heya-metadata artist ingest --musicbrainz $(MUSICBRAINZ_ID)
+	@test -n "$(MUSICBRAINZ_ID)$(APPLE_ID)$(DEEZER_ID)" || { echo "MUSICBRAINZ_ID, APPLE_ID, or DEEZER_ID is required"; exit 1; }
+	@if [ -n "$(MUSICBRAINZ_ID)" ]; then $(GO) run ./cmd/heya-metadata artist ingest --musicbrainz "$(MUSICBRAINZ_ID)"; \
+	elif [ -n "$(APPLE_ID)" ]; then $(GO) run ./cmd/heya-metadata artist ingest --apple "$(APPLE_ID)"; \
+	else $(GO) run ./cmd/heya-metadata artist ingest --deezer "$(DEEZER_ID)"; fi
 
 release-group-ingest:
 	@test -n "$(MUSICBRAINZ_ID)" || { echo "MUSICBRAINZ_ID is required"; exit 1; }

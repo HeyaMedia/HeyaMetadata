@@ -8,7 +8,7 @@ const route = useRoute()
 const { activeCount } = useProviderCredentials()
 const { locale } = useLocale()
 const auth = useAuth()
-const { user, ready: authReady, isAuthenticated } = auth
+const { user, ready: authReady, isAuthenticated, isAdmin } = auth
 
 const panel = ref<'' | 'keys' | 'menu' | 'account' | 'locale'>('')
 const localeLabel = computed(() => (locale.language.trim() ? locale.language.trim().toUpperCase() : 'Locale'))
@@ -95,6 +95,7 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
             <Transition name="pop">
               <div v-if="panel === 'account'" class="account__menu">
                 <NuxtLink to="/account" class="account__item">Account</NuxtLink>
+                <NuxtLink v-if="isAdmin" to="/admin" class="account__item account__item--admin">Admin<span class="account__badge">Ops</span></NuxtLink>
                 <button type="button" class="account__item" @click="panel = 'keys'">
                   Provider keys<span v-if="activeCount" class="account__badge">{{ activeCount }}</span>
                 </button>
@@ -145,6 +146,7 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
             <span class="section-label">Account</span>
             <template v-if="isAuthenticated && user">
               <NuxtLink to="/account">{{ user.username }}</NuxtLink>
+              <NuxtLink v-if="isAdmin" to="/admin">Admin</NuxtLink>
               <button type="button" class="btn btn--ghost" @click="panel = 'keys'">
                 Provider keys<span v-if="activeCount"> · {{ activeCount }} set</span>
               </button>
@@ -264,6 +266,7 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
 }
 .account__item { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
 .account__item:hover { background: rgba(255, 255, 255, 0.04); color: #fff; }
+.account__item--admin { color: var(--gold); }
 .account__badge {
   display: inline-grid;
   place-items: center;

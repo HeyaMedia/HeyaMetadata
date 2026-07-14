@@ -203,7 +203,7 @@
       "id": "movie.relationships.cast",
       "kind": "movie",
       "category": "relationship",
-      "description": "Ordered cast credits point to canonical people when resolved and never merge people by name alone.",
+      "description": "Ordered cast credits always point to canonical Heya people while retaining provider evidence, and never merge people by name alone.",
       "providers": ["tmdb", "tvdb"],
       "projection": {"document": "detail", "path": "data.credits"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["tmdb"]}]

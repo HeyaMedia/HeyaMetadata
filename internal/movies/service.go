@@ -513,6 +513,9 @@ func (s *Service) merge(ctx context.Context, normalizedID string, additionalNorm
 	if err := hydrateRecommendationIDs(ctx, tx, &projection.Detail); err != nil {
 		return Result{}, err
 	}
+	if err := hydrateCollectionIDs(ctx, tx, &projection.Detail); err != nil {
+		return Result{}, err
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM entity_credit_projections WHERE entity_id=$1`, entityID); err != nil {
 		return Result{}, err
 	}

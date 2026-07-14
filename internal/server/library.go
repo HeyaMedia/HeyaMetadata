@@ -11,6 +11,7 @@ import (
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/images"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
+	"github.com/HeyaMedia/HeyaMetadata/internal/resourceid"
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -51,14 +52,16 @@ type statsOutput struct {
 	}
 }
 type collectionMember struct {
-	ProviderID string `json:"provider_id"`
-	EntityID   string `json:"entity_id,omitempty"`
-	Title      string `json:"title"`
-	Year       int    `json:"year,omitempty"`
-	ImageID    string `json:"image_id,omitempty"`
-	Order      int    `json:"order"`
+	ProviderID      string `json:"provider_id"`
+	EntityID        string `json:"entity_id,omitempty" format:"uuid"`
+	Title           string `json:"title"`
+	Year            int    `json:"year,omitempty"`
+	ImageID         string `json:"image_id,omitempty"`
+	Order           int    `json:"order"`
+	ResolutionState string `json:"resolution_state" enum:"materialized,unresolved"`
 }
 type collectionCard struct {
+	ID         string             `json:"id" format:"uuid"`
 	Provider   string             `json:"provider"`
 	ProviderID string             `json:"provider_id"`
 	Name       string             `json:"name"`
@@ -72,7 +75,7 @@ type collectionsOutput struct {
 	}
 }
 type collectionInput struct {
-	ID string `path:"id" minLength:"1" maxLength:"100"`
+	ID string `path:"id" format:"uuid"`
 }
 type collectionOutput struct{ Body collectionCard }
 
@@ -116,7 +119,7 @@ func registerLibrary(api huma.API, runtime *platform.Runtime) {
 			return nil, err
 		}
 		for _, value := range values {
-			if value.ProviderID == input.ID {
+			if value.ID == input.ID {
 				return &collectionOutput{Body: value}, nil
 			}
 		}
@@ -267,7 +270,7 @@ func movieCollections(ctx context.Context, runtime *platform.Runtime) ([]collect
 		if err = json.Unmarshal(body, &raw); err != nil {
 			return nil, fmt.Errorf("decode collection: %w", err)
 		}
-		card := collectionCard{Provider: "tmdb", ProviderID: raw.ProviderID, Name: raw.Name, Overview: raw.Overview, Members: raw.Members}
+		card := collectionCard{ID: resourceid.For("movie_collection", "tmdb:"+raw.ProviderID), Provider: "tmdb", ProviderID: raw.ProviderID, Name: raw.Name, Overview: raw.Overview, Members: raw.Members}
 		if len(raw.Images) > 0 {
 			card.ImageID = raw.Images[0].ID
 		}
@@ -282,6 +285,10 @@ func movieCollections(ctx context.Context, runtime *platform.Runtime) ([]collect
 	for i := range values {
 		for j := range values[i].Members {
 			_ = runtime.DB.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind='movie'AND provider='tmdb'AND namespace='movie'AND normalized_value=$1 AND state='accepted'`, values[i].Members[j].ProviderID).Scan(&values[i].Members[j].EntityID)
+			values[i].Members[j].ResolutionState = "unresolved"
+			if values[i].Members[j].EntityID != "" {
+				values[i].Members[j].ResolutionState = "materialized"
+			}
 		}
 	}
 	sort.Slice(values, func(i, j int) bool {

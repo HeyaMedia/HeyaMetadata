@@ -24,7 +24,7 @@ type musicEntityInput struct {
 }
 
 type recordingFingerprint struct {
-	ID               string    `json:"id"`
+	ID               string    `json:"id" format:"uuid"`
 	Algorithm        string    `json:"algorithm"`
 	AlgorithmVersion string    `json:"algorithm_version"`
 	GeneratorVersion string    `json:"generator_version"`
@@ -40,13 +40,15 @@ type recordingFingerprint struct {
 
 type recordingFingerprintsOutput struct {
 	Body struct {
-		RecordingID string                 `json:"recording_id"`
+		RecordingID string                 `json:"recording_id" format:"uuid"`
 		Items       []recordingFingerprint `json:"items"`
 	}
 }
 
 type recordingLyrics struct {
-	ID                  string    `json:"id"`
+	ID                  string    `json:"id" format:"uuid"`
+	SourceRecordingID   string    `json:"source_recording_id" format:"uuid"`
+	Scope               string    `json:"scope" enum:"recording,musical_work"`
 	Provider            string    `json:"provider"`
 	ProviderRecordID    string    `json:"provider_record_id"`
 	TrackName           string    `json:"track_name"`
@@ -63,7 +65,7 @@ type recordingLyrics struct {
 
 type recordingLyricsOutput struct {
 	Body struct {
-		RecordingID string            `json:"recording_id"`
+		RecordingID string            `json:"recording_id" format:"uuid"`
 		Items       []recordingLyrics `json:"items"`
 	}
 }
@@ -81,7 +83,7 @@ type fingerprintMatchGetInput struct {
 	ID string `path:"id" format:"uuid"`
 }
 type fingerprintMatchResource struct {
-	ID        string                        `json:"id"`
+	ID        string                        `json:"id" format:"uuid"`
 	State     string                        `json:"state"`
 	Result    *fingerprintmatch.MatchResult `json:"result,omitempty"`
 	Job       *jobResource                  `json:"job,omitempty"`
@@ -182,14 +184,71 @@ func registerReleases(api huma.API, runtime *platform.Runtime) {
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
 		out := &recordingLyricsOutput{}
 		out.Body.RecordingID, out.Body.Items = input.ID, []recordingLyrics{}
+		directPlain, directInstrumental := false, false
 		for rows.Next() {
 			var item recordingLyrics
 			if err := rows.Scan(&item.ID, &item.Provider, &item.ProviderRecordID, &item.TrackName, &item.ArtistName, &item.AlbumName, &item.DurationMS, &item.Instrumental, &item.PlainLyrics, &item.SyncedLyrics, &item.ContentChecksum, &item.SourceObservationID, &item.ObservedAt); err != nil {
+				rows.Close()
 				return nil, err
 			}
+			item.SourceRecordingID, item.Scope = input.ID, "recording"
+			directPlain = directPlain || item.PlainLyrics != ""
+			directInstrumental = directInstrumental || item.Instrumental
+			out.Body.Items = append(out.Body.Items, item)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+		if directPlain || directInstrumental {
+			return out, nil
+		}
+		// Plain lyrics describe the composed work and may safely be reused by
+		// another explicitly linked performance. Synchronized timestamps still
+		// belong to one exact recording, so the inherited item omits them.
+		rows, err = runtime.DB.Query(ctx, `
+			SELECT DISTINCT ON (lyrics.content_checksum)
+			       lyrics.id,lyrics.provider,lyrics.provider_record_id,
+			       lyrics.track_name,lyrics.artist_name,lyrics.album_name,
+			       COALESCE(lyrics.duration_ms,0),false,
+			       COALESCE(lyrics.plain_lyrics,''),''::text,
+			       lyrics.content_checksum,lyrics.source_observation_id,
+			       lyrics.observed_at,lyrics.recording_entity_id::text
+			FROM entity_relations own
+			JOIN entity_relations peer
+			  ON peer.source_kind='recording'
+			 AND peer.target_kind=own.target_kind
+			 AND peer.relation_type=own.relation_type
+			 AND peer.provider=own.provider
+			 AND peer.namespace=own.namespace
+			 AND peer.provider_value=own.provider_value
+			 AND peer.state='accepted'
+			JOIN recording_lyrics lyrics
+			  ON lyrics.recording_entity_id=peer.source_entity_id
+			 AND lyrics.plain_lyrics IS NOT NULL
+			 AND NOT lyrics.instrumental
+			WHERE own.source_entity_id=$1
+			  AND own.source_kind='recording'
+			  AND own.target_kind='musical_work'
+			  AND own.relation_type='performance_of'
+			  AND own.provider='musicbrainz'
+			  AND own.namespace='work'
+			  AND own.state='accepted'
+			  AND NOT (COALESCE(own.metadata->'attributes','[]'::jsonb) ? 'instrumental')
+			ORDER BY lyrics.content_checksum,lyrics.observed_at DESC,lyrics.id`, input.ID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var item recordingLyrics
+			if err := rows.Scan(&item.ID, &item.Provider, &item.ProviderRecordID, &item.TrackName, &item.ArtistName, &item.AlbumName, &item.DurationMS, &item.Instrumental, &item.PlainLyrics, &item.SyncedLyrics, &item.ContentChecksum, &item.SourceObservationID, &item.ObservedAt, &item.SourceRecordingID); err != nil {
+				return nil, err
+			}
+			item.Scope = "musical_work"
 			out.Body.Items = append(out.Body.Items, item)
 		}
 		return out, rows.Err()

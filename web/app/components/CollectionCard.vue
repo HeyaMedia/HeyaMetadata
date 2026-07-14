@@ -7,7 +7,7 @@ import type { CollectionCard } from '~/utils/types'
 // poster placeholder.
 const props = defineProps<{ collection: CollectionCard }>()
 
-const to = computed(() => `/collections/${encodeURIComponent(props.collection.provider_id)}`)
+const to = computed(() => `/collections/${encodeURIComponent(props.collection.id)}`)
 const members = computed(() => [...(props.collection.members ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)))
 const memberCount = computed(() => members.value.length)
 // Up to five posters for the strip; a franchise with none still gets a clean card.
@@ -34,7 +34,7 @@ const yearRange = computed(() => {
       </span>
     </span>
     <span v-if="strip.length" class="collection-card__strip" aria-hidden="true">
-      <span v-for="member in strip" :key="member.provider_id" class="collection-card__poster">
+      <span v-for="(member, index) in strip" :key="member.entity_id || index" class="collection-card__poster">
         <MetadataImage :image-id="member.image_id" variant="thumb" decorative />
       </span>
     </span>

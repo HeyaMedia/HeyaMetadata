@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/canonicalrefs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/changelog"
 	releasedomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/release"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
@@ -98,6 +99,9 @@ func (s *Service) persist(ctx context.Context, record releasedomain.NormalizedRe
 	if err := persistClaims(ctx, tx, entityID, record); err != nil {
 		return Result{}, err
 	}
+	if err := PersistWorkRelations(ctx, tx, entityID, record.WorkRelations, record.ProviderRecord); err != nil {
+		return Result{}, err
+	}
 	var existing releasedomain.RecordingDocument
 	var existingBody []byte
 	if err := tx.QueryRow(ctx, `SELECT document FROM canonical_recordings WHERE entity_id=$1`, entityID).Scan(&existingBody); err == nil {
@@ -106,6 +110,9 @@ func (s *Service) persist(ctx context.Context, record releasedomain.NormalizedRe
 		return Result{}, err
 	}
 	recording := MergeData(existing.Data, record.Recording)
+	if err := hydrateCanonicalIDs(ctx, tx, &recording); err != nil {
+		return Result{}, err
+	}
 	var version int64
 	if err := tx.QueryRow(ctx, `UPDATE entities SET canonical_version=canonical_version+1,updated_at=now() WHERE id=$1 RETURNING canonical_version`, entityID).Scan(&version); err != nil {
 		return Result{}, err
@@ -151,6 +158,37 @@ func (s *Service) persist(ctx context.Context, record releasedomain.NormalizedRe
 		return Result{}, err
 	}
 	return Result{EntityID: entityID, NormalizedID: normalizedID, ProjectionVersion: version, Detail: doc}, nil
+}
+
+// PersistWorkRelations records MusicBrainz's explicit recording-to-work
+// relationship. It intentionally does not infer works from matching titles:
+// the relation is later safe to use for sharing untimed lyrics between studio,
+// live, remastered, and other performances of the same composed song.
+func PersistWorkRelations(ctx context.Context, tx pgx.Tx, recordingID string, works []releasedomain.WorkRelation, source releasedomain.ProviderRecord) error {
+	if recordingID == "" {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE entity_relations SET state='superseded',last_observed_at=$2 WHERE source_entity_id=$1 AND source_kind='recording' AND target_kind='musical_work' AND relation_type='performance_of' AND provider='musicbrainz' AND state='accepted'`, recordingID, source.ObservedAt); err != nil {
+		return err
+	}
+	for _, work := range works {
+		if strings.TrimSpace(work.ProviderID) == "" {
+			continue
+		}
+		metadata, err := json.Marshal(map[string]any{
+			"title":      work.Title,
+			"language":   work.Language,
+			"attributes": work.Attributes,
+			"relation":   work.Type,
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO entity_relations(source_entity_id,source_kind,target_kind,relation_type,provider,namespace,provider_value,metadata,state,source_observation_id,first_observed_at,last_observed_at)VALUES($1,'recording','musical_work','performance_of','musicbrainz','work',$2,$3,'accepted',NULLIF($4,'')::uuid,$5,$5)ON CONFLICT(source_entity_id,relation_type,provider,namespace,provider_value)DO UPDATE SET metadata=EXCLUDED.metadata,state='accepted',source_observation_id=EXCLUDED.source_observation_id,last_observed_at=EXCLUDED.last_observed_at`, recordingID, strings.ToLower(work.ProviderID), metadata, source.PrimaryObservationID, source.ObservedAt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func persistClaims(ctx context.Context, tx pgx.Tx, entityID string, record releasedomain.NormalizedRecording) error {
@@ -252,7 +290,61 @@ func (s *Service) Detail(ctx context.Context, id string) (releasedomain.Recordin
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return doc, false, err
 	}
+	if err := hydrateCanonicalIDs(ctx, s.runtime.DB, &doc.Data); err != nil {
+		return doc, false, err
+	}
 	return doc, time.Now().Before(fresh), nil
+}
+
+func hydrateCanonicalIDs(ctx context.Context, db canonicalrefs.Querier, recording *releasedomain.Recording) error {
+	artistRefs := make([]canonicalrefs.Ref, 0, len(recording.ArtistCredits))
+	for _, credit := range recording.ArtistCredits {
+		artistRefs = append(artistRefs, canonicalrefs.Ref{Provider: credit.ArtistProvider, Namespace: credit.ArtistNamespace, Value: credit.ArtistID})
+	}
+	artistsByRef, err := canonicalrefs.Resolve(ctx, db, "artist", artistRefs)
+	if err != nil {
+		return err
+	}
+	for index := range recording.ArtistCredits {
+		credit := &recording.ArtistCredits[index]
+		ref := canonicalrefs.Ref{Provider: credit.ArtistProvider, Namespace: credit.ArtistNamespace, Value: credit.ArtistID}
+		credit.ArtistEntityID = artistsByRef[canonicalrefs.Key(ref)]
+		credit.ResolutionState = "unresolved"
+		if credit.ArtistEntityID != "" {
+			credit.ResolutionState = "materialized"
+		}
+	}
+
+	releaseRefs := make([]canonicalrefs.Ref, 0, len(recording.Releases))
+	groupRefs := make([]canonicalrefs.Ref, 0, len(recording.Releases))
+	for _, release := range recording.Releases {
+		releaseRefs = append(releaseRefs, canonicalrefs.Ref{Provider: "musicbrainz", Namespace: "release", Value: release.ProviderID})
+		groupRefs = append(groupRefs, canonicalrefs.Ref{Provider: "musicbrainz", Namespace: "release_group", Value: release.ReleaseGroupID})
+	}
+	releasesByRef, err := canonicalrefs.Resolve(ctx, db, "release", releaseRefs)
+	if err != nil {
+		return err
+	}
+	groupsByRef, err := canonicalrefs.Resolve(ctx, db, "release_group", groupRefs)
+	if err != nil {
+		return err
+	}
+	for index := range recording.Releases {
+		release := &recording.Releases[index]
+		releaseRef := canonicalrefs.Ref{Provider: "musicbrainz", Namespace: "release", Value: release.ProviderID}
+		groupRef := canonicalrefs.Ref{Provider: "musicbrainz", Namespace: "release_group", Value: release.ReleaseGroupID}
+		release.ReleaseEntityID = releasesByRef[canonicalrefs.Key(releaseRef)]
+		release.ReleaseResolutionState = "unresolved"
+		if release.ReleaseEntityID != "" {
+			release.ReleaseResolutionState = "materialized"
+		}
+		release.ReleaseGroupEntityID = groupsByRef[canonicalrefs.Key(groupRef)]
+		release.ReleaseGroupResolutionState = "unresolved"
+		if release.ReleaseGroupEntityID != "" {
+			release.ReleaseGroupResolutionState = "materialized"
+		}
+	}
+	return nil
 }
 
 func (s *Service) Resolve(ctx context.Context, provider, namespace, value string) (string, error) {

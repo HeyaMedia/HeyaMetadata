@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"sort"
@@ -58,6 +59,93 @@ type mbReleaseSearch struct {
 	} `json:"release-groups"`
 }
 
+func releaseHintArtistIDs(query string, source mbArtistSearch) []string {
+	exact := make([]string, 0, len(source.Artists))
+	fallback := make([]string, 0, min(25, len(source.Artists)))
+	want := normalizedText(query)
+	for _, artist := range source.Artists {
+		id := strings.ToLower(strings.TrimSpace(artist.ID))
+		if id == "" {
+			continue
+		}
+		if len(fallback) < 25 {
+			fallback = append(fallback, id)
+		}
+		matches := normalizedText(artist.Name) == want
+		for _, alias := range artist.Aliases {
+			matches = matches || normalizedText(alias.Name) == want
+		}
+		if matches {
+			exact = append(exact, id)
+		}
+	}
+	if len(exact) > 0 {
+		return cleanSortedLower(exact)
+	}
+	return cleanSortedLower(fallback)
+}
+
+func artistReleaseSearchQuery(title string, artistIDs []string) string {
+	title = escapeLucene(title)
+	query := `(releasegroup:"` + title + `" OR alias:"` + title + `" OR release:"` + title + `")`
+	if len(artistIDs) == 0 {
+		return query
+	}
+	ids := make([]string, 0, len(artistIDs))
+	for _, id := range artistIDs {
+		ids = append(ids, "arid:"+id)
+	}
+	return query + " AND (" + strings.Join(ids, " OR ") + ")"
+}
+
+func releaseHintSearchTitles(title string) []string {
+	titles := []string{strings.TrimSpace(title)}
+	words := strings.Fields(title)
+	if len(words) == 0 {
+		return titles
+	}
+	if _, err := strconv.Atoi(strings.Trim(strings.ToLower(words[len(words)-1]), ".#")); err == nil {
+		words = words[:len(words)-1]
+	}
+	if len(words) >= 2 && strings.EqualFold(strings.Trim(words[len(words)-1], "."), "vol") {
+		words = words[:len(words)-1]
+	}
+	if len(words) > 0 && strings.EqualFold(strings.Trim(words[len(words)-1], "."), "ost") {
+		words = words[:len(words)-1]
+	} else if len(words) >= 2 && strings.EqualFold(words[len(words)-2], "original") && strings.EqualFold(words[len(words)-1], "soundtrack") {
+		words = words[:len(words)-2]
+	}
+	fallback := strings.TrimSpace(strings.Join(words, " "))
+	if fallback != "" && normalizedText(fallback) != normalizedText(title) {
+		titles = append(titles, fallback)
+	}
+	return titles
+}
+
+func releaseHintGroupMatches(hint ReleaseHint, searchedTitle string, fallback bool, groupTitle, firstReleaseDate, primaryType string) bool {
+	y := releaseYear(firstReleaseDate)
+	if hint.Year > 0 && (y == 0 || abs(y-hint.Year) > 2) {
+		return false
+	}
+	wantType, gotType := normalizeType(hint.Type), normalizeType(primaryType)
+	if (wantType == "album" || wantType == "single" || wantType == "ep") && gotType != "" && wantType != gotType {
+		return false
+	}
+	if !fallback {
+		if normalizedText(groupTitle) == normalizedText(hint.Title) {
+			return true
+		}
+		// The search may have matched a release-group alias or one of its
+		// issued release titles, neither of which MusicBrainz includes in
+		// this compact result. Require the exact hinted year before trusting
+		// that otherwise invisible evidence; Lucene phrase search can also
+		// return a longer title which merely contains the requested words.
+		return hint.Year > 0 && y == hint.Year
+	}
+	group, searched := normalizedText(groupTitle), normalizedText(searchedTitle)
+	return group == searched || (len([]rune(searched)) >= 4 && strings.Contains(group, searched))
+}
+
 func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int64) (Result, error) {
 	request = NormalizeRequest(request)
 	if request.Kind != KindArtist {
@@ -85,32 +173,36 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 		return Result{}, fmt.Errorf("decode MusicBrainz artist search: %w", err)
 	}
 	releaseMatches := map[string][]ReleaseHint{}
+	releaseArtistIDs := releaseHintArtistIDs(request.Query, source)
 	for _, hint := range request.Hints.Releases {
-		releaseQuery := `releasegroup:"` + escapeLucene(hint.Title) + `"`
-		releasePayload, e := client.Search(ctx, "release_group", releaseQuery, 25, 0)
-		if e != nil {
-			return Result{}, e
-		}
-		if releasePayload.StatusCode != http.StatusOK {
-			return Result{}, &providers.StatusError{Provider: "musicbrainz", StatusCode: releasePayload.StatusCode}
-		}
-		var releases mbReleaseSearch
-		if e := json.Unmarshal(releasePayload.Body, &releases); e != nil {
-			return Result{}, e
-		}
-		for _, group := range releases.ReleaseGroups {
-			groupTitle, hintTitle := normalizedText(group.Title), normalizedText(hint.Title)
-			if groupTitle != hintTitle && (len([]rune(hintTitle)) < 4 || !strings.Contains(groupTitle, hintTitle)) {
-				continue
+		for searchIndex, searchTitle := range releaseHintSearchTitles(hint.Title) {
+			releaseQuery := artistReleaseSearchQuery(searchTitle, releaseArtistIDs)
+			releasePayload, e := client.Search(ctx, "release_group", releaseQuery, 100, 0)
+			if e != nil {
+				return Result{}, e
 			}
-			if hint.Year > 0 && abs(releaseYear(group.FirstReleaseDate)-hint.Year) > 2 {
-				continue
+			if releasePayload.StatusCode != http.StatusOK {
+				return Result{}, &providers.StatusError{Provider: "musicbrainz", StatusCode: releasePayload.StatusCode}
 			}
-			for _, credit := range group.ArtistCredit {
-				if credit.Artist.ID != "" {
-					id := strings.ToLower(credit.Artist.ID)
-					releaseMatches[id] = appendUniqueReleaseHint(releaseMatches[id], hint)
+			var releases mbReleaseSearch
+			if e := json.Unmarshal(releasePayload.Body, &releases); e != nil {
+				return Result{}, e
+			}
+			matched := false
+			for _, group := range releases.ReleaseGroups {
+				if !releaseHintGroupMatches(hint, searchTitle, searchIndex > 0, group.Title, group.FirstReleaseDate, group.PrimaryType) {
+					continue
 				}
+				for _, credit := range group.ArtistCredit {
+					if credit.Artist.ID != "" {
+						id := strings.ToLower(credit.Artist.ID)
+						releaseMatches[id] = appendUniqueReleaseHint(releaseMatches[id], hint)
+						matched = true
+					}
+				}
+			}
+			if matched {
+				break
 			}
 		}
 	}
@@ -139,6 +231,15 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 		}
 		candidates = append(candidates, candidate)
 	}
+	providersUsed := []string{"musicbrainz"}
+	storefrontCandidates, storefrontProviders, storefrontErr := s.discoverStorefrontArtistCandidates(ctx, request, jobID)
+	if storefrontErr != nil {
+		slog.WarnContext(ctx, "supplemental artist discovery failed", "error", storefrontErr)
+	} else {
+		candidates = append(candidates, storefrontCandidates...)
+		providersUsed = append(providersUsed, storefrontProviders...)
+	}
+	candidates = dedupeExistingArtistCandidates(candidates)
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].Confidence != candidates[j].Confidence {
 			return candidates[i].Confidence > candidates[j].Confidence
@@ -154,13 +255,30 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 	for i := range candidates {
 		candidates[i].Rank = i + 1
 	}
-	result := Result{SchemaVersion: SchemaVersion, Kind: KindArtist, Query: request.Query, Status: "completed", Recommendation: recommendation(candidates), Candidates: candidates, Providers: []string{"musicbrainz"}, ObservedAt: time.Now().UTC()}
+	result := Result{SchemaVersion: SchemaVersion, Kind: KindArtist, Query: request.Query, Status: "completed", Recommendation: recommendation(candidates), Candidates: candidates, Providers: providersUsed, ObservedAt: time.Now().UTC()}
 	return result, nil
 }
 
 func NormalizeRequest(request Request) Request {
 	request.Kind = strings.ToLower(strings.TrimSpace(request.Kind))
 	request.Query = strings.TrimSpace(request.Query)
+	identifiers := make([]Identifier, 0, len(request.Identifiers))
+	seenIdentifiers := map[string]bool{}
+	for _, identifier := range request.Identifiers {
+		identifier = normalizeIdentifier(identifier)
+		key := identifier.Scheme + "\x00" + identifier.Value
+		if identifier.Scheme != "" && identifier.Value != "" && !seenIdentifiers[key] {
+			seenIdentifiers[key] = true
+			identifiers = append(identifiers, identifier)
+		}
+	}
+	sort.Slice(identifiers, func(i, j int) bool {
+		if identifiers[i].Scheme != identifiers[j].Scheme {
+			return identifiers[i].Scheme < identifiers[j].Scheme
+		}
+		return identifiers[i].Value < identifiers[j].Value
+	})
+	request.Identifiers = identifiers
 	if request.Limit < 1 || request.Limit > 25 {
 		request.Limit = 10
 	}
@@ -206,15 +324,21 @@ func NormalizeRequest(request Request) Request {
 	})
 	request.Hints.Episodes = episodes
 	releases := make([]ReleaseHint, 0, len(request.Hints.Releases))
-	seen := map[string]bool{}
+	releaseIndexes := map[string]int{}
 	for _, hint := range request.Hints.Releases {
 		hint.Title = strings.TrimSpace(hint.Title)
 		hint.Type = normalizeType(hint.Type)
+		hint.Identifiers = normalizeReleaseIdentifiers(hint.Identifiers)
 		key := normalizedText(hint.Title) + ":" + strconv.Itoa(hint.Year) + ":" + hint.Type
-		if hint.Title != "" && !seen[key] {
-			seen[key] = true
-			releases = append(releases, hint)
+		if hint.Title == "" {
+			continue
 		}
+		if index, exists := releaseIndexes[key]; exists {
+			releases[index].Identifiers = mergeIdentifiers(releases[index].Identifiers, hint.Identifiers)
+			continue
+		}
+		releaseIndexes[key] = len(releases)
+		releases = append(releases, hint)
 	}
 	sort.Slice(releases, func(i, j int) bool {
 		if releases[i].Title != releases[j].Title {
@@ -225,9 +349,86 @@ func NormalizeRequest(request Request) Request {
 	request.Hints.Releases = releases
 	return request
 }
+
+func normalizeIdentifier(identifier Identifier) Identifier {
+	scheme := strings.ToLower(strings.TrimSpace(identifier.Scheme))
+	aliases := map[string]string{
+		"anidb_id": "anidb", "anilist_id": "anilist", "imdb_id": "imdb",
+		"apple_artist": "apple", "apple_music_artist": "apple", "itunes_artist": "apple",
+		"deezer_artist": "deezer", "discogs_artist": "discogs",
+		"mal": "myanimelist", "mal_id": "myanimelist", "mbid": "musicbrainz",
+		"musicbrainz_id": "musicbrainz", "thetvdb": "tvdb", "tmdb_id": "tmdb",
+		"tvdb_id": "tvdb", "tvmaze_id": "tvmaze",
+	}
+	if canonical, ok := aliases[scheme]; ok {
+		scheme = canonical
+	}
+	identifier.Scheme = scheme
+	identifier.Value = strings.TrimSpace(identifier.Value)
+	switch identifier.Scheme {
+	case "imdb", "musicbrainz":
+		identifier.Value = strings.ToLower(identifier.Value)
+	case "isbn":
+		identifier.Value = strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(identifier.Value))
+	case "anidb", "anilist", "apple", "deezer", "discogs", "googlebooks", "kitsu", "myanimelist", "tmdb", "tvdb", "tvmaze", "tvrage":
+		if value, err := strconv.ParseInt(identifier.Value, 10, 64); err == nil && value > 0 {
+			identifier.Value = strconv.FormatInt(value, 10)
+		}
+	}
+	return identifier
+}
+
+func normalizeReleaseIdentifiers(values []Identifier) []Identifier {
+	result := make([]Identifier, 0, len(values))
+	seen := map[string]bool{}
+	for _, identifier := range values {
+		scheme := strings.ToLower(strings.TrimSpace(identifier.Scheme))
+		switch scheme {
+		case "itunes_album", "apple_album", "apple_music_album":
+			scheme = "apple"
+		case "deezer_album":
+			scheme = "deezer"
+		case "discogs_release", "discogs_master":
+			// Keep the release/master distinction; a Discogs number is not
+			// self-describing outside its namespace.
+		default:
+			identifier.Scheme = scheme
+			identifier = normalizeIdentifier(identifier)
+			scheme = identifier.Scheme
+		}
+		identifier.Scheme = scheme
+		identifier.Value = strings.TrimSpace(identifier.Value)
+		if scheme == "apple" || scheme == "deezer" || scheme == "discogs_release" || scheme == "discogs_master" {
+			if value, err := strconv.ParseInt(identifier.Value, 10, 64); err == nil && value > 0 {
+				identifier.Value = strconv.FormatInt(value, 10)
+			}
+		}
+		key := identifier.Scheme + "\x00" + identifier.Value
+		if identifier.Scheme == "" || identifier.Value == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, identifier)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Scheme != result[j].Scheme {
+			return result[i].Scheme < result[j].Scheme
+		}
+		return result[i].Value < result[j].Value
+	})
+	return result
+}
+
+func mergeIdentifiers(left, right []Identifier) []Identifier {
+	return normalizeReleaseIdentifiers(append(append([]Identifier(nil), left...), right...))
+}
 func scoreCandidate(request Request, candidate *Candidate) {
 	score := float64(candidate.ProviderScore) / 100 * .22
-	candidate.Evidence = append(candidate.Evidence, Evidence{Field: "provider_score", Outcome: "support", Weight: round(float64(candidate.ProviderScore) / 100 * .22), Detail: fmt.Sprintf("MusicBrainz score %d/100", candidate.ProviderScore)})
+	provider := candidate.Identity.Provider
+	if provider == "" {
+		provider = "upstream"
+	}
+	candidate.Evidence = append(candidate.Evidence, Evidence{Field: "provider_score", Outcome: "support", Weight: round(float64(candidate.ProviderScore) / 100 * .22), Detail: fmt.Sprintf("%s score %d/100", provider, candidate.ProviderScore)})
 	query := normalizedText(request.Query)
 	name := normalizedText(candidate.Display.Name)
 	nameSimilarity := similarity(query, name)
@@ -240,7 +441,9 @@ func scoreCandidate(request Request, candidate *Candidate) {
 		for _, alias := range candidate.Display.Aliases {
 			if query == normalizedText(alias) {
 				outcome = "exact_alias"
-				nameWeight = .35
+				// A locale or transliteration alias is exact identity evidence,
+				// not a weaker spelling of the primary display name.
+				nameWeight = .38
 				break
 			}
 		}
@@ -330,6 +533,27 @@ func scoreCandidate(request Request, candidate *Candidate) {
 		candidate.Match = "weak"
 	}
 }
+
+func dedupeExistingArtistCandidates(values []Candidate) []Candidate {
+	result := make([]Candidate, 0, len(values))
+	byEntity := map[string]int{}
+	for _, value := range values {
+		if value.ExistingEntityID == "" {
+			result = append(result, value)
+			continue
+		}
+		index, exists := byEntity[value.ExistingEntityID]
+		if !exists {
+			byEntity[value.ExistingEntityID] = len(result)
+			result = append(result, value)
+			continue
+		}
+		if value.Confidence > result[index].Confidence {
+			result[index] = value
+		}
+	}
+	return result
+}
 func recommendation(values []Candidate) string {
 	if len(values) == 0 {
 		return "no_match"
@@ -400,8 +624,9 @@ func cleanSortedLower(values []string) []string {
 	return cleanSorted(values)
 }
 func appendUniqueReleaseHint(values []ReleaseHint, hint ReleaseHint) []ReleaseHint {
-	for _, existing := range values {
+	for index, existing := range values {
 		if normalizedText(existing.Title) == normalizedText(hint.Title) && existing.Year == hint.Year && existing.Type == hint.Type {
+			values[index].Identifiers = mergeIdentifiers(existing.Identifiers, hint.Identifiers)
 			return values
 		}
 	}

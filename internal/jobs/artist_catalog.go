@@ -21,8 +21,9 @@ const (
 )
 
 type ArtistCatalogSyncArgs struct {
-	ArtistEntityID string `json:"artist_entity_id" river:"unique"`
-	MusicBrainzID  string `json:"musicbrainz_id" river:"unique"`
+	ArtistEntityID  string                         `json:"artist_entity_id" river:"unique"`
+	MusicBrainzID   string                         `json:"musicbrainz_id" river:"unique"`
+	ReleaseEvidence []musiccatalog.ReleaseEvidence `json:"release_evidence,omitempty" river:"unique"`
 }
 
 func (ArtistCatalogSyncArgs) Kind() string { return ArtistCatalogSyncKind }
@@ -35,10 +36,11 @@ func (ArtistCatalogSyncArgs) InsertOpts() river.InsertOpts {
 	}
 }
 
-func InsertArtistCatalog(ctx context.Context, client *river.Client[pgx.Tx], artistEntityID, musicBrainzID string) error {
+func InsertArtistCatalog(ctx context.Context, client *river.Client[pgx.Tx], artistEntityID, musicBrainzID string, releaseEvidence ...musiccatalog.ReleaseEvidence) error {
 	_, err := client.Insert(ctx, ArtistCatalogSyncArgs{
-		ArtistEntityID: artistEntityID,
-		MusicBrainzID:  musicBrainzID,
+		ArtistEntityID:  artistEntityID,
+		MusicBrainzID:   musicBrainzID,
+		ReleaseEvidence: releaseEvidence,
 	}, nil)
 	return err
 }
@@ -57,7 +59,7 @@ func (w *ArtistCatalogSyncWorker) Timeout(*river.Job[ArtistCatalogSyncArgs]) tim
 }
 
 func (w *ArtistCatalogSyncWorker) Work(ctx context.Context, job *river.Job[ArtistCatalogSyncArgs]) error {
-	result, err := musiccatalog.SyncArtist(ctx, w.runtime, job.Args.ArtistEntityID, job.Args.MusicBrainzID, job.ID)
+	result, err := musiccatalog.SyncArtist(ctx, w.runtime, job.Args.ArtistEntityID, job.Args.MusicBrainzID, job.ID, job.Args.ReleaseEvidence...)
 	if err != nil {
 		var status *providers.StatusError
 		if errors.As(err, &status) {
@@ -114,28 +116,31 @@ func NewArtistCatalogSchedulerWorker(runtime *platform.Runtime) *ArtistCatalogSc
 
 func (w *ArtistCatalogSchedulerWorker) Work(ctx context.Context, _ *river.Job[ArtistCatalogSchedulerArgs]) error {
 	rows, err := w.runtime.DB.Query(ctx, `
-		SELECT c.entity_id::text, c.normalized_value
-		FROM external_id_claims c
-		WHERE c.entity_kind = 'artist'
-		  AND c.provider = 'musicbrainz'
-		  AND c.namespace = 'artist'
-		  AND c.state = 'accepted'
-		  AND EXISTS (
-			SELECT 1 FROM normalized_records n
-			WHERE n.entity_id = c.entity_id
-			  AND n.entity_kind = 'artist'
-			  AND n.provider = 'musicbrainz'
-			  AND n.provider_namespace = 'artist'
-			  AND n.provider_record_id = c.normalized_value
-		  )
+		WITH roots AS (
+			SELECT c.entity_id,
+			       COALESCE(max(c.normalized_value) FILTER (WHERE c.provider='musicbrainz'),'') AS musicbrainz_id,
+			       max(c.last_observed_at) AS last_observed_at
+			FROM external_id_claims c
+			WHERE c.entity_kind='artist' AND c.namespace='artist' AND c.state='accepted'
+			  AND c.provider IN ('musicbrainz','apple','deezer')
+			  AND EXISTS (
+				SELECT 1 FROM normalized_records n
+				WHERE n.entity_id=c.entity_id AND n.entity_kind='artist'
+				  AND n.provider=c.provider AND n.provider_namespace='artist'
+				  AND n.provider_record_id=c.normalized_value)
+			GROUP BY c.entity_id
+		)
+		SELECT root.entity_id::text,root.musicbrainz_id
+		FROM roots root
+		WHERE EXISTS (SELECT 1 FROM entities entity WHERE entity.id=root.entity_id AND entity.deleted_at IS NULL)
 		  AND NOT EXISTS (
 			SELECT 1 FROM artist_catalog_sync_runs r
-			WHERE r.artist_entity_id = c.entity_id
+			WHERE r.artist_entity_id = root.entity_id
 			  AND r.state = 'completed'
 			  AND r.sync_version = $1
 			  AND r.completed_at > now() - interval '7 days'
 		  )
-		ORDER BY c.last_observed_at DESC
+		ORDER BY root.last_observed_at DESC
 		LIMIT 25`, musiccatalog.SyncVersion)
 	if err != nil {
 		return fmt.Errorf("select artist catalogs: %w", err)

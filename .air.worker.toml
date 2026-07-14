@@ -20,6 +20,11 @@ tmp_dir = ".worker"
   send_interrupt = true
   kill_delay = 2000
   stop_on_error = true
+  # A pending migration or another startup-time failure must not leave the Air
+  # pane alive while the River worker silently stays dead. Retry the runner;
+  # normal River uniqueness makes this safe once the dependency recovers.
+  rerun = true
+  rerun_delay = 1000
 
 [log]
   time = false

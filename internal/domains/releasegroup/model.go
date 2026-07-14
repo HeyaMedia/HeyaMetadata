@@ -45,10 +45,12 @@ type ArtistCredit struct {
 	Position        int    `json:"position"`
 	Name            string `json:"name"`
 	JoinPhrase      string `json:"join_phrase,omitempty"`
+	ArtistEntityID  string `json:"artist_entity_id,omitempty" format:"uuid"`
 	ArtistProvider  string `json:"artist_provider"`
 	ArtistNamespace string `json:"artist_namespace"`
 	ArtistID        string `json:"artist_id"`
 	ArtistName      string `json:"artist_name"`
+	ResolutionState string `json:"resolution_state,omitempty" enum:"materialized,unresolved"`
 }
 type Classification struct {
 	PrimaryType    string   `json:"primary_type,omitempty"`
