@@ -24,7 +24,7 @@ func TestNormalizeTMDBTVRetainsShowSeasonAndEpisodeProjection(t *testing.T) {
 		"images":{"posters":[{"file_path":"/season.jpg","iso_639_1":"en","width":1000,"height":1500,"vote_average":8},{"file_path":"/season-da.jpg","iso_639_1":"da","width":1000,"height":1500,"vote_average":7}]},
 		"episodes":[{"id":63056,"name":"Winter Is Coming","overview":"The story begins.","air_date":"2011-04-17","still_path":"/still.jpg","episode_number":1,"season_number":1,"runtime":62,"vote_average":8.2,"vote_count":200}]
 	}`)}
-	record, err := normalizeTMDBTV([]providers.Payload{detail, season})
+	record, err := NormalizeTMDBTV([]providers.Payload{detail, season}, "tv_show")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestNormalizeTVDBSeriesRetainsSpecialsAbsoluteNumbersAndChildArtwork(t *tes
 		"seasons":[{"id":10,"number":0,"name":"Specials","image":"/specials.jpg","type":{"name":"Aired Order"}},{"id":11,"number":1,"name":"Season 1","image":"/season.jpg","type":{"name":"Aired Order"}}],
 		"episodes":[{"id":20,"name":"Special","overview":"A special.","seasonNumber":0,"number":1,"absoluteNumber":0,"aired":"2010-01-01","runtime":10,"image":"/special.jpg"},{"id":21,"name":"Winter Is Coming","overview":"The story begins.","seasonNumber":1,"number":1,"absoluteNumber":1,"aired":"2011-04-17","runtime":62,"image":"/episode.jpg","translations":{"nameTranslations":[{"language":"dan","name":"Vinteren kommer"}],"overviewTranslations":[{"language":"dan","overview":"Historien begynder."}]}}]
 	}}`)}
-	record, err := normalizeTVDBSeries(payload, "tv_show", nil, 0)
+	record, err := NormalizeTVDBSeries(payload, "tv_show", nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestNormalizeTVDBSeriesRetainsSpecialsAbsoluteNumbersAndChildArtwork(t *tes
 func TestNormalizeTVDBSeriesAddsEverySeasonArtworkClass(t *testing.T) {
 	series := providers.Payload{ObservationID: "series", ObservedAt: time.Unix(1, 0), StatusCode: http.StatusOK, Body: []byte(`{"data":{"id":121361,"name":"Game of Thrones","seasons":[{"id":473271,"number":2,"name":"Season 2","image":"/primary.jpg","type":{"id":1,"name":"Aired Order"}},{"id":1713613,"number":2,"name":"DVD Season 2","type":{"id":2,"name":"DVD Order"}}]}}`)}
 	season := providers.Payload{ObservationID: "season", ObservedAt: time.Unix(2, 0), StatusCode: http.StatusOK, Body: []byte(`{"data":{"id":473271,"number":2,"artwork":[{"id":1,"type":7,"image":"/poster.jpg","language":"eng","width":680,"height":1000,"score":10},{"id":2,"type":8,"image":"/background.jpg","width":1920,"height":1080},{"id":3,"type":6,"image":"/banner.jpg","width":758,"height":140},{"id":4,"type":10,"image":"/icon.png","width":1024,"height":1024}]}}`)}
-	record, err := normalizeTVDBSeries(series, "tv_show", nil, 0, season)
+	record, err := NormalizeTVDBSeries(series, "tv_show", nil, 0, season)
 	if err != nil {
 		t.Fatal(err)
 	}

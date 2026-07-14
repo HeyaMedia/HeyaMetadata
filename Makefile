@@ -137,7 +137,7 @@ dev-web:
 air-build:
 	@mkdir -p .dev/air $(AIR_GO_CACHE_DIR) $(GO_MODCACHE_DIR)
 	@GOCACHE=$(AIR_GO_CACHE_DIR) GOMODCACHE=$(GO_MODCACHE_DIR) go build -o .dev/air/heya-metadata ./cmd/heya-metadata
-	@touch .dev/air/heya-metadata.worker-reload
+	@date +%s%N > .dev/air/heya-metadata.worker-reload
 	@tools/dev/prune-go-cache.sh "$(AIR_GO_CACHE_DIR)" "$(GO_CACHE_MAX_MB)"
 
 web-install:

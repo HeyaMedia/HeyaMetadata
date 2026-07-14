@@ -20,7 +20,9 @@ const TVShowIngestKind = "tv_show_ingest_v1"
 const AnimeIngestKind = "anime_ingest_v1"
 
 type TVShowIngestArgs struct {
-	TVMazeID      string `json:"tvmaze_id" river:"unique"`
+	Provider      string `json:"provider,omitempty" river:"unique"`
+	ProviderID    string `json:"provider_id,omitempty" river:"unique"`
+	TVMazeID      string `json:"tvmaze_id,omitempty" river:"unique"` // Legacy jobs queued before TMDB became the preferred root.
 	CredentialRef string `json:"credential_ref,omitempty"`
 	Reason        string `json:"reason,omitempty"`
 }
@@ -31,7 +33,9 @@ func (TVShowIngestArgs) InsertOpts() river.InsertOpts {
 }
 
 type AnimeIngestArgs struct {
-	AniDBID       string `json:"anidb_id" river:"unique"`
+	Provider      string `json:"provider,omitempty" river:"unique"`
+	ProviderID    string `json:"provider_id,omitempty" river:"unique"`
+	AniDBID       string `json:"anidb_id,omitempty" river:"unique"` // Legacy jobs queued before TMDB became the preferred root.
 	CredentialRef string `json:"credential_ref,omitempty"`
 	Reason        string `json:"reason,omitempty"`
 }
@@ -77,11 +81,22 @@ func (w *TVShowIngestWorker) Work(ctx context.Context, job *river.Job[TVShowInge
 	if err != nil {
 		return river.JobCancel(err)
 	}
-	_, err = w.service.IngestTVMazeWithCredentials(ctx, job.Args.TVMazeID, job.ID, credentials)
+	provider, id := job.Args.Provider, job.Args.ProviderID
+	if provider == "" && job.Args.TVMazeID != "" {
+		provider, id = "tvmaze", job.Args.TVMazeID
+	}
+	switch provider {
+	case "tmdb":
+		_, err = w.service.IngestTMDBWithCredentials(ctx, id, job.ID, credentials)
+	case "tvmaze":
+		_, err = w.service.IngestTVMazeWithCredentials(ctx, id, job.ID, credentials)
+	default:
+		return river.JobCancel(fmt.Errorf("unsupported TV ingestion root %q", provider))
+	}
 	if err == nil {
 		_ = providercredentials.Delete(context.WithoutCancel(ctx), w.runtime.Redis, job.Args.CredentialRef)
 	}
-	return classifyEpisodicError("TVMaze show "+job.Args.TVMazeID, err)
+	return classifyEpisodicError(provider+" TV show "+id, err)
 }
 
 type AnimeIngestWorker struct {
@@ -98,11 +113,24 @@ func (w *AnimeIngestWorker) Work(ctx context.Context, job *river.Job[AnimeIngest
 	if err != nil {
 		return river.JobCancel(err)
 	}
-	_, err = w.service.IngestAniDBWithCredentials(ctx, job.Args.AniDBID, job.ID, credentials)
+	provider, id := job.Args.Provider, job.Args.ProviderID
+	if provider == "" && job.Args.AniDBID != "" {
+		provider, id = "anidb", job.Args.AniDBID
+	}
+	switch provider {
+	case "tmdb":
+		_, err = w.service.IngestTMDBWithCredentials(ctx, id, job.ID, credentials)
+	case "tvmaze":
+		_, err = w.service.IngestTVMazeWithCredentials(ctx, id, job.ID, credentials)
+	case "anidb":
+		_, err = w.service.IngestAniDBWithCredentials(ctx, id, job.ID, credentials)
+	default:
+		return river.JobCancel(fmt.Errorf("unsupported anime ingestion root %q", provider))
+	}
 	if err == nil {
 		_ = providercredentials.Delete(context.WithoutCancel(ctx), w.runtime.Redis, job.Args.CredentialRef)
 	}
-	return classifyEpisodicError("AniDB anime "+job.Args.AniDBID, err)
+	return classifyEpisodicError(provider+" anime "+id, err)
 }
 func classifyEpisodicError(label string, err error) error {
 	if err == nil {

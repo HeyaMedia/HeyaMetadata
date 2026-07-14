@@ -9,7 +9,7 @@ import (
 
 func TestNormalizeTVMazeEmbedsSeasonsEpisodesAndExternalIDs(t *testing.T) {
 	payload := providers.Payload{ObservationID: "obs", ObservedAt: time.Unix(1, 0), StatusCode: http.StatusOK, Body: []byte(`{"id":82,"name":"Game of Thrones","type":"Scripted","language":"English","status":"Ended","premiered":"2011-04-17","genres":["Drama"],"network":{"name":"HBO","country":{"code":"US"}},"externals":{"thetvdb":121361,"imdb":"tt0944947"},"_embedded":{"seasons":[{"id":1,"number":1}],"episodes":[{"id":2,"name":"Winter Is Coming","season":1,"number":1,"airdate":"2011-04-17"}],"images":[{"id":10,"type":"background","resolutions":{"original":{"url":"https://example.test/backdrop.jpg","width":1920,"height":1080}}},{"id":11,"type":"typography","resolutions":{"original":{"url":"https://example.test/logo.png","width":800,"height":310}}}]}}`)}
-	record, err := normalize(payload)
+	record, err := NormalizeTVMaze(payload, "tv_show")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -597,17 +597,19 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if err != pgx.ErrNoRows {
 				return nil, err
 			}
-			if !strings.EqualFold(input.Body.Provider, "tvmaze") || !strings.EqualFold(input.Body.Namespace, "show") {
+			provider := strings.ToLower(strings.TrimSpace(input.Body.Provider))
+			namespace := strings.ToLower(strings.TrimSpace(input.Body.Namespace))
+			if !((provider == "tmdb" && namespace == "tv") || (provider == "tvmaze" && namespace == "show")) {
 				return nil, huma.Error404NotFound("external ID is not known and no TV collector accepts it")
 			}
 			if value, parseErr := strconv.ParseInt(input.Body.Value, 10, 64); parseErr != nil || value < 1 {
-				return nil, huma.Error400BadRequest("invalid TVMaze show ID")
+				return nil, huma.Error400BadRequest("invalid TV provider ID")
 			}
 			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
 			if credentialErr != nil {
 				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
 			}
-			inserted, insertErr := jobs.InsertTVShow(ctx, runtime, client, jobs.TVShowIngestArgs{TVMazeID: input.Body.Value, CredentialRef: credentialRef, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
+			inserted, insertErr := jobs.InsertTVShow(ctx, runtime, client, jobs.TVShowIngestArgs{Provider: provider, ProviderID: input.Body.Value, CredentialRef: credentialRef, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
 			if insertErr != nil {
 				return nil, insertErr
 			}
@@ -625,17 +627,19 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			if err != pgx.ErrNoRows {
 				return nil, err
 			}
-			if !strings.EqualFold(input.Body.Provider, "anidb") || !strings.EqualFold(input.Body.Namespace, "anime") {
+			provider := strings.ToLower(strings.TrimSpace(input.Body.Provider))
+			namespace := strings.ToLower(strings.TrimSpace(input.Body.Namespace))
+			if !((provider == "tmdb" && namespace == "tv") || (provider == "tvmaze" && namespace == "show") || (provider == "anidb" && namespace == "anime")) {
 				return nil, huma.Error404NotFound("external ID is not known and no Anime collector accepts it")
 			}
 			if value, parseErr := strconv.ParseInt(input.Body.Value, 10, 64); parseErr != nil || value < 1 {
-				return nil, huma.Error400BadRequest("invalid AniDB AID")
+				return nil, huma.Error400BadRequest("invalid Anime provider ID")
 			}
 			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
 			if credentialErr != nil {
 				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
 			}
-			inserted, insertErr := jobs.InsertAnime(ctx, runtime, client, jobs.AnimeIngestArgs{AniDBID: input.Body.Value, CredentialRef: credentialRef, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
+			inserted, insertErr := jobs.InsertAnime(ctx, runtime, client, jobs.AnimeIngestArgs{Provider: provider, ProviderID: input.Body.Value, CredentialRef: credentialRef, Reason: "interactive_resolution"}, jobs.PriorityInteractive)
 			if insertErr != nil {
 				return nil, insertErr
 			}
@@ -840,30 +844,30 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			return &refreshOutput{Status: http.StatusAccepted, Body: jobResource{ID: inserted.Job.ID, Kind: jobs.PersonEnrichKind, State: string(inserted.Job.State)}}, nil
 		}
 		if kind == "tv_show" {
-			var value string
-			if err := runtime.DB.QueryRow(ctx, `SELECT normalized_value FROM external_id_claims WHERE entity_id=$1 AND provider='tvmaze' AND namespace='show' AND state='accepted'`, input.ID).Scan(&value); err != nil {
-				return nil, huma.Error404NotFound("entity has no TVMaze show claim")
+			provider, value, rootErr := preferredEpisodicRoot(ctx, runtime, input.ID, kind)
+			if rootErr != nil {
+				return nil, huma.Error404NotFound("entity has no supported TV ingestion claim")
 			}
 			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
 			if credentialErr != nil {
 				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
 			}
-			inserted, err := jobs.InsertTVShow(ctx, runtime, client, jobs.TVShowIngestArgs{TVMazeID: value, CredentialRef: credentialRef, Reason: "manual_refresh"}, jobs.PriorityInteractive)
+			inserted, err := jobs.InsertTVShow(ctx, runtime, client, jobs.TVShowIngestArgs{Provider: provider, ProviderID: value, CredentialRef: credentialRef, Reason: "manual_refresh"}, jobs.PriorityInteractive)
 			if err != nil {
 				return nil, err
 			}
 			return &refreshOutput{Status: http.StatusAccepted, Body: jobResource{ID: inserted.Job.ID, Kind: jobs.TVShowIngestKind, State: string(inserted.Job.State)}}, nil
 		}
 		if kind == "anime" {
-			var value string
-			if err := runtime.DB.QueryRow(ctx, `SELECT normalized_value FROM external_id_claims WHERE entity_id=$1 AND provider='anidb' AND namespace='anime' AND state='accepted'`, input.ID).Scan(&value); err != nil {
-				return nil, huma.Error404NotFound("entity has no AniDB anime claim")
+			provider, value, rootErr := preferredEpisodicRoot(ctx, runtime, input.ID, kind)
+			if rootErr != nil {
+				return nil, huma.Error404NotFound("entity has no supported Anime ingestion claim")
 			}
 			credentialRef, credentialErr := storeProviderCredentials(ctx, runtime, input.TMDBAPIKey, input.OMDBAPIKey, input.TVDBAPIKey, input.FanartAPIKey, input.AppleAPIKey, input.DiscogsAPIKey, input.LastFMAPIKey)
 			if credentialErr != nil {
 				return nil, huma.Error503ServiceUnavailable("could not hand provider credentials to worker")
 			}
-			inserted, err := jobs.InsertAnime(ctx, runtime, client, jobs.AnimeIngestArgs{AniDBID: value, CredentialRef: credentialRef, Reason: "manual_refresh"}, jobs.PriorityInteractive)
+			inserted, err := jobs.InsertAnime(ctx, runtime, client, jobs.AnimeIngestArgs{Provider: provider, ProviderID: value, CredentialRef: credentialRef, Reason: "manual_refresh"}, jobs.PriorityInteractive)
 			if err != nil {
 				return nil, err
 			}

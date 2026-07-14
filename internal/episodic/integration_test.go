@@ -93,6 +93,54 @@ func TestIntegrationChildResourcesKeepIdentityAndOpaqueArtworkAcrossRefresh(t *t
 	}
 }
 
+func TestIntegrationTMDBRootPromotionReusesExistingEpisodicIdentity(t *testing.T) {
+	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
+		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local platform stack")
+	}
+	ctx := context.Background()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := platform.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	tmdbID, tvmazeID := "tmdb-"+suffix, "tvmaze-"+suffix
+	observations := make([]string, 2)
+	for index, value := range []struct{ provider, namespace, id string }{{"tvmaze", "show", tvmazeID}, {"tmdb", "tv", tmdbID}} {
+		if err := runtime.DB.QueryRow(ctx, `INSERT INTO provider_observations(provider,provider_namespace,provider_record_id,request_key,response_status,observed_at,normalizer_version,retention_class)VALUES($1,$2,$3,$4,200,now(),'integration','provider_raw_48h')RETURNING id`, value.provider, value.namespace, value.id, "integration/root-promotion/"+value.id).Scan(&observations[index]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	observedAt := time.Now().UTC()
+	legacy := NormalizedRecord{SchemaVersion: 1, Kind: "tv_show", Provider: "tvmaze", Namespace: "show", ProviderID: tvmazeID, PrimaryObservationID: observations[0], ObservedAt: observedAt, NormalizerVersion: "integration", Titles: []Title{{Value: "Root promotion " + suffix, Language: "en", Type: "main"}}, ExternalIDs: []ExternalID{{Provider: "tmdb", Namespace: "tv", Value: tmdbID}}}
+	first, err := Persist(ctx, runtime, Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "integration", MergeVersion: "integration"}, legacy, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cleanupIntegrationEpisodic(runtime, first.EntityID, observations) })
+
+	primary := NormalizedRecord{SchemaVersion: 1, Kind: "tv_show", Provider: "tmdb", Namespace: "tv", ProviderID: tmdbID, PrimaryObservationID: observations[1], ObservedAt: observedAt.Add(time.Second), NormalizerVersion: "integration", Titles: legacy.Titles, ExternalIDs: []ExternalID{{Provider: "tvmaze", Namespace: "show", Value: tvmazeID}}}
+	second, err := Persist(ctx, runtime, Definition{Kind: "tv_show", Provider: "tmdb", Namespace: "tv", NormalizerVersion: "integration", MergeVersion: "integration"}, primary, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.EntityID != first.EntityID {
+		t.Fatalf("TMDB promotion allocated a duplicate: legacy=%s primary=%s", first.EntityID, second.EntityID)
+	}
+	var entities int
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(DISTINCT entity_id) FROM external_id_claims WHERE entity_kind='tv_show' AND ((provider='tmdb' AND namespace='tv' AND normalized_value=$1) OR (provider='tvmaze' AND namespace='show' AND normalized_value=$2)) AND state='accepted'`, tmdbID, tvmazeID).Scan(&entities); err != nil {
+		t.Fatal(err)
+	}
+	if entities != 1 {
+		t.Fatalf("root claims span %d canonical entities", entities)
+	}
+}
+
 func cleanupIntegrationEpisodic(runtime *platform.Runtime, entityID string, observationIDs []string) {
 	ctx := context.Background()
 	for _, statement := range []string{

@@ -107,9 +107,9 @@ func (w *DiscoverySearchWorker) Work(ctx context.Context, job *river.Job[Discove
 	case discovery.KindMusicalWork:
 		result, err = w.service.DiscoverMusicalWork(ctx, run.Request, job.ID)
 	case discovery.KindTVShow:
-		result, err = w.service.DiscoverTV(ctx, run.Request, job.ID)
+		result, err = w.service.DiscoverTV(ctx, run.Request, job.ID, credentials.APIKey("tmdb"))
 	case discovery.KindAnime:
-		result, err = w.service.DiscoverAnime(ctx, run.Request, job.ID)
+		result, err = w.service.DiscoverAnime(ctx, run.Request, job.ID, credentials.APIKey("tmdb"))
 	case discovery.KindManga:
 		result, err = w.service.DiscoverManga(ctx, run.Request, job.ID)
 	case discovery.KindBookWork, discovery.KindMangaVolume, discovery.KindComicVolume:

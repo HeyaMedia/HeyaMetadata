@@ -68,9 +68,40 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 		normalizedIDs = append(normalizedIDs, normalizedID)
 	}
 	var entityID, slug string
-	err = tx.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind=$1 AND provider=$2 AND namespace=$3 AND normalized_value=$4 AND state='accepted'`, def.Kind, def.Provider, def.Namespace, record.ProviderID).Scan(&entityID)
+	// A provider-root promotion must preserve the canonical Heya identity. Use
+	// every accepted identifier carried by the incoming records to converge on
+	// an existing entity before allocating a new UUID. Conflicting accepted
+	// claims are never silently merged.
+	entityIDs := map[string]bool{}
+	for _, source := range records {
+		claims := append([]ExternalID(nil), source.ExternalIDs...)
+		claims = append(claims, ExternalID{Provider: source.Provider, Namespace: source.Namespace, Value: source.ProviderID})
+		for _, claim := range claims {
+			if strings.TrimSpace(claim.Value) == "" {
+				continue
+			}
+			var claimedEntityID string
+			claimErr := tx.QueryRow(ctx, `SELECT entity_id::text FROM external_id_claims WHERE entity_kind=$1 AND provider=$2 AND namespace=$3 AND normalized_value=$4 AND state='accepted'`, def.Kind, strings.ToLower(strings.TrimSpace(claim.Provider)), strings.ToLower(strings.TrimSpace(claim.Namespace)), strings.ToLower(strings.TrimSpace(claim.Value))).Scan(&claimedEntityID)
+			if claimErr == nil {
+				entityIDs[claimedEntityID] = true
+			} else if claimErr != pgx.ErrNoRows {
+				return Result{}, claimErr
+			}
+		}
+	}
+	if len(entityIDs) > 1 {
+		values := make([]string, 0, len(entityIDs))
+		for id := range entityIDs {
+			values = append(values, id)
+		}
+		sort.Strings(values)
+		return Result{}, fmt.Errorf("episodic identity evidence conflicts across canonical entities: %s", strings.Join(values, ", "))
+	}
+	for id := range entityIDs {
+		entityID = id
+	}
 	created := false
-	if err == pgx.ErrNoRows {
+	if entityID == "" {
 		created = true
 		base := Slug(preferredTitle(record.Titles), year(record.StartDate), def.Kind)
 		for n := 0; ; n++ {
@@ -90,8 +121,6 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 				return Result{}, e
 			}
 		}
-	} else if err != nil {
-		return Result{}, err
 	}
 	if slug == "" {
 		if err := tx.QueryRow(ctx, `SELECT slug FROM entities WHERE id=$1 FOR UPDATE`, entityID).Scan(&slug); err != nil {

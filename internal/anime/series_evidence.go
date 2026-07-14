@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/episodic"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/animelists"
 	"github.com/jackc/pgx/v5"
 )
@@ -26,6 +27,47 @@ func animeListSeriesExternalIDs(entry animelists.Entry) []episodic.ExternalID {
 		}
 	}
 	return result
+}
+
+func animeEntryExternalIDs(entry animelists.Entry) []episodic.ExternalID {
+	result := []episodic.ExternalID{}
+	if entry.AniDBID > 0 {
+		result = append(result, episodic.ExternalID{Provider: "anidb", Namespace: "anime", Value: strconv.Itoa(entry.AniDBID)})
+	}
+	if entry.MALID > 0 {
+		result = append(result, episodic.ExternalID{Provider: "myanimelist", Namespace: "anime", Value: strconv.Itoa(entry.MALID)})
+	}
+	if entry.AniListID > 0 {
+		result = append(result, episodic.ExternalID{Provider: "anilist", Namespace: "anime", Value: strconv.Itoa(entry.AniListID)})
+	}
+	return result
+}
+
+func normalizeTMDBAnimeListMapping(payload providers.Payload, tmdbID string, values []animelists.Entry) (episodic.NormalizedRecord, animelists.Entry, bool) {
+	record := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "anime_lists", Namespace: "mapping", ProviderID: "tmdb:" + tmdbID, PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, NormalizerVersion: "anime-lists-mapping/v4/tmdb/" + tmdbID}
+	seasonIndexes := map[int]int{}
+	var root animelists.Entry
+	rootFound := false
+	for _, value := range values {
+		ids := animeEntryExternalIDs(value)
+		if !rootFound && value.IsTVDBSeriesRoot() {
+			root, rootFound = value, true
+			record.ExternalIDs = appendExternalIDs(record.ExternalIDs, animeListSeriesExternalIDs(value)...)
+			record.ExternalIDs = appendExternalIDs(record.ExternalIDs, ids...)
+		}
+		if value.Season.TVDB == nil || *value.Season.TVDB < 1 {
+			continue
+		}
+		seasonNumber := *value.Season.TVDB
+		index, exists := seasonIndexes[seasonNumber]
+		if !exists {
+			index = len(record.Seasons)
+			seasonIndexes[seasonNumber] = index
+			record.Seasons = append(record.Seasons, episodic.Season{Number: seasonNumber})
+		}
+		record.Seasons[index].ExternalIDs = appendExternalIDs(record.Seasons[index].ExternalIDs, ids...)
+	}
+	return record, root, rootFound
 }
 
 func splitAnimeSeriesExternalIDs(values []episodic.ExternalID) (entityIDs, seriesIDs []episodic.ExternalID) {

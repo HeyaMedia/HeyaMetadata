@@ -27,7 +27,70 @@ type Client struct {
 // FindTVByIMDb resolves an explicit IMDb identifier through TMDB's external-ID
 // index. The returned payload is evidence; CollectTV performs the detail fetch.
 func (c *Client) FindTVByIMDb(ctx context.Context, imdbID string) (providers.Payload, error) {
-	return c.FindByIMDb(ctx, imdbID)
+	return c.FindTVByExternal(ctx, "imdb", imdbID)
+}
+
+// FindTVByExternal resolves an IMDb or TVDB series identifier through TMDB's
+// external-ID index. It returns the complete find envelope so callers can
+// reject non-TV matches without leaking the selected route publicly.
+func (c *Client) FindTVByExternal(ctx context.Context, scheme, value string) (providers.Payload, error) {
+	scheme = strings.ToLower(strings.TrimSpace(scheme))
+	value = strings.TrimSpace(value)
+	source := ""
+	switch scheme {
+	case "imdb":
+		if !strings.HasPrefix(value, "tt") {
+			return providers.Payload{}, fmt.Errorf("TMDB lookup requires an IMDb title ID")
+		}
+		source = "imdb_id"
+	case "tvdb":
+		if id, err := strconv.ParseInt(value, 10, 64); err != nil || id < 1 {
+			return providers.Payload{}, fmt.Errorf("TMDB lookup requires a TVDB series ID")
+		}
+		source = "tvdb_id"
+	default:
+		return providers.Payload{}, fmt.Errorf("TMDB TV lookup does not support %q", scheme)
+	}
+	values := url.Values{"external_source": {source}, "language": {c.config.Language}}
+	return c.get(ctx, "find/"+url.PathEscape(value), values, providers.Payload{
+		Provider: "tmdb", ProviderNamespace: "external_lookup", ProviderRecordID: scheme + ":" + value,
+		RequestKey: "find/" + value + "?external_source=" + source + "&language=" + c.config.Language,
+	})
+}
+
+// FirstTVResultID extracts the preferred TV identity from a /find response.
+// TMDB orders exact external-ID matches first; callers still ingest the detail
+// document before accepting the claim.
+func FirstTVResultID(body []byte) string {
+	var result struct {
+		TVResults []struct {
+			ID int64 `json:"id"`
+		} `json:"tv_results"`
+	}
+	if json.Unmarshal(body, &result) != nil || len(result.TVResults) == 0 || result.TVResults[0].ID < 1 {
+		return ""
+	}
+	return strconv.FormatInt(result.TVResults[0].ID, 10)
+}
+
+// TVDetailIsAnimation verifies the stable TMDB Animation genre (16) on a TV
+// detail response. It protects the separate anime canonical kind when a
+// caller supplies a valid but conventional-TV TMDB ID.
+func TVDetailIsAnimation(body []byte) bool {
+	var result struct {
+		Genres []struct {
+			ID int `json:"id"`
+		} `json:"genres"`
+	}
+	if json.Unmarshal(body, &result) != nil {
+		return false
+	}
+	for _, genre := range result.Genres {
+		if genre.ID == 16 {
+			return true
+		}
+	}
+	return false
 }
 
 // FindByIMDb returns every TMDB media candidate attached to an IMDb title ID.
@@ -232,6 +295,32 @@ func (c *Client) SearchMovies(ctx context.Context, query string, year, page int)
 		RequestKey: "search/movie?" + values.Encode(),
 	}
 	return c.get(ctx, "search/movie", values, payload)
+}
+
+// SearchTV returns one explicitly paged set of TV identity candidates. As with
+// movie search, results are evidence only until the selected TMDB TV ID is
+// ingested by the durable canonical pipeline.
+func (c *Client) SearchTV(ctx context.Context, query string, year, page int) (providers.Payload, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return providers.Payload{}, fmt.Errorf("TMDB TV search query must not be empty")
+	}
+	if page < 1 || page > 500 {
+		page = 1
+	}
+	values := url.Values{
+		"query":         {query},
+		"page":          {strconv.Itoa(page)},
+		"include_adult": {"false"},
+		"language":      {c.config.Language},
+	}
+	if year >= 1800 && year <= 2200 {
+		values.Set("first_air_date_year", strconv.Itoa(year))
+	}
+	return c.get(ctx, "search/tv", values, providers.Payload{
+		Provider: "tmdb", ProviderNamespace: "tv_search", ProviderRecordID: query,
+		RequestKey: "search/tv?" + values.Encode(),
+	})
 }
 
 func (c *Client) get(ctx context.Context, endpoint string, query url.Values, payload providers.Payload) (providers.Payload, error) {

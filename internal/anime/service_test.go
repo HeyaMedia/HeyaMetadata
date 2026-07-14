@@ -129,6 +129,37 @@ func TestAnimeListSeriesIdentifiersAreRootScoped(t *testing.T) {
 	}
 }
 
+func TestTMDBAnimeMappingKeepsCourIdentifiersOnCanonicalSeasons(t *testing.T) {
+	seasonOne, seasonTwo := 1, 2
+	root := animelists.Entry{AniDBID: 9541, MALID: 16498, AniListID: 16498, TVDBID: 267440}
+	root.TMDBID.TV = 1429
+	root.Season.TVDB = &seasonOne
+	later := animelists.Entry{AniDBID: 10944, MALID: 25777, AniListID: 20958, TVDBID: 267440}
+	later.TMDBID.TV = 1429
+	later.Season.TVDB = &seasonTwo
+	record, selected, found := normalizeTMDBAnimeListMapping(providers.Payload{ObservationID: "obs", ObservedAt: time.Unix(1, 0)}, "1429", []animelists.Entry{root, later})
+	if !found || selected.AniDBID != 9541 || len(record.Seasons) != 2 {
+		t.Fatalf("record=%+v selected=%+v found=%t", record, selected, found)
+	}
+	if len(record.ExternalIDs) < 4 {
+		t.Fatalf("root IDs=%+v", record.ExternalIDs)
+	}
+	for _, id := range record.ExternalIDs {
+		if id.Provider == "anidb" && id.Value == "10944" {
+			t.Fatalf("later-season AID escaped onto root: %+v", record.ExternalIDs)
+		}
+	}
+	seasonTwoHasAniDB := false
+	for _, id := range record.Seasons[1].ExternalIDs {
+		if id.Provider == "anidb" && id.Value == "10944" {
+			seasonTwoHasAniDB = true
+		}
+	}
+	if !seasonTwoHasAniDB {
+		t.Fatalf("season-two IDs=%+v", record.Seasons[1].ExternalIDs)
+	}
+}
+
 func TestTVDBAnimeSeasonSupplementUsesSeasonIdentity(t *testing.T) {
 	payload := providers.Payload{ObservationID: "obs", ObservedAt: time.Unix(1, 0), Body: []byte(`{"data":{"id":267440,"name":"Attack on Titan","seasons":[{"id":777,"number":2,"name":"Season 2"}],"episodes":[]}}`)}
 	record, err := normalizeTVDBAnime(payload, 2, 0)

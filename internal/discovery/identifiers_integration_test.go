@@ -197,9 +197,32 @@ func TestIntegrationFreshTVIdentifierRoutesAndMixedEvidence(t *testing.T) {
 		}
 		entityIDs = append(entityIDs, result.EntityID)
 	}
+	titleResult, err := service.DiscoverTV(ctx, Request{Kind: KindTVShow, Query: fixtures[0].Title, Hints: Hints{Year: 2020}}, 0, "")
+	if err != nil || len(titleResult.Candidates) == 0 || titleResult.Candidates[0].Resolution.Provider != "tmdb" || titleResult.Candidates[0].ExistingEntityID != entityIDs[0] {
+		t.Fatalf("TMDB-first TV title discovery result=%+v err=%v", titleResult, err)
+	}
+	animeResult, err := service.DiscoverAnime(ctx, Request{Kind: KindAnime, Query: fixtures[0].Title, Hints: Hints{Year: 2020}}, 0, "")
+	if err != nil || len(animeResult.Candidates) == 0 || animeResult.Candidates[0].Resolution.Provider != "tmdb" {
+		t.Fatalf("TMDB-first anime title discovery result=%+v err=%v", animeResult, err)
+	}
+	freshAnime, handled, err := service.ResolveFreshIdentifiers(ctx, Request{Kind: KindAnime, Identifiers: []Identifier{{Scheme: "tmdb", Value: strconv.FormatInt(fixtures[0].TMDB, 10)}}}, 0, providercredentials.Credentials{})
+	if err != nil || !handled || freshAnime.EntityID == "" || freshAnime.EntityID == entityIDs[0] {
+		t.Fatalf("TMDB-first anime identity result=%+v handled=%v err=%v", freshAnime, handled, err)
+	}
+	var animeKind string
+	if err := runtime.DB.QueryRow(ctx, `SELECT kind FROM entities WHERE id=$1`, freshAnime.EntityID).Scan(&animeKind); err != nil || animeKind != KindAnime {
+		t.Fatalf("anime entity=%s kind=%q err=%v", freshAnime.EntityID, animeKind, err)
+	}
+	entityIDs = append(entityIDs, freshAnime.EntityID)
 
 	knownTVDB := Identifier{Scheme: "tvdb", Value: strconv.FormatInt(fixtures[0].TVDB, 10)}
 	freshTMDB := Identifier{Scheme: "tmdb", Value: strconv.FormatInt(fixtures[0].TMDB, 10)}
+	// Simulate mixed evidence arriving before the newer provider claim has been
+	// persisted. The durable worker must crosswalk and reattach it to the known
+	// UUID rather than completing prematurely or allocating a duplicate.
+	if _, err := runtime.DB.Exec(ctx, `DELETE FROM external_id_claims WHERE entity_id=$1 AND entity_kind='tv_show' AND provider='tmdb' AND namespace='tv' AND normalized_value=$2`, entityIDs[0], freshTMDB.Value); err != nil {
+		t.Fatal(err)
+	}
 	agreement := Request{Kind: KindTVShow, Identifiers: []Identifier{knownTVDB, freshTMDB}}
 	local, handled, err := service.ResolveKnownIdentifiers(ctx, agreement)
 	if err != nil || handled || local.EntityID != entityIDs[0] {
@@ -271,10 +294,31 @@ func tvIdentifierFixtureHandler(fixtures []tvIdentifierFixture) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Content-Type", "application/json")
 		path := strings.Trim(request.URL.Path, "/")
+		if path == "search/tv" {
+			for _, fixture := range fixtures {
+				if fixture.Title == request.URL.Query().Get("query") {
+					_ = json.NewEncoder(response).Encode(map[string]any{"results": []any{map[string]any{"id": fixture.TMDB, "name": fixture.Title, "original_name": fixture.Title, "original_language": "en", "first_air_date": "2020-01-01", "origin_country": []string{"US"}, "genre_ids": []int{16, 18}, "popularity": 100}}})
+					return
+				}
+			}
+			_ = json.NewEncoder(response).Encode(map[string]any{"results": []any{}})
+			return
+		}
 		if strings.HasPrefix(path, "tv/") && strings.HasSuffix(path, "/external_ids") {
 			id := strings.TrimSuffix(strings.TrimPrefix(path, "tv/"), "/external_ids")
 			if fixture, ok := byTMDB[id]; ok {
 				_ = json.NewEncoder(response).Encode(map[string]any{"id": fixture.TMDB, "imdb_id": fixture.IMDb, "tvdb_id": fixture.TVDB})
+				return
+			}
+		}
+		if strings.HasPrefix(path, "tv/") {
+			if fixture, ok := byTMDB[strings.TrimPrefix(path, "tv/")]; ok {
+				_ = json.NewEncoder(response).Encode(map[string]any{
+					"id": fixture.TMDB, "name": fixture.Title, "original_name": fixture.Title,
+					"original_language": "en", "first_air_date": "2020-01-01", "status": "Ended", "type": "Scripted",
+					"origin_country": []string{"US"}, "genres": []any{map[string]any{"id": 16, "name": "Animation"}}, "number_of_seasons": 0, "number_of_episodes": 0, "seasons": []any{},
+					"external_ids": map[string]any{"tvdb_id": fixture.TVDB, "imdb_id": fixture.IMDb},
+				})
 				return
 			}
 		}
@@ -300,6 +344,15 @@ func tvIdentifierFixtureHandler(fixtures []tvIdentifierFixture) http.Handler {
 			}
 		}
 		if strings.HasPrefix(path, "find/") {
+			value := strings.TrimPrefix(path, "find/")
+			fixture, ok := byIMDb[value]
+			if !ok {
+				fixture, ok = byTVDB[value]
+			}
+			if ok {
+				_ = json.NewEncoder(response).Encode(map[string]any{"tv_results": []any{map[string]any{"id": fixture.TMDB}}})
+				return
+			}
 			response.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(response).Encode(map[string]any{"success": false, "fixture": path})
 			return

@@ -270,17 +270,36 @@ to an exact MusicBrainz display-name or alias lookup. Fuzzy matches are
 rejected, and name-scoped fallback cannot contribute artist or recording MBID
 claims.
 
-## AniDB and TVMaze source collection
+## TMDB-rooted television and anime collection
+
+Movies, conventional television, and anime use TMDB as the preferred screen
+identity and primary detail pipeline. TV and anime title discovery searches
+TMDB first; explicit IMDb, TVDB, TVMaze, AniDB, MyAnimeList, and AniList
+evidence is privately crosswalked to TMDB before any fallback root is accepted.
+The TMDB TV collector supplies the full series, every regular season and
+episode, credits, images, ratings, translations, videos, and recommendations.
+TVDB, TVMaze, AniDB, Anime Lists, and Fanart remain independently persisted
+supplements with their own provenance and freshness.
+
+TVMaze or AniDB may root a new entity only when an exact crosswalk and TMDB
+lookup confirm that TMDB has no corresponding TV record. A later TMDB match
+promotes the existing canonical UUID instead of allocating a duplicate. This
+ordering is a private implementation detail; clients continue to submit all
+known evidence and receive only Heya identities.
+
+## AniDB and TVMaze supplemental collection
 
 AniDB uses its official HTTP XML API on the mandated `api.anidb.net:9001`
 endpoint. Configuration rejects lookalike hosts or accidental HTTPS variants,
 and a real fetch requires a registered lowercase 4-16 letter client name and
 positive client version. All clients share a hard one-request-per-two-seconds
 gate and send the configured AniDB User-Agent; the default retains the old
-server's `heya-media/1.0 anidb-titles-sync` identity. Provider-backed discovery
-uses AniDB's official daily `anime-titles.xml.gz` dump for title-to-AID lookup
-and never downloads it more than once per day. Exact anime responses are also
-reused for a full 24 hours,
+server's `heya-media/1.0 anidb-titles-sync` identity. The conservative shared
+request gate allows one detail request every five seconds; the documented
+two-second interval is treated as an absolute short-term ceiling rather than a
+sustained batch rate. Fallback discovery uses AniDB's official daily
+`anime-titles.xml.gz` dump for title-to-AID lookup and never downloads it more
+than once per day. Exact anime responses are also reused for a full 24 hours,
 matching AniDB's warning that requesting the same dataset repeatedly in one day
 can cause a ban. XML `<error>` envelopes are classified separately from HTTP
 status and are never shared except a one-hour explicit not-found response. Raw
@@ -289,9 +308,9 @@ than being disguised as JSON.
 
 Anime Lists mapping is granularity-aware. Multiple AniDB AIDs may point at one
 TVDB/TMDB/IMDb series, so reverse TVDB lookup prefers the season-one or
-unscoped mapping. Later seasons retain their season-specific AniDB, MAL,
-AniList, TVDB-season, and Fanart-season evidence; broad series identifiers are
-stored behind a shared TVDB-series anchor and promoted only to the root anime.
+unscoped mapping. Under a TMDB-rooted anime, later entries retain their
+season-specific AniDB, MAL, AniList, TVDB-season, and Fanart-season evidence on
+canonical season resources; broad identifiers remain on the show root.
 Per-entry and per-season normalizer keys prevent one shared mapping, TVDB, or
 Fanart observation from overwriting another season's normalized record.
 

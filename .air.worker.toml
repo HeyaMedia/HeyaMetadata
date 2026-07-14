@@ -11,14 +11,19 @@ tmp_dir = ".worker"
   cmd = "while [ ! -x heya-metadata ]; do sleep 0.1; done"
   entrypoint = ["./heya-metadata", "worker"]
   # Go replaces binaries atomically, which does not reliably produce a file
-  # event for every watcher. The API build touches this marker only after a
+  # event for every watcher. The API build rewrites this marker only after a
   # successful shared-binary build, giving the worker a deterministic restart.
-  include_file = ["heya-metadata", "heya-metadata.worker-reload"]
+  # Watch only the explicit marker. Watching both the atomically replaced
+  # binary and the marker can turn one API build into multiple restart events,
+  # leaving more than one River worker alive under some Air versions.
+  include_file = ["heya-metadata.worker-reload"]
   include_ext = ["*"]
   exclude_dir = [".worker"]
   delay = 250
   send_interrupt = true
-  kill_delay = 2000
+  # The worker gives River up to ten seconds to drain active jobs after an
+  # interrupt. Let that graceful shutdown finish before Air escalates.
+  kill_delay = 12000
   stop_on_error = true
   # A pending migration or another startup-time failure must not leave the Air
   # pane alive while the River worker silently stays dead. Retry the runner;

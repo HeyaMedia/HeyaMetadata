@@ -35,27 +35,32 @@ provider-specific resolution request.
 Title resemblance is candidate evidence only. Canonical identity is returned
 as a Heya UUID, and conflicts remain opaque reviewable candidates.
 
+Internally, TMDB is the preferred screen root for movies, conventional TV, and
+anime. TVDB, TVMaze, AniDB, Anime Lists, and Fanart enrich that root. TVMaze or
+AniDB may root an entity only after TMDB search and exact identifier crosswalks
+produce no TV result. Root promotion is UUID-preserving, so discovering a TMDB
+claim for an older fallback-rooted entity never changes the Heya identity.
+
 ### Anime series and season identity
 
-AniDB commonly assigns a separate AID to every season or cour, while TVDB,
-TMDB, and IMDb may use one identifier for the whole multi-season series. Those
-different granularities are not interchangeable. An AniDB entry mapped to
-TVDB season 2 or later—or to a nonzero episode offset within season 1—keeps its
-AniDB, MAL, AniList, and provider-season identity, but cannot claim the
-series-wide TVDB, TMDB, or IMDb identifier.
+AniDB commonly assigns a separate AID to every season or cour, while TMDB,
+TVDB, and IMDb normally identify the whole multi-season series. Those
+granularities are preserved without turning each AniDB entry into a competing
+show root. The TMDB TV identity owns the canonical anime entity; Anime Lists
+maps season/cour-specific AniDB, MAL, and AniList identifiers onto canonical
+season resources. The season-one or unscoped mapping may also corroborate the
+series identity.
 
-The Anime Lists bridge explicitly anchors those broad identifiers to the TVDB
-series and records them as shared episodic-series evidence. Reverse TVDB
-lookup deterministically chooses the season-one or unscoped AniDB entry,
-regardless of mapping-dump order. Once that root exists, shared identifiers
-resolve to it; refreshing a later season cannot steal them. TVDB and Fanart
-payloads normalized for a later AniDB season use season-scoped normalization
-and identity keys even though their upstream response covers the full series.
+When TMDB genuinely has no corresponding series, an AniDB-rooted fallback may
+retain its narrower entity boundary. If a TMDB crosswalk appears later, the
+existing Heya UUID is promoted and the narrower identifiers become season
+evidence. TVDB and Fanart payloads remain independently normalized and cannot
+steal a broad series claim from its canonical root.
 
 For example, Attack on Titan AniDB `9541`, IMDb `tt2560140`, TMDB `1429`, and
-TVDB `267440` converge on the 2013 root entity. AniDB `10944` remains the 2017
-season-two entity and conflicts when incorrectly combined with those broad
-series identifiers.
+TVDB `267440` converge on the 2013 series entity. AniDB `10944` is retained as
+season-two evidence under that same Heya anime rather than owning the broad
+IMDb/TMDB/TVDB claims.
 
 ## Numbering
 

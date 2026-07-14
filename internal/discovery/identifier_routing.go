@@ -14,6 +14,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/anime"
 	"github.com/HeyaMedia/HeyaMetadata/internal/artists"
 	"github.com/HeyaMedia/HeyaMetadata/internal/books"
+	"github.com/HeyaMedia/HeyaMetadata/internal/episodic"
 	"github.com/HeyaMedia/HeyaMetadata/internal/manga"
 	"github.com/HeyaMedia/HeyaMetadata/internal/movies"
 	"github.com/HeyaMedia/HeyaMetadata/internal/musicalworks"
@@ -207,35 +208,22 @@ func (s *Service) rootsForIdentifier(ctx context.Context, kind string, identifie
 	switch {
 	case kind == KindMovie && identifier.Scheme == "imdb":
 		return s.movieRootsByIMDb(ctx, identifier.Value, jobID, credentials.APIKey("tmdb"))
-	case kind == KindTVShow && (identifier.Scheme == "imdb" || identifier.Scheme == "tvdb"):
-		return s.tvRootsByExternal(ctx, identifier, jobID)
 	case kind == KindTVShow && identifier.Scheme == "tmdb":
-		bridge, err := s.tmdbTVBridge(ctx, identifier.Value, jobID, credentials.APIKey("tmdb"))
-		if err != nil {
-			return nil, err
-		}
-		for _, value := range bridge {
-			roots, err := s.tvRootsByExternal(ctx, value, jobID)
-			if err != nil {
-				return nil, err
-			}
-			if len(roots) > 0 {
-				return roots, nil
-			}
-		}
-	case kind == KindAnime && (identifier.Scheme == "myanimelist" || identifier.Scheme == "anilist" || identifier.Scheme == "tvdb"):
-		return s.animeRootsByExternal(ctx, identifier, jobID)
+		return s.tmdbTVRootByID(ctx, kind, identifier.Value, jobID, credentials.APIKey("tmdb"))
+	case kind == KindTVShow && (identifier.Scheme == "imdb" || identifier.Scheme == "tvdb"):
+		return s.preferredTVRootsByExternal(ctx, identifier, jobID, credentials.APIKey("tmdb"))
+	case kind == KindTVShow && identifier.Scheme == "tvmaze":
+		return s.preferredTVRootsByTVMaze(ctx, kind, identifier.Value, jobID, credentials.APIKey("tmdb"))
 	case kind == KindAnime && identifier.Scheme == "tmdb":
-		bridge, err := s.tmdbTVBridge(ctx, identifier.Value, jobID, credentials.APIKey("tmdb"))
-		if err != nil {
-			return nil, err
-		}
-		for _, value := range bridge {
-			if value.Scheme != "tvdb" {
-				continue
-			}
-			return s.animeRootsByExternal(ctx, value, jobID)
-		}
+		return s.tmdbTVRootByID(ctx, kind, identifier.Value, jobID, credentials.APIKey("tmdb"))
+	case kind == KindAnime && identifier.Scheme == "anidb":
+		return s.preferredAnimeRootsByAniDB(ctx, identifier.Value, jobID, credentials.APIKey("tmdb"))
+	case kind == KindAnime && (identifier.Scheme == "myanimelist" || identifier.Scheme == "anilist" || identifier.Scheme == "tvdb"):
+		return s.preferredAnimeRootsByExternal(ctx, identifier, jobID, credentials.APIKey("tmdb"))
+	case kind == KindAnime && identifier.Scheme == "imdb":
+		return s.tmdbTVRootsByExternal(ctx, kind, identifier, jobID, credentials.APIKey("tmdb"))
+	case kind == KindAnime && identifier.Scheme == "tvmaze":
+		return s.preferredTVRootsByTVMaze(ctx, kind, identifier.Value, jobID, credentials.APIKey("tmdb"))
 	case (kind == KindBookWork || kind == KindMangaVolume || kind == KindComicVolume) && identifier.Scheme == "isbn":
 		return s.bookRootsByISBN(ctx, kind, identifier.Value, jobID)
 	}
@@ -247,10 +235,6 @@ func directIngestionRoot(kind string, identifier Identifier) (ingestionRoot, boo
 	switch {
 	case kind == KindMovie && identifier.Scheme == "tmdb":
 		root.Provider, root.Namespace = "tmdb", "movie"
-	case kind == KindTVShow && identifier.Scheme == "tvmaze":
-		root.Provider, root.Namespace = "tvmaze", "show"
-	case kind == KindAnime && identifier.Scheme == "anidb":
-		root.Provider, root.Namespace = "anidb", "anime"
 	case kind == KindArtist && identifier.Scheme == "musicbrainz":
 		root.Provider, root.Namespace = "musicbrainz", "artist"
 	case kind == KindArtist && identifier.Scheme == "apple":
@@ -306,7 +290,67 @@ func (s *Service) movieRootsByIMDb(ctx context.Context, imdbID string, jobID int
 	return uniqueRoots(result), nil
 }
 
-func (s *Service) tvRootsByExternal(ctx context.Context, identifier Identifier, jobID int64) ([]ingestionRoot, error) {
+func (s *Service) preferredTVRootsByExternal(ctx context.Context, identifier Identifier, jobID int64, apiKey string) ([]ingestionRoot, error) {
+	roots, err := s.tmdbTVRootsByExternal(ctx, KindTVShow, identifier, jobID, apiKey)
+	if err != nil || len(roots) > 0 {
+		return roots, err
+	}
+	return s.tvMazeRootsByExternal(ctx, KindTVShow, identifier, jobID)
+}
+
+func (s *Service) tmdbTVRootsByExternal(ctx context.Context, kind string, identifier Identifier, jobID int64, apiKey string) ([]ingestionRoot, error) {
+	base := tmdb.New(s.runtime.Config.Providers.TMDB)
+	resolver, err := providercache.New(s.runtime, "tmdb-tv-external-routing/v2", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := tmdb.NewCached(s.runtime.Config.Providers.TMDB, resolver, apiKey).FindTVByExternal(ctx, identifier.Scheme, identifier.Value)
+	if err != nil {
+		return nil, err
+	}
+	if payload.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if payload.StatusCode != http.StatusOK {
+		return nil, &providers.StatusError{Provider: "tmdb", StatusCode: payload.StatusCode}
+	}
+	var envelope struct {
+		TV []struct {
+			ID int64 `json:"id"`
+		} `json:"tv_results"`
+	}
+	if err := json.Unmarshal(payload.Body, &envelope); err != nil {
+		return nil, fmt.Errorf("decode TMDB external TV lookup: %w", err)
+	}
+	result := []ingestionRoot{}
+	for _, show := range envelope.TV {
+		if show.ID > 0 {
+			result = append(result, ingestionRoot{Kind: kind, Provider: "tmdb", Namespace: "tv", Value: strconv.FormatInt(show.ID, 10)})
+		}
+	}
+	return uniqueRoots(result), nil
+}
+
+func (s *Service) tmdbTVRootByID(ctx context.Context, kind, id string, jobID int64, apiKey string) ([]ingestionRoot, error) {
+	base := tmdb.New(s.runtime.Config.Providers.TMDB)
+	resolver, err := providercache.New(s.runtime, "tmdb-tv-root-routing/v2", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := tmdb.NewCached(s.runtime.Config.Providers.TMDB, resolver, apiKey).TVExternalIDs(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if payload.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if payload.StatusCode != http.StatusOK {
+		return nil, &providers.StatusError{Provider: "tmdb", StatusCode: payload.StatusCode}
+	}
+	return []ingestionRoot{{Kind: kind, Provider: "tmdb", Namespace: "tv", Value: strings.TrimSpace(id)}}, nil
+}
+
+func (s *Service) tvMazeRootsByExternal(ctx context.Context, kind string, identifier Identifier, jobID int64) ([]ingestionRoot, error) {
 	base := tvmaze.New(s.runtime.Config.Providers.TVMaze)
 	resolver, err := providercache.New(s.runtime, "tvmaze-external-routing/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
 	if err != nil {
@@ -329,46 +373,58 @@ func (s *Service) tvRootsByExternal(ctx context.Context, identifier Identifier, 
 			ID int64 `json:"id"`
 		}
 		if json.Unmarshal(payload.Body, &show) == nil && show.ID > 0 {
-			return []ingestionRoot{{Kind: KindTVShow, Provider: "tvmaze", Namespace: "show", Value: strconv.FormatInt(show.ID, 10)}}, nil
+			return []ingestionRoot{{Kind: kind, Provider: "tvmaze", Namespace: "show", Value: strconv.FormatInt(show.ID, 10)}}, nil
 		}
 	}
 	return nil, nil
 }
 
-func (s *Service) tmdbTVBridge(ctx context.Context, id string, jobID int64, apiKey string) ([]Identifier, error) {
-	base := tmdb.New(s.runtime.Config.Providers.TMDB)
-	resolver, err := providercache.New(s.runtime, "tmdb-tv-routing/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+func (s *Service) preferredTVRootsByTVMaze(ctx context.Context, kind, id string, jobID int64, apiKey string) ([]ingestionRoot, error) {
+	base := tvmaze.New(s.runtime.Config.Providers.TVMaze)
+	resolver, err := providercache.New(s.runtime, "tvmaze-root-routing/v2", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
 	if err != nil {
 		return nil, err
 	}
-	payload, err := tmdb.NewCached(s.runtime.Config.Providers.TMDB, resolver, apiKey).TVExternalIDs(ctx, id)
+	payloads, err := tvmaze.NewCached(s.runtime.Config.Providers.TVMaze, resolver).Collect(ctx, providers.Identifier{Provider: "tvmaze", Namespace: "show", Value: id})
 	if err != nil {
 		return nil, err
 	}
-	if payload.StatusCode == http.StatusNotFound {
+	if len(payloads) == 0 || payloads[len(payloads)-1].StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
+	payload := payloads[len(payloads)-1]
 	if payload.StatusCode != http.StatusOK {
-		return nil, &providers.StatusError{Provider: "tmdb", StatusCode: payload.StatusCode}
+		return nil, &providers.StatusError{Provider: "tvmaze", StatusCode: payload.StatusCode}
 	}
-	var envelope struct {
-		IMDbID string `json:"imdb_id"`
-		TVDBID int64  `json:"tvdb_id"`
+	var show struct {
+		ID        int64 `json:"id"`
+		Externals struct {
+			TVDB int64  `json:"thetvdb"`
+			IMDb string `json:"imdb"`
+		} `json:"externals"`
 	}
-	if err := json.Unmarshal(payload.Body, &envelope); err != nil {
-		return nil, fmt.Errorf("decode TMDB TV external IDs: %w", err)
+	if err := json.Unmarshal(payload.Body, &show); err != nil {
+		return nil, fmt.Errorf("decode TVMaze routing detail: %w", err)
 	}
-	result := []Identifier{}
-	if envelope.IMDbID != "" {
-		result = append(result, Identifier{Scheme: "imdb", Value: envelope.IMDbID})
+	for _, identifier := range []Identifier{{Scheme: "tvdb", Value: strconv.FormatInt(show.Externals.TVDB, 10)}, {Scheme: "imdb", Value: show.Externals.IMDb}} {
+		if identifier.Value == "" || identifier.Value == "0" {
+			continue
+		}
+		roots, lookupErr := s.tmdbTVRootsByExternal(ctx, kind, identifier, jobID, apiKey)
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+		if len(roots) > 0 {
+			return roots, nil
+		}
 	}
-	if envelope.TVDBID > 0 {
-		result = append(result, Identifier{Scheme: "tvdb", Value: strconv.FormatInt(envelope.TVDBID, 10)})
+	if show.ID < 1 {
+		return nil, nil
 	}
-	return result, nil
+	return []ingestionRoot{{Kind: kind, Provider: "tvmaze", Namespace: "show", Value: strconv.FormatInt(show.ID, 10)}}, nil
 }
 
-func (s *Service) animeRootsByExternal(ctx context.Context, identifier Identifier, jobID int64) ([]ingestionRoot, error) {
+func (s *Service) preferredAnimeRootsByExternal(ctx context.Context, identifier Identifier, jobID int64, apiKey string) ([]ingestionRoot, error) {
 	base := animelists.New(s.runtime.Config.Providers.AnimeLists)
 	resolver, err := providercache.New(s.runtime, "anime-lists-reverse-routing/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
 	if err != nil {
@@ -384,7 +440,45 @@ func (s *Service) animeRootsByExternal(ctx context.Context, identifier Identifie
 	if !ok || entry.AniDBID < 1 {
 		return nil, nil
 	}
-	return []ingestionRoot{{Kind: KindAnime, Provider: "anidb", Namespace: "anime", Value: strconv.Itoa(entry.AniDBID)}}, nil
+	return s.preferredAnimeRootFromMapping(ctx, entry, jobID, apiKey)
+}
+
+func (s *Service) preferredAnimeRootsByAniDB(ctx context.Context, aid string, jobID int64, apiKey string) ([]ingestionRoot, error) {
+	base := animelists.New(s.runtime.Config.Providers.AnimeLists)
+	resolver, err := providercache.New(s.runtime, "anime-lists-anidb-routing/v2", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+	if err != nil {
+		return nil, err
+	}
+	payload, entry, ok, err := animelists.NewCached(s.runtime.Config.Providers.AnimeLists, resolver).Lookup(ctx, aid)
+	if err != nil {
+		return nil, err
+	}
+	if payload.StatusCode != http.StatusOK {
+		return nil, &providers.StatusError{Provider: "anime_lists", StatusCode: payload.StatusCode}
+	}
+	if !ok {
+		return []ingestionRoot{{Kind: KindAnime, Provider: "anidb", Namespace: "anime", Value: strings.TrimSpace(aid)}}, nil
+	}
+	return s.preferredAnimeRootFromMapping(ctx, entry, jobID, apiKey)
+}
+
+func (s *Service) preferredAnimeRootFromMapping(ctx context.Context, entry animelists.Entry, jobID int64, apiKey string) ([]ingestionRoot, error) {
+	if entry.TMDBID.TV > 0 {
+		roots, err := s.tmdbTVRootByID(ctx, KindAnime, strconv.Itoa(entry.TMDBID.TV), jobID, apiKey)
+		if err != nil || len(roots) > 0 {
+			return roots, err
+		}
+	}
+	if entry.TVDBID > 0 {
+		roots, err := s.tmdbTVRootsByExternal(ctx, KindAnime, Identifier{Scheme: "tvdb", Value: strconv.Itoa(entry.TVDBID)}, jobID, apiKey)
+		if err != nil || len(roots) > 0 {
+			return roots, err
+		}
+	}
+	if entry.AniDBID > 0 {
+		return []ingestionRoot{{Kind: KindAnime, Provider: "anidb", Namespace: "anime", Value: strconv.Itoa(entry.AniDBID)}}, nil
+	}
+	return nil, nil
 }
 
 func (s *Service) bookRootsByISBN(ctx context.Context, kind, isbn string, jobID int64) ([]ingestionRoot, error) {
@@ -431,10 +525,32 @@ func (s *Service) ingestRoot(ctx context.Context, root ingestionRoot, jobID int6
 		result, err := movies.NewService(s.runtime).IngestTMDBWithCredentials(ctx, id, jobID, credentials)
 		return result.EntityID, err
 	case KindTVShow:
-		result, err := tvshows.NewService(s.runtime).IngestTVMazeWithCredentials(ctx, root.Value, jobID, credentials)
+		service := tvshows.NewService(s.runtime)
+		var result episodic.Result
+		var err error
+		switch root.Provider {
+		case "tmdb":
+			result, err = service.IngestTMDBWithCredentials(ctx, root.Value, jobID, credentials)
+		case "tvmaze":
+			result, err = service.IngestTVMazeWithCredentials(ctx, root.Value, jobID, credentials)
+		default:
+			return "", fmt.Errorf("no internal TV ingestion route for %q", root.Provider)
+		}
 		return result.EntityID, err
 	case KindAnime:
-		result, err := anime.NewService(s.runtime).IngestAniDBWithCredentials(ctx, root.Value, jobID, credentials)
+		service := anime.NewService(s.runtime)
+		var result episodic.Result
+		var err error
+		switch root.Provider {
+		case "tmdb":
+			result, err = service.IngestTMDBWithCredentials(ctx, root.Value, jobID, credentials)
+		case "anidb":
+			result, err = service.IngestAniDBWithCredentials(ctx, root.Value, jobID, credentials)
+		case "tvmaze":
+			result, err = service.IngestTVMazeWithCredentials(ctx, root.Value, jobID, credentials)
+		default:
+			return "", fmt.Errorf("no internal anime ingestion route for %q", root.Provider)
+		}
 		return result.EntityID, err
 	case KindArtist:
 		service := artists.NewService(s.runtime)

@@ -29,4 +29,11 @@ func TestTVDBLookupPrefersSeriesRootRegardlessOfDumpOrder(t *testing.T) {
 	if entry.AniDBID != 9541 || !entry.IsTVDBSeriesRoot() {
 		t.Fatalf("entry=%+v", entry)
 	}
+	_, entries, err := client.LookupTVDBSeries(context.Background(), "267440")
+	if err != nil || len(entries) != 3 {
+		t.Fatalf("entries=%+v err=%v", entries, err)
+	}
+	if entries[0].AniDBID != 9541 || entries[1].AniDBID != 9999 || entries[2].AniDBID != 10944 {
+		t.Fatalf("season ordering=%+v", entries)
+	}
 }

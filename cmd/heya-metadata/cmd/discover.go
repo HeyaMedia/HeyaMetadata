@@ -83,16 +83,20 @@ func newDiscoverRecordingCommand() *cobra.Command {
 }
 
 func newDiscoverTVCommand() *cobra.Command {
-	var query, country, language, network, status string
+	var query, country, language, network, status, apiKey string
 	var year, limit int
 	var episodes []string
 	var wait time.Duration
-	command := &cobra.Command{Use: "tv", Short: "Discover conventional TV shows through TVMaze", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	command := &cobra.Command{Use: "tv", Short: "Discover TMDB-rooted conventional TV candidates", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		hints := discovery.Hints{Country: country, Language: language, Network: network, Status: status, Year: year}
 		for _, title := range episodes {
 			hints.Episodes = append(hints.Episodes, discovery.EpisodeHint{Title: title})
 		}
-		return runDiscovery(cmd, discovery.Request{Kind: discovery.KindTVShow, Query: query, Limit: limit, Hints: hints}, wait, providercredentials.Credentials{})
+		credentials := providercredentials.Credentials{}
+		if strings.TrimSpace(apiKey) != "" {
+			credentials.APIKeys = map[string]string{"tmdb": apiKey}
+		}
+		return runDiscovery(cmd, discovery.Request{Kind: discovery.KindTVShow, Query: query, Limit: limit, Hints: hints}, wait, credentials)
 	}}
 	command.Flags().IntVar(&year, "year", 0, "Premiere year hint")
 	command.Flags().StringVar(&country, "country", "", "ISO country hint")
@@ -100,26 +104,32 @@ func newDiscoverTVCommand() *cobra.Command {
 	command.Flags().StringVar(&network, "network", "", "Broadcast network or streaming service hint")
 	command.Flags().StringVar(&status, "status", "", "Show status hint")
 	command.Flags().StringSliceVar(&episodes, "episode", nil, "Known episode title; repeat or comma-separate")
+	command.Flags().StringVar(&apiKey, "api-key", "", "Request-scoped TMDB API key")
 	addDiscoveryCommonFlags(command, &query, &limit, &wait)
 	return command
 }
 
 func newDiscoverAnimeCommand() *cobra.Command {
-	var query, format string
+	var query, format, apiKey string
 	var year, count, limit int
 	var episodes []string
 	var wait time.Duration
-	command := &cobra.Command{Use: "anime", Short: "Discover Anime through AniDB", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	command := &cobra.Command{Use: "anime", Short: "Discover TMDB-rooted Anime candidates", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		hints := discovery.Hints{Year: year, Type: format, EpisodeCount: count}
 		for _, title := range episodes {
 			hints.Episodes = append(hints.Episodes, discovery.EpisodeHint{Title: title})
 		}
-		return runDiscovery(cmd, discovery.Request{Kind: discovery.KindAnime, Query: query, Limit: limit, Hints: hints}, wait, providercredentials.Credentials{})
+		credentials := providercredentials.Credentials{}
+		if strings.TrimSpace(apiKey) != "" {
+			credentials.APIKeys = map[string]string{"tmdb": apiKey}
+		}
+		return runDiscovery(cmd, discovery.Request{Kind: discovery.KindAnime, Query: query, Limit: limit, Hints: hints}, wait, credentials)
 	}}
 	command.Flags().IntVar(&year, "year", 0, "Start year hint")
 	command.Flags().StringVar(&format, "type", "", "Anime format hint, e.g. tv_series, movie, or ova")
 	command.Flags().IntVar(&count, "episode-count", 0, "Known episode count")
 	command.Flags().StringSliceVar(&episodes, "episode", nil, "Known episode title; repeat or comma-separate")
+	command.Flags().StringVar(&apiKey, "api-key", "", "Request-scoped TMDB API key")
 	addDiscoveryCommonFlags(command, &query, &limit, &wait)
 	return command
 }

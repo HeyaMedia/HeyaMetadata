@@ -266,15 +266,36 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 			return fmt.Errorf("enqueue recording evidence refresh %s: %w", id, err)
 		}
 	}
-	tvRows, err := w.runtime.DB.Query(ctx, `SELECT claims.normalized_value,refresh.entity_id FROM provider_refresh_states refresh JOIN external_id_claims claims ON claims.entity_id=refresh.entity_id LEFT JOIN entity_access_stats stats ON stats.entity_id=refresh.entity_id WHERE refresh.provider='tvmaze' AND refresh.next_eligible_at<=now() AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN ('available','pending','retryable','running','scheduled')) AND claims.entity_kind='tv_show' AND claims.provider='tvmaze' AND claims.namespace='show' AND claims.state='accepted' ORDER BY COALESCE(stats.decayed_score * exp(-EXTRACT(EPOCH FROM (now()-stats.score_updated_at))/604800.0),0) DESC,refresh.next_eligible_at LIMIT 500`)
+	tvRows, err := w.runtime.DB.Query(ctx, `
+		WITH due AS (
+		  SELECT DISTINCT ON (refresh.entity_id)
+		    root.provider, root.normalized_value, refresh.entity_id, refresh.provider AS refresh_provider, refresh.next_eligible_at
+		  FROM provider_refresh_states refresh
+		  JOIN LATERAL (
+		  SELECT claim.provider, claim.normalized_value
+		  FROM external_id_claims claim
+		  WHERE claim.entity_id=refresh.entity_id AND claim.entity_kind='tv_show' AND claim.state='accepted'
+		    AND ((claim.provider='tmdb' AND claim.namespace='tv') OR (claim.provider='tvmaze' AND claim.namespace='show'))
+		  ORDER BY CASE claim.provider WHEN 'tmdb' THEN 1 ELSE 2 END
+		  LIMIT 1
+		  ) root ON true
+		  WHERE refresh.provider IN ('tmdb','tvmaze') AND refresh.next_eligible_at<=now()
+		  AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN ('available','pending','retryable','running','scheduled'))
+		  ORDER BY refresh.entity_id, CASE WHEN refresh.provider=root.provider THEN 1 ELSE 2 END, refresh.next_eligible_at
+		)
+		SELECT due.provider,due.normalized_value,due.entity_id,due.refresh_provider
+		FROM due LEFT JOIN entity_access_stats stats ON stats.entity_id=due.entity_id
+		ORDER BY COALESCE(stats.decayed_score * exp(-EXTRACT(EPOCH FROM (now()-stats.score_updated_at))/604800.0),0) DESC,
+		  due.next_eligible_at
+		LIMIT 500`)
 	if err != nil {
 		return err
 	}
-	type dueEpisodic struct{ id, entityID string }
+	type dueEpisodic struct{ provider, id, entityID, refreshProvider string }
 	var tvShows []dueEpisodic
 	for tvRows.Next() {
 		var item dueEpisodic
-		if err := tvRows.Scan(&item.id, &item.entityID); err != nil {
+		if err := tvRows.Scan(&item.provider, &item.id, &item.entityID, &item.refreshProvider); err != nil {
 			tvRows.Close()
 			return err
 		}
@@ -282,20 +303,41 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 	}
 	tvRows.Close()
 	for _, item := range tvShows {
-		inserted, err := InsertTVShow(ctx, w.runtime, client, TVShowIngestArgs{TVMazeID: item.id, Reason: "adaptive_refresh"}, PriorityScheduled)
+		inserted, err := InsertTVShow(ctx, w.runtime, client, TVShowIngestArgs{Provider: item.provider, ProviderID: item.id, Reason: "adaptive_refresh"}, PriorityScheduled)
 		if err != nil {
 			return err
 		}
-		_, _ = w.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET current_job_id=$3 WHERE entity_id=$1 AND provider=$2`, item.entityID, "tvmaze", inserted.Job.ID)
+		_, _ = w.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET current_job_id=$3 WHERE entity_id=$1 AND provider=$2`, item.entityID, item.refreshProvider, inserted.Job.ID)
 	}
-	animeRows, err := w.runtime.DB.Query(ctx, `SELECT claims.normalized_value,refresh.entity_id FROM provider_refresh_states refresh JOIN external_id_claims claims ON claims.entity_id=refresh.entity_id LEFT JOIN entity_access_stats stats ON stats.entity_id=refresh.entity_id WHERE refresh.provider='anidb' AND refresh.next_eligible_at<=now() AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN ('available','pending','retryable','running','scheduled')) AND claims.entity_kind='anime' AND claims.provider='anidb' AND claims.namespace='anime' AND claims.state='accepted' ORDER BY COALESCE(stats.decayed_score * exp(-EXTRACT(EPOCH FROM (now()-stats.score_updated_at))/604800.0),0) DESC,refresh.next_eligible_at LIMIT 500`)
+	animeRows, err := w.runtime.DB.Query(ctx, `
+		WITH due AS (
+		  SELECT DISTINCT ON (refresh.entity_id)
+		    root.provider, root.normalized_value, refresh.entity_id, refresh.provider AS refresh_provider, refresh.next_eligible_at
+		  FROM provider_refresh_states refresh
+		  JOIN LATERAL (
+		  SELECT claim.provider, claim.normalized_value
+		  FROM external_id_claims claim
+		  WHERE claim.entity_id=refresh.entity_id AND claim.entity_kind='anime' AND claim.state='accepted'
+		    AND ((claim.provider='tmdb' AND claim.namespace='tv') OR (claim.provider='tvmaze' AND claim.namespace='show') OR (claim.provider='anidb' AND claim.namespace='anime'))
+		  ORDER BY CASE claim.provider WHEN 'tmdb' THEN 1 WHEN 'tvmaze' THEN 2 ELSE 3 END
+		  LIMIT 1
+		  ) root ON true
+		  WHERE refresh.provider IN ('tmdb','tvmaze','anidb') AND refresh.next_eligible_at<=now()
+		  AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN ('available','pending','retryable','running','scheduled'))
+		  ORDER BY refresh.entity_id, CASE WHEN refresh.provider=root.provider THEN 1 ELSE 2 END, refresh.next_eligible_at
+		)
+		SELECT due.provider,due.normalized_value,due.entity_id,due.refresh_provider
+		FROM due LEFT JOIN entity_access_stats stats ON stats.entity_id=due.entity_id
+		ORDER BY COALESCE(stats.decayed_score * exp(-EXTRACT(EPOCH FROM (now()-stats.score_updated_at))/604800.0),0) DESC,
+		  due.next_eligible_at
+		LIMIT 500`)
 	if err != nil {
 		return err
 	}
 	var animeItems []dueEpisodic
 	for animeRows.Next() {
 		var item dueEpisodic
-		if err := animeRows.Scan(&item.id, &item.entityID); err != nil {
+		if err := animeRows.Scan(&item.provider, &item.id, &item.entityID, &item.refreshProvider); err != nil {
 			animeRows.Close()
 			return err
 		}
@@ -303,11 +345,11 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 	}
 	animeRows.Close()
 	for _, item := range animeItems {
-		inserted, err := InsertAnime(ctx, w.runtime, client, AnimeIngestArgs{AniDBID: item.id, Reason: "adaptive_refresh"}, PriorityScheduled)
+		inserted, err := InsertAnime(ctx, w.runtime, client, AnimeIngestArgs{Provider: item.provider, ProviderID: item.id, Reason: "adaptive_refresh"}, PriorityScheduled)
 		if err != nil {
 			return err
 		}
-		_, _ = w.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET current_job_id=$3 WHERE entity_id=$1 AND provider=$2`, item.entityID, "anidb", inserted.Job.ID)
+		_, _ = w.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET current_job_id=$3 WHERE entity_id=$1 AND provider=$2`, item.entityID, item.refreshProvider, inserted.Job.ID)
 	}
 	personRows, err := w.runtime.DB.Query(ctx, `SELECT refresh.provider,claims.normalized_value,refresh.entity_id FROM provider_refresh_states refresh JOIN external_id_claims claims ON claims.entity_id=refresh.entity_id AND claims.provider=refresh.provider LEFT JOIN entity_access_stats stats ON stats.entity_id=refresh.entity_id WHERE refresh.provider IN('tmdb','tvmaze','tvdb') AND refresh.next_eligible_at<=now() AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN('available','pending','retryable','running','scheduled')) AND claims.entity_kind='person' AND claims.namespace='person' AND claims.state='accepted' ORDER BY COALESCE(stats.decayed_score*exp(-EXTRACT(EPOCH FROM(now()-stats.score_updated_at))/604800.0),0)DESC,refresh.next_eligible_at LIMIT 600`)
 	if err != nil {

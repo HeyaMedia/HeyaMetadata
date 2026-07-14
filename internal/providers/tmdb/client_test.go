@@ -61,6 +61,40 @@ func TestMovieSearchUsesStructuredParametersAndSafeCacheIdentity(t *testing.T) {
 	}
 }
 
+func TestTVSearchAndExternalLookupUseTMDBIdentitySurfaces(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/search/tv":
+			if request.URL.Query().Get("query") != "Cowboy Bebop" || request.URL.Query().Get("first_air_date_year") != "1998" {
+				t.Errorf("unexpected TV search: %s", request.URL.String())
+			}
+			_, _ = writer.Write([]byte(`{"results":[{"id":30991,"name":"Cowboy Bebop","genre_ids":[16]}]}`))
+		case "/find/76885":
+			if request.URL.Query().Get("external_source") != "tvdb_id" {
+				t.Errorf("unexpected external lookup: %s", request.URL.String())
+			}
+			_, _ = writer.Write([]byte(`{"tv_results":[{"id":30991}]}`))
+		default:
+			t.Errorf("unexpected path %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client := NewCached(config.TMDBConfig{BaseURL: server.URL, Language: "en-US"}, nil, "key")
+	search, err := client.SearchTV(context.Background(), " Cowboy Bebop ", 1998, 1)
+	if err != nil || search.StatusCode != http.StatusOK || search.ProviderNamespace != "tv_search" {
+		t.Fatalf("search=%+v err=%v", search, err)
+	}
+	lookup, err := client.FindTVByExternal(context.Background(), "tvdb", "76885")
+	if err != nil || FirstTVResultID(lookup.Body) != "30991" {
+		t.Fatalf("lookup=%+v err=%v", lookup, err)
+	}
+	if !TVDetailIsAnimation([]byte(`{"genres":[{"id":16,"name":"Animation"}]}`)) || TVDetailIsAnimation([]byte(`{"genres":[{"id":18,"name":"Drama"}]}`)) {
+		t.Fatal("TMDB animation genre classification is incorrect")
+	}
+}
+
 func TestCollectPersonRequestsBoundedEnrichmentScopes(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

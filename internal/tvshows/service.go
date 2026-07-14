@@ -21,12 +21,101 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvmaze"
 )
 
-var definition = episodic.Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-tv-show/v3", MergeVersion: "tv-show-combiner/v4"}
+var tmdbDefinition = episodic.Definition{Kind: "tv_show", Provider: "tmdb", Namespace: "tv", NormalizerVersion: tmdbTVNormalizerVersion, MergeVersion: "tv-show-combiner/v6"}
+var tvmazeDefinition = episodic.Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-tv-show/v3", MergeVersion: "tv-show-combiner/v6"}
 var htmlTags = regexp.MustCompile(`<[^>]+>`)
 
 type Service struct{ runtime *platform.Runtime }
 
 func NewService(runtime *platform.Runtime) *Service { return &Service{runtime: runtime} }
+func (s *Service) IngestTMDB(ctx context.Context, id string, jobID int64) (result episodic.Result, returnErr error) {
+	return s.IngestTMDBWithCredentials(ctx, id, jobID, providercredentials.Credentials{})
+}
+func (s *Service) IngestTMDBWithCredentials(ctx context.Context, id string, jobID int64, credentials providercredentials.Credentials) (result episodic.Result, returnErr error) {
+	if value, err := strconv.ParseInt(id, 10, 64); err != nil || value < 1 {
+		return result, fmt.Errorf("invalid TMDB TV ID")
+	}
+	if err := episodic.StartRun(ctx, s.runtime, jobID, tmdbDefinition, id); err != nil {
+		return result, err
+	}
+	defer func() {
+		if returnErr != nil {
+			episodic.FailRun(ctx, s.runtime, jobID, returnErr)
+		}
+	}()
+	base := tmdb.New(s.runtime.Config.Providers.TMDB)
+	resolver, err := providercache.New(s.runtime, tmdbDefinition.NormalizerVersion, base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+	if err != nil {
+		return result, err
+	}
+	payloads, err := tmdb.NewCached(s.runtime.Config.Providers.TMDB, resolver, credentials.APIKey("tmdb")).CollectTV(ctx, providers.Identifier{Provider: "tmdb", Namespace: "tv", Value: id})
+	if err != nil {
+		return result, err
+	}
+	if len(payloads) == 0 {
+		return result, fmt.Errorf("TMDB returned no TV detail")
+	}
+	if payloads[0].StatusCode != http.StatusOK {
+		return result, &providers.StatusError{Provider: "tmdb", StatusCode: payloads[0].StatusCode}
+	}
+	record, err := NormalizeTMDBTV(payloads, "tv_show")
+	if err != nil {
+		return result, err
+	}
+	records := []episodic.NormalizedRecord{record}
+
+	if tvdbID := externalID(record, "tvdb", "series"); tvdbID != "" {
+		if credentials.APIKey("tvdb") != "" || s.runtime.Config.Providers.TVDB.APIKey != "" {
+			tvdbBase := tvdb.New(s.runtime.Config.Providers.TVDB)
+			cache, cacheErr := providercache.New(s.runtime, tvdbSeriesNormalizerVersion, tvdbBase.Capability().RawRetention, tvdbBase.Capability().ResponseCache, jobID)
+			if cacheErr != nil {
+				return result, cacheErr
+			}
+			values, collectErr := tvdb.NewCached(s.runtime.Config.Providers.TVDB, cache, credentials.APIKey("tvdb"), s.runtime.Redis).CollectSeries(ctx, providers.Identifier{Provider: "tvdb", Namespace: "series", Value: tvdbID})
+			if collectErr == nil && len(values) > 0 && values[0].StatusCode == http.StatusOK {
+				if supplemental, normalizeErr := NormalizeTVDBSeries(values[0], "tv_show", nil, 0, values[1:]...); normalizeErr == nil {
+					records = append(records, supplemental)
+				}
+			}
+		}
+	}
+
+	lookup := providers.Identifier{}
+	if tvdbID := externalID(record, "tvdb", "series"); tvdbID != "" {
+		lookup = providers.Identifier{Provider: "tvdb", Namespace: "series", Value: tvdbID}
+	} else if imdbID := externalID(record, "imdb", "title"); imdbID != "" {
+		lookup = providers.Identifier{Provider: "imdb", Namespace: "title", Value: imdbID}
+	}
+	if lookup.Value != "" {
+		mazeBase := tvmaze.New(s.runtime.Config.Providers.TVMaze)
+		cache, cacheErr := providercache.New(s.runtime, tvmazeDefinition.NormalizerVersion, mazeBase.Capability().RawRetention, mazeBase.Capability().ResponseCache, jobID)
+		if cacheErr != nil {
+			return result, cacheErr
+		}
+		values, collectErr := tvmaze.NewCached(s.runtime.Config.Providers.TVMaze, cache).Collect(ctx, lookup)
+		if collectErr == nil && len(values) > 0 && values[len(values)-1].StatusCode == http.StatusOK {
+			if supplemental, normalizeErr := NormalizeTVMaze(values[len(values)-1], "tv_show"); normalizeErr == nil {
+				supplemental.NormalizerVersion = tvmazeDefinition.NormalizerVersion
+				records = append(records, supplemental)
+			}
+		}
+	}
+
+	if tvdbID := externalID(record, "tvdb", "series"); tvdbID != "" && (credentials.APIKey("fanart") != "" || s.runtime.Config.Providers.Fanart.APIKey != "") {
+		fanartBase := fanart.New(s.runtime.Config.Providers.Fanart)
+		cache, cacheErr := providercache.New(s.runtime, fanart.TVNormalizerVersion, fanartBase.Capability().RawRetention, fanartBase.Capability().ResponseCache, jobID)
+		if cacheErr != nil {
+			return result, cacheErr
+		}
+		values, collectErr := fanart.NewCached(s.runtime.Config.Providers.Fanart, cache, credentials.APIKey("fanart")).Collect(ctx, providers.Identifier{Provider: "tvdb", Namespace: "series", Value: tvdbID})
+		if collectErr == nil && len(values) > 0 && values[0].StatusCode == http.StatusOK {
+			if supplemental, normalizeErr := fanart.NormalizeTV(values[0].Body, values[0].ObservationID, values[0].ObservedAt, "tv_show"); normalizeErr == nil {
+				records = append(records, supplemental)
+			}
+		}
+	}
+	return episodic.PersistMany(ctx, s.runtime, tmdbDefinition, records, jobID)
+}
 func (s *Service) IngestTVMaze(ctx context.Context, id string, jobID int64) (result episodic.Result, returnErr error) {
 	return s.IngestTVMazeWithCredentials(ctx, id, jobID, providercredentials.Credentials{})
 }
@@ -34,7 +123,7 @@ func (s *Service) IngestTVMazeWithCredentials(ctx context.Context, id string, jo
 	if _, err := strconv.ParseInt(id, 10, 64); err != nil {
 		return result, fmt.Errorf("invalid TVMaze show ID")
 	}
-	if err := episodic.StartRun(ctx, s.runtime, jobID, definition, id); err != nil {
+	if err := episodic.StartRun(ctx, s.runtime, jobID, tvmazeDefinition, id); err != nil {
 		return result, err
 	}
 	defer func() {
@@ -43,7 +132,7 @@ func (s *Service) IngestTVMazeWithCredentials(ctx context.Context, id string, jo
 		}
 	}()
 	base := tvmaze.New(s.runtime.Config.Providers.TVMaze)
-	resolver, err := providercache.New(s.runtime, definition.NormalizerVersion, base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+	resolver, err := providercache.New(s.runtime, tvmazeDefinition.NormalizerVersion, base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
 	if err != nil {
 		return result, err
 	}
@@ -58,11 +147,40 @@ func (s *Service) IngestTVMazeWithCredentials(ctx context.Context, id string, jo
 	if payload.StatusCode != http.StatusOK {
 		return result, &providers.StatusError{Provider: "tvmaze", StatusCode: payload.StatusCode}
 	}
-	record, err := normalize(payload)
+	record, err := NormalizeTVMaze(payload, "tv_show")
 	if err != nil {
 		return result, err
 	}
-	record.NormalizerVersion = definition.NormalizerVersion
+	record.NormalizerVersion = tvmazeDefinition.NormalizerVersion
+	// A TVMaze fallback may still reveal an exact TMDB crosswalk that title
+	// search could not. Promote immediately so TVMaze never becomes the root
+	// merely because the local spelling differed from TMDB's search index.
+	if credentials.APIKey("tmdb") != "" || s.runtime.Config.Providers.TMDB.Token != "" {
+		lookup := providers.Identifier{}
+		if tvdbID := externalID(record, "tvdb", "series"); tvdbID != "" {
+			lookup = providers.Identifier{Provider: "tvdb", Namespace: "series", Value: tvdbID}
+		} else if imdbID := externalID(record, "imdb", "title"); imdbID != "" {
+			lookup = providers.Identifier{Provider: "imdb", Namespace: "title", Value: imdbID}
+		}
+		if lookup.Value != "" {
+			tmdbBase := tmdb.New(s.runtime.Config.Providers.TMDB)
+			tmdbCache, cacheErr := providercache.New(s.runtime, "tvmaze-to-tmdb-root/v1", tmdbBase.Capability().RawRetention, tmdbBase.Capability().ResponseCache, jobID)
+			if cacheErr != nil {
+				return result, cacheErr
+			}
+			found, lookupErr := tmdb.NewCached(s.runtime.Config.Providers.TMDB, tmdbCache, credentials.APIKey("tmdb")).FindTVByExternal(ctx, lookup.Provider, lookup.Value)
+			if lookupErr != nil {
+				return result, lookupErr
+			}
+			if found.StatusCode == http.StatusOK {
+				if tmdbID := tmdb.FirstTVResultID(found.Body); tmdbID != "" {
+					return s.IngestTMDBWithCredentials(ctx, tmdbID, jobID, credentials)
+				}
+			} else if found.StatusCode != http.StatusNotFound {
+				return result, &providers.StatusError{Provider: "tmdb", StatusCode: found.StatusCode}
+			}
+		}
+	}
 	records := []episodic.NormalizedRecord{record}
 
 	if tvdbID := externalID(record, "tvdb", "series"); tvdbID != "" && (credentials.APIKey("tvdb") != "" || s.runtime.Config.Providers.TVDB.APIKey != "") {
@@ -73,7 +191,7 @@ func (s *Service) IngestTVMazeWithCredentials(ctx context.Context, id string, jo
 		}
 		payloads, collectErr := tvdb.NewCached(s.runtime.Config.Providers.TVDB, cache, credentials.APIKey("tvdb"), s.runtime.Redis).CollectSeries(ctx, providers.Identifier{Provider: "tvdb", Namespace: "series", Value: tvdbID})
 		if collectErr == nil && len(payloads) > 0 && payloads[0].StatusCode == http.StatusOK {
-			if supplemental, normalizeErr := normalizeTVDBSeries(payloads[0], "tv_show", nil, 0, payloads[1:]...); normalizeErr == nil {
+			if supplemental, normalizeErr := NormalizeTVDBSeries(payloads[0], "tv_show", nil, 0, payloads[1:]...); normalizeErr == nil {
 				records = append(records, supplemental)
 			}
 		}
@@ -88,10 +206,10 @@ func (s *Service) IngestTVMazeWithCredentials(ctx context.Context, id string, jo
 		client := tmdb.NewCached(s.runtime.Config.Providers.TMDB, cache, credentials.APIKey("tmdb"))
 		lookup, lookupErr := client.FindTVByIMDb(ctx, imdbID)
 		if lookupErr == nil && lookup.StatusCode == http.StatusOK {
-			if tmdbID := tmdbTVID(lookup.Body); tmdbID != "" {
+			if tmdbID := tmdb.FirstTVResultID(lookup.Body); tmdbID != "" {
 				payloads, collectErr := client.CollectTV(ctx, providers.Identifier{Provider: "tmdb", Namespace: "tv", Value: tmdbID})
 				if collectErr == nil {
-					if supplemental, normalizeErr := normalizeTMDBTV(payloads); normalizeErr == nil {
+					if supplemental, normalizeErr := NormalizeTMDBTV(payloads, "tv_show"); normalizeErr == nil {
 						records = append(records, supplemental)
 					}
 				}
@@ -112,7 +230,7 @@ func (s *Service) IngestTVMazeWithCredentials(ctx context.Context, id string, jo
 			}
 		}
 	}
-	return episodic.PersistMany(ctx, s.runtime, definition, records, jobID)
+	return episodic.PersistMany(ctx, s.runtime, tvmazeDefinition, records, jobID)
 }
 func (s *Service) Resolve(ctx context.Context, provider, namespace, value string) (string, error) {
 	return episodic.Resolve(ctx, s.runtime, "tv_show", provider, namespace, value)
@@ -216,7 +334,7 @@ type network struct {
 	} `json:"country"`
 }
 
-func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
+func NormalizeTVMaze(payload providers.Payload, kind string) (episodic.NormalizedRecord, error) {
 	var value show
 	if err := json.Unmarshal(payload.Body, &value); err != nil {
 		return episodic.NormalizedRecord{}, err
@@ -224,7 +342,10 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 	if value.ID < 1 || value.Name == "" {
 		return episodic.NormalizedRecord{}, fmt.Errorf("invalid TVMaze show detail")
 	}
-	record := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "tv_show", Provider: "tvmaze", Namespace: "show", ProviderID: strconv.FormatInt(value.ID, 10), PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, Titles: []episodic.Title{{Value: value.Name, Language: languageCode(value.Language), Type: "main"}}, Overview: cleanHTML(value.Summary), Format: normalizeType(value.Type), Status: normalizeType(value.Status), Language: languageCode(value.Language), Genres: episodic.SortStrings(value.Genres), StartDate: value.Premiered, EndDate: value.Ended, RuntimeMinutes: value.Runtime, ExternalIDs: []episodic.ExternalID{{Provider: "tvmaze", Namespace: "show", Value: strconv.FormatInt(value.ID, 10)}}}
+	if kind == "" {
+		kind = "tv_show"
+	}
+	record := episodic.NormalizedRecord{SchemaVersion: 1, Kind: kind, Provider: "tvmaze", Namespace: "show", ProviderID: strconv.FormatInt(value.ID, 10), PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, Titles: []episodic.Title{{Value: value.Name, Language: languageCode(value.Language), Type: "main"}}, Overview: cleanHTML(value.Summary), Format: normalizeType(value.Type), Status: normalizeType(value.Status), Language: languageCode(value.Language), Genres: episodic.SortStrings(value.Genres), StartDate: value.Premiered, EndDate: value.Ended, RuntimeMinutes: value.Runtime, ExternalIDs: []episodic.ExternalID{{Provider: "tvmaze", Namespace: "show", Value: strconv.FormatInt(value.ID, 10)}}}
 	if record.Overview != "" {
 		record.Overviews = []episodic.Text{{Value: record.Overview, Language: record.Language, Type: "overview"}}
 	}
@@ -359,15 +480,4 @@ func externalID(record episodic.NormalizedRecord, provider, namespace string) st
 		}
 	}
 	return ""
-}
-func tmdbTVID(body []byte) string {
-	var result struct {
-		TVResults []struct {
-			ID int64 `json:"id"`
-		} `json:"tv_results"`
-	}
-	if json.Unmarshal(body, &result) != nil || len(result.TVResults) == 0 || result.TVResults[0].ID < 1 {
-		return ""
-	}
-	return strconv.FormatInt(result.TVResults[0].ID, 10)
 }

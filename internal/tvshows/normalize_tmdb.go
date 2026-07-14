@@ -172,7 +172,7 @@ type tmdbSeason struct {
 	} `json:"episodes"`
 }
 
-func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, error) {
+func NormalizeTMDBTV(payloads []providers.Payload, kind string) (episodic.NormalizedRecord, error) {
 	if len(payloads) == 0 || payloads[0].StatusCode != http.StatusOK {
 		return episodic.NormalizedRecord{}, fmt.Errorf("TMDB returned no TV detail")
 	}
@@ -191,7 +191,10 @@ func normalizeTMDBTV(payloads []providers.Payload) (episodic.NormalizedRecord, e
 			}
 		}
 	}
-	r := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "tv_show", Provider: "tmdb", Namespace: "tv", ProviderID: strconv.FormatInt(value.ID, 10), PrimaryObservationID: payloads[0].ObservationID, ObservedAt: payloads[0].ObservedAt, NormalizerVersion: tmdbTVNormalizerVersion, Overview: value.Overview, Format: normalizeType(value.Type), Status: normalizeType(value.Status), Language: value.OriginalLanguage, Countries: value.Countries, StartDate: value.FirstAirDate, EndDate: value.LastAirDate, EpisodeCount: value.NumberEpisodes, SeasonCount: seasonCount, ExternalIDs: []episodic.ExternalID{{Provider: "tmdb", Namespace: "tv", Value: strconv.FormatInt(value.ID, 10)}}}
+	if kind == "" {
+		kind = "tv_show"
+	}
+	r := episodic.NormalizedRecord{SchemaVersion: 1, Kind: kind, Provider: "tmdb", Namespace: "tv", ProviderID: strconv.FormatInt(value.ID, 10), PrimaryObservationID: payloads[0].ObservationID, ObservedAt: payloads[0].ObservedAt, NormalizerVersion: tmdbTVNormalizerVersion, Overview: value.Overview, Format: normalizeType(value.Type), Status: normalizeType(value.Status), Language: value.OriginalLanguage, Countries: value.Countries, StartDate: value.FirstAirDate, EndDate: value.LastAirDate, EpisodeCount: value.NumberEpisodes, SeasonCount: seasonCount, ExternalIDs: []episodic.ExternalID{{Provider: "tmdb", Namespace: "tv", Value: strconv.FormatInt(value.ID, 10)}}}
 	if value.Overview != "" {
 		r.Overviews = append(r.Overviews, episodic.Text{Value: value.Overview, Type: "overview"})
 	}

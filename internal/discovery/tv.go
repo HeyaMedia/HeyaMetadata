@@ -12,6 +12,7 @@ import (
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tmdb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvmaze"
 	"github.com/jackc/pgx/v5"
 )
@@ -19,6 +20,19 @@ import (
 type tvMazeSearchHit struct {
 	Score float64    `json:"score"`
 	Show  tvMazeShow `json:"show"`
+}
+
+type tmdbTVSearch struct {
+	Results []struct {
+		ID               int64    `json:"id"`
+		Name             string   `json:"name"`
+		OriginalName     string   `json:"original_name"`
+		OriginalLanguage string   `json:"original_language"`
+		FirstAirDate     string   `json:"first_air_date"`
+		OriginCountry    []string `json:"origin_country"`
+		GenreIDs         []int    `json:"genre_ids"`
+		Popularity       float64  `json:"popularity"`
+	} `json:"results"`
 }
 
 type tvMazeShow struct {
@@ -62,11 +76,82 @@ type tvMazeShow struct {
 	} `json:"_embedded"`
 }
 
-func (s *Service) DiscoverTV(ctx context.Context, request Request, jobID int64) (Result, error) {
+func (s *Service) DiscoverTV(ctx context.Context, request Request, jobID int64, apiKey string) (Result, error) {
 	request = NormalizeRequest(request)
 	if request.Kind != KindTVShow || request.Query == "" {
 		return Result{}, fmt.Errorf("TV discovery requires kind tv_show and a query")
 	}
+	candidates, err := s.discoverTMDBEpisodicCandidates(ctx, request, jobID, apiKey, false)
+	if err != nil {
+		return Result{}, err
+	}
+	if hasPlausibleCandidate(candidates) {
+		return episodicDiscoveryResult(request, candidates, []string{"tmdb"}), nil
+	}
+	return s.discoverTVMaze(ctx, request, jobID)
+}
+
+func (s *Service) discoverTMDBEpisodicCandidates(ctx context.Context, request Request, jobID int64, apiKey string, animationOnly bool) ([]Candidate, error) {
+	base := tmdb.New(s.runtime.Config.Providers.TMDB)
+	resolver, err := providercache.New(s.runtime, "tmdb-tv-discovery/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := tmdb.NewCached(s.runtime.Config.Providers.TMDB, resolver, apiKey).SearchTV(ctx, request.Query, 0, 1)
+	if err != nil {
+		return nil, err
+	}
+	if payload.StatusCode != http.StatusOK {
+		return nil, &providers.StatusError{Provider: "tmdb", StatusCode: payload.StatusCode}
+	}
+	var source tmdbTVSearch
+	if err := json.Unmarshal(payload.Body, &source); err != nil {
+		return nil, fmt.Errorf("decode TMDB TV search: %w", err)
+	}
+	candidates := make([]Candidate, 0, len(source.Results))
+	for index, value := range source.Results {
+		if value.ID < 1 || strings.TrimSpace(value.Name) == "" || (animationOnly && !containsInt(value.GenreIDs, 16)) {
+			continue
+		}
+		id := strconv.FormatInt(value.ID, 10)
+		aliases := []string{}
+		if normalizedText(value.OriginalName) != normalizedText(value.Name) {
+			aliases = append(aliases, value.OriginalName)
+		}
+		country := ""
+		if len(value.OriginCountry) > 0 {
+			country = strings.ToUpper(value.OriginCountry[0])
+		}
+		kind := request.Kind
+		candidate := Candidate{
+			ProviderScore: max(1, 100-index*4),
+			Identity:      ExternalID{Provider: "tmdb", Namespace: "tv", Value: id},
+			Display: Display{
+				Name: value.Name, OriginalTitle: value.OriginalName, Type: map[bool]string{true: "anime", false: "series"}[animationOnly],
+				Language: strings.ToLower(value.OriginalLanguage), Year: releaseYear(value.FirstAirDate), Date: value.FirstAirDate,
+				Country: country, Countries: cleanSortedUpper(value.OriginCountry), Popularity: value.Popularity, Aliases: cleanSorted(aliases),
+			},
+			Resolution: Resolution{Kind: kind, Provider: "tmdb", Namespace: "tv", Value: id},
+		}
+		if kind == KindAnime {
+			scoreAnimeCandidate(request, &candidate)
+		} else {
+			scoreTVCandidate(request, &candidate)
+		}
+		var entityID string
+		e := s.runtime.DB.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind=$1 AND provider='tmdb' AND namespace='tv' AND normalized_value=$2 AND state='accepted'`, kind, id).Scan(&entityID)
+		if e == nil {
+			candidate.ExistingEntityID = entityID
+		} else if e != pgx.ErrNoRows {
+			return nil, e
+		}
+		candidates = append(candidates, candidate)
+	}
+	sortCandidates(candidates)
+	return candidates, nil
+}
+
+func (s *Service) discoverTVMaze(ctx context.Context, request Request, jobID int64) (Result, error) {
 	base := tvmaze.New(s.runtime.Config.Providers.TVMaze)
 	resolver, err := providercache.New(s.runtime, "tvmaze-tv-discovery/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
 	if err != nil {
@@ -119,6 +204,10 @@ func (s *Service) DiscoverTV(ctx context.Context, request Request, jobID int64) 
 		}
 		candidates = append(candidates, candidate)
 	}
+	return episodicDiscoveryResult(request, candidates, []string{"tmdb", "tvmaze"}), nil
+}
+
+func episodicDiscoveryResult(request Request, candidates []Candidate, providersUsed []string) Result {
 	sortCandidates(candidates)
 	if len(candidates) > request.Limit {
 		candidates = candidates[:request.Limit]
@@ -126,7 +215,20 @@ func (s *Service) DiscoverTV(ctx context.Context, request Request, jobID int64) 
 	for i := range candidates {
 		candidates[i].Rank = i + 1
 	}
-	return Result{SchemaVersion: SchemaVersion, Kind: KindTVShow, Query: request.Query, Status: "completed", Recommendation: recommendation(candidates), Candidates: candidates, Providers: []string{"tvmaze"}, ObservedAt: time.Now().UTC()}, nil
+	return Result{SchemaVersion: SchemaVersion, Kind: request.Kind, Query: request.Query, Status: "completed", Recommendation: recommendation(candidates), Candidates: candidates, Providers: providersUsed, ObservedAt: time.Now().UTC()}
+}
+
+func hasPlausibleCandidate(candidates []Candidate) bool {
+	return len(candidates) > 0 && candidates[0].Confidence >= .45
+}
+
+func containsInt(values []int, want int) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func tvNetwork(show tvMazeShow) (string, string) {
@@ -169,20 +271,8 @@ func matchTVEpisodes(hints []EpisodeHint, episodes []struct {
 
 func scoreTVCandidate(request Request, c *Candidate) {
 	score := float64(c.ProviderScore) / 100 * .18
-	c.Evidence = append(c.Evidence, Evidence{Field: "provider_score", Outcome: "support", Weight: round(score), Detail: fmt.Sprintf("TVMaze score %d/100", c.ProviderScore)})
-	q := normalizedText(request.Query)
-	name := normalizedText(c.Display.Name)
-	w, o := similarity(q, name)*.4, "fuzzy"
-	if q == name {
-		w, o = .4, "exact"
-	} else {
-		for _, a := range c.Display.Aliases {
-			if q == normalizedText(a) {
-				w, o = .37, "exact_alias"
-				break
-			}
-		}
-	}
+	c.Evidence = append(c.Evidence, Evidence{Field: "provider_score", Outcome: "support", Weight: round(score), Detail: fmt.Sprintf("%s search score %d/100", strings.ToUpper(c.Identity.Provider), c.ProviderScore)})
+	w, o := episodicTitleMatch(request, c.Display.Name, c.Display.Aliases, .4, .37)
 	score += w
 	c.Evidence = append(c.Evidence, Evidence{Field: "title", Outcome: o, Weight: round(w), Detail: c.Display.Name})
 	if request.Hints.Year > 0 {
@@ -236,6 +326,40 @@ func scoreTVCandidate(request Request, c *Candidate) {
 	c.Confidence = round(math.Max(0, math.Min(.99, score)))
 	setMatch(c)
 }
+
+func episodicTitleMatch(request Request, candidateName string, candidateAliases []string, exactWeight, aliasWeight float64) (float64, string) {
+	name := normalizedText(candidateName)
+	bestWeight, bestOutcome := 0.0, "fuzzy"
+	queries := append([]string{request.Query}, request.Hints.Aliases...)
+	for index, value := range queries {
+		query := normalizedText(value)
+		if query == "" {
+			continue
+		}
+		weight, outcome := similarity(query, name)*exactWeight, "fuzzy"
+		if query == name {
+			weight, outcome = exactWeight, "exact"
+			if index > 0 {
+				outcome = "exact_hint_alias"
+			}
+		} else {
+			for _, alias := range candidateAliases {
+				if query == normalizedText(alias) {
+					weight, outcome = aliasWeight, "exact_alias"
+					if index > 0 {
+						outcome = "exact_hint_alias"
+					}
+					break
+				}
+			}
+		}
+		if weight > bestWeight {
+			bestWeight, bestOutcome = weight, outcome
+		}
+	}
+	return bestWeight, bestOutcome
+}
+
 func tvLanguageCode(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if code := map[string]string{"english": "en", "japanese": "ja", "korean": "ko", "chinese": "zh", "french": "fr", "german": "de", "spanish": "es", "danish": "da", "swedish": "sv", "norwegian": "no"}[value]; code != "" {

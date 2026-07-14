@@ -1185,7 +1185,8 @@ Use no real provider secrets in fixtures, snapshots, or logs.
   TMDB `1429`, and TVDB `267440`; assert all evidence converges on the 2013
   Heya UUID and no selection is required;
 - combine the later-season AniDB `10944` with those broad series IDs and assert
-  it remains a reviewable conflict rather than stealing the series identity;
+  it resolves to the same TMDB-rooted Heya anime while `10944` remains scoped
+  to the canonical season-two resource rather than stealing broad claims;
 - read a season and episode through their standalone UUIDs;
 - verify credits/ratings and language-aware posters.
 

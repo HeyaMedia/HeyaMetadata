@@ -146,7 +146,7 @@ type tvdbSeries struct {
 	Score float64 `json:"score"`
 }
 
-func normalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *int, episodeOffset int, seasonPayloads ...providers.Payload) (episodic.NormalizedRecord, error) {
+func NormalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *int, episodeOffset int, seasonPayloads ...providers.Payload) (episodic.NormalizedRecord, error) {
 	var wrapper tvdbEnvelope
 	if err := json.Unmarshal(payload.Body, &wrapper); err != nil {
 		return episodic.NormalizedRecord{}, err

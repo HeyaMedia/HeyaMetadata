@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -101,6 +102,45 @@ func (c *Client) LookupExternal(ctx context.Context, scheme, value string) (prov
 		return payload, *fallback, true, nil
 	}
 	return payload, Entry{}, false, nil
+}
+
+// LookupTVDBSeries returns every Anime Lists entry attached to one TVDB
+// series. TMDB-rooted anime uses this to retain season/cour-specific AniDB,
+// MAL, and AniList identities on canonical season resources without treating
+// each AniDB AID as a separate show root.
+func (c *Client) LookupTVDBSeries(ctx context.Context, value string) (providers.Payload, []Entry, error) {
+	want, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || want < 1 {
+		return providers.Payload{}, nil, fmt.Errorf("anime-lists TVDB series lookup requires a positive ID")
+	}
+	payload, entries, err := c.entries(ctx)
+	if err != nil || payload.StatusCode != http.StatusOK {
+		return payload, nil, err
+	}
+	result := make([]Entry, 0)
+	for _, entry := range entries {
+		if entry.TVDBID == want && entry.AniDBID > 0 {
+			result = append(result, entry)
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		left, right := animeListSeason(result[i]), animeListSeason(result[j])
+		if left != right {
+			return left < right
+		}
+		if result[i].EpisodeOffset.TVDB != result[j].EpisodeOffset.TVDB {
+			return result[i].EpisodeOffset.TVDB < result[j].EpisodeOffset.TVDB
+		}
+		return result[i].AniDBID < result[j].AniDBID
+	})
+	return payload, result, nil
+}
+
+func animeListSeason(entry Entry) int {
+	if entry.Season.TVDB == nil {
+		return 0
+	}
+	return *entry.Season.TVDB
 }
 
 func (entry Entry) IsTVDBSeriesRoot() bool {

@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
@@ -52,11 +51,22 @@ type animeDetail struct {
 	} `xml:"episodes>episode"`
 }
 
-func (s *Service) DiscoverAnime(ctx context.Context, request Request, jobID int64) (Result, error) {
+func (s *Service) DiscoverAnime(ctx context.Context, request Request, jobID int64, apiKey string) (Result, error) {
 	request = NormalizeRequest(request)
 	if request.Kind != KindAnime || request.Query == "" {
 		return Result{}, fmt.Errorf("Anime discovery requires kind anime and a query")
 	}
+	candidates, err := s.discoverTMDBEpisodicCandidates(ctx, request, jobID, apiKey, true)
+	if err != nil {
+		return Result{}, err
+	}
+	if hasPlausibleCandidate(candidates) {
+		return episodicDiscoveryResult(request, candidates, []string{"tmdb"}), nil
+	}
+	return s.discoverAniDB(ctx, request, jobID)
+}
+
+func (s *Service) discoverAniDB(ctx context.Context, request Request, jobID int64) (Result, error) {
 	base := anidb.New(s.runtime.Config.Providers.AniDB)
 	resolver, err := providercache.New(s.runtime, "anidb-anime-discovery/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
 	if err != nil {
@@ -104,42 +114,10 @@ func (s *Service) DiscoverAnime(ctx context.Context, request Request, jobID int6
 	if len(scoredValues) > 25 {
 		scoredValues = scoredValues[:25]
 	}
-	details := map[string]animeDetail{}
-	for i := 0; i < min(3, len(scoredValues)); i++ {
-		payloads, collectErr := client.Collect(ctx, providers.Identifier{Provider: "anidb", Namespace: "anime", Value: scoredValues[i].candidate.AID})
-		if collectErr != nil {
-			return Result{}, collectErr
-		}
-		if len(payloads) > 0 && payloads[0].StatusCode == http.StatusOK {
-			var detail animeDetail
-			if xml.Unmarshal(payloads[0].Body, &detail) == nil {
-				details[scoredValues[i].candidate.AID] = detail
-			}
-		}
-	}
 	candidates := make([]Candidate, 0, len(scoredValues))
 	for _, value := range scoredValues {
-		detail := details[value.candidate.AID]
 		mainTitle, aliases := selectAnimeTitles(value.candidate.Titles)
-		if detail.ID != "" {
-			parsed := make([]animeTitle, 0, len(detail.Titles))
-			for _, t := range detail.Titles {
-				parsed = append(parsed, animeTitle{Value: strings.TrimSpace(t.Value), Language: t.Language, Type: t.Type})
-			}
-			if selected, extra := selectAnimeTitles(parsed); selected != "" {
-				mainTitle = selected
-				aliases = cleanSorted(append(aliases, extra...))
-				filtered := aliases[:0]
-				for _, alias := range aliases {
-					if normalizedText(alias) != normalizedText(mainTitle) {
-						filtered = append(filtered, alias)
-					}
-				}
-				aliases = filtered
-			}
-		}
-		matched := matchAnimeEpisodes(request.Hints.Episodes, detail)
-		candidate := Candidate{ProviderScore: int(math.Round(value.score * 100)), Identity: ExternalID{Provider: "anidb", Namespace: "anime", Value: value.candidate.AID}, Display: Display{Name: mainTitle, Type: normalizeType(detail.Type), Year: releaseYear(detail.StartDate), Date: detail.StartDate, EndDate: detail.EndDate, EpisodeCount: detail.EpisodeCount, Aliases: aliases}, MatchedEpisodes: matched, Resolution: Resolution{Kind: KindAnime, Provider: "anidb", Namespace: "anime", Value: value.candidate.AID}}
+		candidate := Candidate{ProviderScore: int(math.Round(value.score * 100)), Identity: ExternalID{Provider: "anidb", Namespace: "anime", Value: value.candidate.AID}, Display: Display{Name: mainTitle, Type: "anime", Aliases: aliases}, Resolution: Resolution{Kind: KindAnime, Provider: "anidb", Namespace: "anime", Value: value.candidate.AID}}
 		scoreAnimeCandidate(request, &candidate)
 		var entityID string
 		e := s.runtime.DB.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind='anime' AND provider='anidb' AND namespace='anime' AND normalized_value=$1 AND state='accepted'`, value.candidate.AID).Scan(&entityID)
@@ -150,14 +128,7 @@ func (s *Service) DiscoverAnime(ctx context.Context, request Request, jobID int6
 		}
 		candidates = append(candidates, candidate)
 	}
-	sortCandidates(candidates)
-	if len(candidates) > request.Limit {
-		candidates = candidates[:request.Limit]
-	}
-	for i := range candidates {
-		candidates[i].Rank = i + 1
-	}
-	return Result{SchemaVersion: SchemaVersion, Kind: KindAnime, Query: request.Query, Status: "completed", Recommendation: recommendation(candidates), Candidates: candidates, Providers: []string{"anidb"}, ObservedAt: time.Now().UTC()}, nil
+	return episodicDiscoveryResult(request, candidates, []string{"tmdb", "anidb"}), nil
 }
 
 func parseAnimeTitleDump(body []byte) ([]animeTitleCandidate, error) {
@@ -264,20 +235,8 @@ func matchAnimeEpisodes(hints []EpisodeHint, detail animeDetail) []EpisodeHint {
 
 func scoreAnimeCandidate(request Request, c *Candidate) {
 	score := float64(c.ProviderScore) / 100 * .2
-	c.Evidence = append(c.Evidence, Evidence{Field: "title_dump_score", Outcome: "support", Weight: round(score), Detail: fmt.Sprintf("AniDB title score %d/100", c.ProviderScore)})
-	q := normalizedText(request.Query)
-	name := normalizedText(c.Display.Name)
-	w, o := similarity(q, name)*.42, "fuzzy"
-	if q == name {
-		w, o = .42, "exact"
-	} else {
-		for _, a := range c.Display.Aliases {
-			if q == normalizedText(a) {
-				w, o = .4, "exact_alias"
-				break
-			}
-		}
-	}
+	c.Evidence = append(c.Evidence, Evidence{Field: "provider_score", Outcome: "support", Weight: round(score), Detail: fmt.Sprintf("%s search score %d/100", strings.ToUpper(c.Identity.Provider), c.ProviderScore)})
+	w, o := episodicTitleMatch(request, c.Display.Name, c.Display.Aliases, .42, .4)
 	score += w
 	c.Evidence = append(c.Evidence, Evidence{Field: "title", Outcome: o, Weight: round(w), Detail: c.Display.Name})
 	if request.Hints.Year > 0 {

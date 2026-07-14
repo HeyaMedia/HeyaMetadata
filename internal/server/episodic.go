@@ -47,9 +47,9 @@ func registerEpisodic(api huma.API, runtime *platform.Runtime) {
 			return nil, huma.Error404NotFound("TV show not found")
 		}
 		if !fresh && client != nil {
-			var value string
-			if runtime.DB.QueryRow(ctx, `SELECT normalized_value FROM external_id_claims WHERE entity_id=$1 AND provider='tvmaze' AND namespace='show' AND state='accepted'`, input.ID).Scan(&value) == nil {
-				_, _ = jobs.InsertTVShow(ctx, runtime, client, jobs.TVShowIngestArgs{TVMazeID: value, Reason: "stale_read"}, jobs.PriorityStaleRead)
+			provider, value, rootErr := preferredEpisodicRoot(ctx, runtime, input.ID, "tv_show")
+			if rootErr == nil {
+				_, _ = jobs.InsertTVShow(ctx, runtime, client, jobs.TVShowIngestArgs{Provider: provider, ProviderID: value, Reason: "stale_read"}, jobs.PriorityStaleRead)
 			}
 			document.Freshness.State = "stale"
 		}
@@ -64,9 +64,9 @@ func registerEpisodic(api huma.API, runtime *platform.Runtime) {
 			return nil, huma.Error404NotFound("Anime not found")
 		}
 		if !fresh && client != nil {
-			var value string
-			if runtime.DB.QueryRow(ctx, `SELECT normalized_value FROM external_id_claims WHERE entity_id=$1 AND provider='anidb' AND namespace='anime' AND state='accepted'`, input.ID).Scan(&value) == nil {
-				_, _ = jobs.InsertAnime(ctx, runtime, client, jobs.AnimeIngestArgs{AniDBID: value, Reason: "stale_read"}, jobs.PriorityStaleRead)
+			provider, value, rootErr := preferredEpisodicRoot(ctx, runtime, input.ID, "anime")
+			if rootErr == nil {
+				_, _ = jobs.InsertAnime(ctx, runtime, client, jobs.AnimeIngestArgs{Provider: provider, ProviderID: value, Reason: "stale_read"}, jobs.PriorityStaleRead)
 			}
 			document.Freshness.State = "stale"
 		}
@@ -98,4 +98,20 @@ func registerEpisodic(api huma.API, runtime *platform.Runtime) {
 		}
 		return &episodeResourceOutput{Body: resource}, nil
 	})
+}
+
+func preferredEpisodicRoot(ctx context.Context, runtime *platform.Runtime, entityID, kind string) (string, string, error) {
+	var provider, value string
+	err := runtime.DB.QueryRow(ctx, `
+		SELECT provider, normalized_value
+		FROM external_id_claims
+		WHERE entity_id=$1 AND entity_kind=$2 AND state='accepted'
+		  AND (
+			(provider='tmdb' AND namespace='tv') OR
+			($2='tv_show' AND provider='tvmaze' AND namespace='show') OR
+			($2='anime' AND provider IN ('tvmaze','anidb') AND namespace=CASE provider WHEN 'tvmaze' THEN 'show' ELSE 'anime' END)
+		  )
+		ORDER BY CASE provider WHEN 'tmdb' THEN 1 WHEN 'tvmaze' THEN 2 WHEN 'anidb' THEN 3 ELSE 4 END
+		LIMIT 1`, entityID, kind).Scan(&provider, &value)
+	return provider, value, err
 }
