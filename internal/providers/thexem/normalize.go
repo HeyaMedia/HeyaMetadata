@@ -12,7 +12,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 )
 
-const NormalizerVersion = "thexem-episode-mapping/v1"
+const NormalizerVersion = "thexem-episode-mapping/v2"
 
 type Address struct {
 	Season   int     `json:"season"`
@@ -144,9 +144,16 @@ func NormalizeAnime(payloads []providers.Payload, tvdbID string) (episodic.Norma
 				Scheme: scheme, Season: address.Season, Number: address.Episode, Provider: "thexem",
 			})
 		}
-		if canonical.Absolute > 0 {
+		// The canonical AniDB/scene address can restart its absolute number for
+		// each cour. TVDB's absolute number is series-wide and therefore the safe
+		// cross-provider identity bridge when it is available.
+		absolute := canonical.Absolute
+		if tvdbAddress.Absolute > 0 {
+			absolute = tvdbAddress.Absolute
+		}
+		if absolute > 0 {
 			episode.Numbers = append(episode.Numbers, episodic.EpisodeNumber{
-				Scheme: "absolute", Number: canonical.Absolute, Provider: "thexem",
+				Scheme: "absolute", Number: absolute, Provider: "thexem",
 			})
 		}
 		record.Episodes = append(record.Episodes, episode)

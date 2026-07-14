@@ -78,6 +78,12 @@ Season 2 as three canonical season resources. Episode 12 retains TMDB/TVDB
 `1x12` evidence while its canonical `aired` address is `2x1`. Clients use only
 the Heya season and episode UUIDs and need no knowledge of that reconciliation.
 
+Matching uses the strongest shared numbering evidence first. A provider-native
+TVDB address such as Frieren `2x1` wins over an AniDB/scene absolute number that
+restarts at `1` for the second cour. The canonical episode keeps all localized
+titles and numbering assertions on one Heya UUID; presentation selects one
+title according to the requested locale.
+
 ## Canonical guarantees
 
 The combined document retains alternate and localized titles, lifecycle,

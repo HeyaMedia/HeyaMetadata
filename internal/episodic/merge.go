@@ -1,6 +1,10 @@
 package episodic
 
-import "strings"
+import (
+	"strings"
+	"time"
+	"unicode"
+)
 
 func Merge(records []NormalizedRecord) NormalizedRecord {
 	if len(records) == 0 {
@@ -108,10 +112,7 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 		matchedEpisodes := map[int]bool{}
 		for _, episode := range record.Episodes {
 			normalizeEpisode(&episode)
-			index := episodeIndex(out.Episodes[:existingEpisodeCount], episode)
-			if index >= 0 && matchedEpisodes[index] {
-				index = -1
-			}
+			index := episodeIndex(out.Episodes[:existingEpisodeCount], episode, matchedEpisodes)
 			if index < 0 {
 				out.Episodes = append(out.Episodes, episode)
 				continue
@@ -257,8 +258,11 @@ func unionStrings(values, add []string) []string {
 	}
 	return values
 }
-func episodeIndex(values []Episode, incoming Episode) int {
+func episodeIndex(values []Episode, incoming Episode, excluded map[int]bool) int {
 	for i, existing := range values {
+		if excluded[i] {
+			continue
+		}
 		for _, left := range existing.ExternalIDs {
 			for _, right := range incoming.ExternalIDs {
 				if left.Provider == right.Provider && left.Namespace == right.Namespace && strings.EqualFold(left.Value, right.Value) {
@@ -270,16 +274,30 @@ func episodeIndex(values []Episode, incoming Episode) int {
 	// Within one numbering authority, only an exact number identifies an
 	// episode. This prevents two specials released on one day (or sharing a
 	// generic title) from collapsing into each other.
+	bestIndex, bestPriority := -1, 100
 	for i, existing := range values {
+		if excluded[i] {
+			continue
+		}
 		for _, a := range existing.Numbers {
 			for _, b := range incoming.Numbers {
-				if episodeNumbersMatch(existing, incoming, a, b) {
-					return i
+				if !episodeNumbersMatch(existing, incoming, a, b) {
+					continue
+				}
+				priority := episodeNumberMatchPriority(a, b)
+				if priority < bestPriority {
+					bestIndex, bestPriority = i, priority
 				}
 			}
 		}
 	}
+	if bestIndex >= 0 {
+		return bestIndex
+	}
 	for i, existing := range values {
+		if excluded[i] {
+			continue
+		}
 		if sharesNumberingAuthority(existing.Numbers, incoming.Numbers) {
 			continue
 		}
@@ -296,8 +314,17 @@ func episodeIndex(values []Episode, incoming Episode) int {
 	// pre-existing episode has that date; same-day double episodes and
 	// specials remain separate.
 	if incoming.AirDate != "" {
+		if incoming.IsSpecial || incoming.EpisodeType != "regular" {
+			return -1
+		}
 		candidate := -1
 		for i, existing := range values {
+			if excluded[i] {
+				continue
+			}
+			if existing.IsSpecial || existing.EpisodeType != "regular" {
+				continue
+			}
 			if existing.AirDate != incoming.AirDate || sharesNumberingAuthority(existing.Numbers, incoming.Numbers) {
 				continue
 			}
@@ -313,6 +340,26 @@ func episodeIndex(values []Episode, incoming Episode) int {
 	return -1
 }
 
+// Provider-native numbering is stronger identity evidence than an absolute
+// number. This distinction matters for split anime seasons: AniDB/scene
+// absolute values can restart at one for every cour while TVDB still carries
+// the unambiguous series-wide season and episode address.
+func episodeNumberMatchPriority(left, right EpisodeNumber) int {
+	if left.Provider != "" && left.Provider == right.Provider {
+		return 0
+	}
+	if providerNumberingScheme(left.Scheme) {
+		return 0
+	}
+	if left.Scheme == "absolute" {
+		return 1
+	}
+	if left.Scheme == "aired" {
+		return 2
+	}
+	return 3
+}
+
 func normalizeEpisode(episode *Episode) {
 	for i := range episode.Numbers {
 		episode.Numbers[i].Scheme = strings.ToLower(strings.TrimSpace(episode.Numbers[i].Scheme))
@@ -325,7 +372,11 @@ func normalizeEpisode(episode *Episode) {
 		if number.Scheme == "special" || number.Scheme == "credit" || number.Scheme == "trailer" || number.Scheme == "parody" || (number.Scheme == "aired" && number.Season == 0) {
 			episode.IsSpecial = true
 			if episode.EpisodeType == "regular" {
-				episode.EpisodeType = number.Scheme
+				if number.Scheme == "aired" {
+					episode.EpisodeType = "special"
+				} else {
+					episode.EpisodeType = number.Scheme
+				}
 			}
 		}
 	}
@@ -529,6 +580,9 @@ func episodeNumbersMatch(existing, incoming Episode, left, right EpisodeNumber) 
 	if left.Scheme != right.Scheme || left.Season != right.Season || left.Number != right.Number {
 		return false
 	}
+	if existing.IsSpecial != incoming.IsSpecial {
+		return false
+	}
 	if left.Scheme == "absolute" {
 		return true
 	}
@@ -541,7 +595,7 @@ func episodeNumbersMatch(existing, incoming Episode, left, right EpisodeNumber) 
 	if left.Scheme != "aired" {
 		return false
 	}
-	return sameEpisodeDate(existing, incoming) || episodesShareTitle(existing, incoming)
+	return sameEpisodeDate(existing, incoming) || regularEpisodeDatesWithinOneDay(existing, incoming) || episodesShareTitle(existing, incoming)
 }
 
 func providerNumberingScheme(scheme string) bool {
@@ -557,6 +611,26 @@ func sameEpisodeDate(left, right Episode) bool {
 	return left.AirDate != "" && left.AirDate == right.AirDate
 }
 
+// Japanese broadcast dates and western catalog dates commonly straddle
+// midnight in different time zones. Exact aired S/E numbering plus a one-day
+// drift is strong enough to join regular episodes, but deliberately does not
+// apply to specials whose numbering is less consistent across providers.
+func regularEpisodeDatesWithinOneDay(left, right Episode) bool {
+	if left.IsSpecial || right.IsSpecial || left.EpisodeType != "regular" || right.EpisodeType != "regular" {
+		return false
+	}
+	leftDate, leftErr := time.Parse(time.DateOnly, left.AirDate)
+	rightDate, rightErr := time.Parse(time.DateOnly, right.AirDate)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	difference := leftDate.Sub(rightDate)
+	if difference < 0 {
+		difference = -difference
+	}
+	return difference <= 24*time.Hour
+}
+
 func episodesShareTitle(left, right Episode) bool {
 	for _, a := range left.Titles {
 		for _, b := range right.Titles {
@@ -568,7 +642,20 @@ func episodesShareTitle(left, right Episode) bool {
 	return false
 }
 func normalizedEpisodeTitle(value string) string {
-	return strings.ToLower(strings.Join(strings.Fields(value), " "))
+	var normalized strings.Builder
+	space := false
+	for _, value := range strings.ToLower(value) {
+		if unicode.IsLetter(value) || unicode.IsNumber(value) {
+			if space && normalized.Len() > 0 {
+				normalized.WriteByte(' ')
+			}
+			normalized.WriteRune(value)
+			space = false
+			continue
+		}
+		space = true
+	}
+	return normalized.String()
 }
 func hasNumber(values []EpisodeNumber, value EpisodeNumber) bool {
 	for _, existing := range values {

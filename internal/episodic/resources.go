@@ -101,29 +101,56 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 			}
 		}
 	}
+	// Reserve rows whose stable identity keys still appear in this projection
+	// before consulting looser external-ID history. This lets a refresh split a
+	// previously merged episode without whichever half sorts first stealing the
+	// legacy UUID from the half it originally represented.
+	existingEpisodeIDsByIdentity := make(map[string]string, len(record.Episodes))
+	reservedEpisodeIdentities := make(map[string]string, len(record.Episodes))
+	for i := range record.Episodes {
+		normalizeEpisode(&record.Episodes[i])
+		identityKey := episodeIdentityKey(record.Episodes[i])
+		var id string
+		err := tx.QueryRow(ctx, `SELECT id::text FROM episodic_episodes WHERE show_entity_id=$1 AND identity_key=$2`, showID, identityKey).Scan(&id)
+		if err != nil && err != pgx.ErrNoRows {
+			return fmt.Errorf("find episode identity %q: %w", identityKey, err)
+		}
+		if id != "" {
+			existingEpisodeIDsByIdentity[identityKey] = id
+			reservedEpisodeIdentities[id] = identityKey
+		}
+	}
+	allocatedEpisodeIDs := make(map[string]struct{}, len(record.Episodes))
 	for i := range record.Episodes {
 		episode := &record.Episodes[i]
-		normalizeEpisode(episode)
 		var seasonID any
 		if id := seasonIDs[episodeSeasonNumber(*episode)]; id != "" {
 			seasonID = id
 		}
-		var id string
+		identityKey := episodeIdentityKey(*episode)
+		id := existingEpisodeIDsByIdentity[identityKey]
+		if _, allocated := allocatedEpisodeIDs[id]; allocated {
+			id = ""
+		}
 		for _, external := range episode.ExternalIDs {
-			err := tx.QueryRow(ctx, `SELECT episode_id::text FROM episodic_episode_external_ids WHERE show_entity_id=$1 AND provider=$2 AND namespace=$3 AND normalized_value=$4`, showID, strings.ToLower(external.Provider), strings.ToLower(external.Namespace), strings.ToLower(strings.TrimSpace(external.Value))).Scan(&id)
-			if err != nil && err != pgx.ErrNoRows {
-				return err
-			}
 			if id != "" {
 				break
 			}
-		}
-		identityKey := episodeIdentityKey(*episode)
-		if id == "" {
-			err := tx.QueryRow(ctx, `SELECT id::text FROM episodic_episodes WHERE show_entity_id=$1 AND identity_key=$2`, showID, identityKey).Scan(&id)
+			var candidateID string
+			err := tx.QueryRow(ctx, `SELECT episode_id::text FROM episodic_episode_external_ids WHERE show_entity_id=$1 AND provider=$2 AND namespace=$3 AND normalized_value=$4`, showID, strings.ToLower(external.Provider), strings.ToLower(external.Namespace), strings.ToLower(strings.TrimSpace(external.Value))).Scan(&candidateID)
 			if err != nil && err != pgx.ErrNoRows {
 				return err
 			}
+			if candidateID == "" {
+				continue
+			}
+			if _, allocated := allocatedEpisodeIDs[candidateID]; allocated {
+				continue
+			}
+			if reservedIdentity, reserved := reservedEpisodeIdentities[candidateID]; reserved && reservedIdentity != identityKey {
+				continue
+			}
+			id = candidateID
 		}
 		if id == "" {
 			if err := tx.QueryRow(ctx, `INSERT INTO episodic_episodes(show_entity_id,show_kind,season_id,identity_key,document)VALUES($1,$2,$3,$4,'{}')RETURNING id`, showID, kind, seasonID, identityKey).Scan(&id); err != nil {
@@ -133,6 +160,7 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 			return err
 		}
 		episode.ID = id
+		allocatedEpisodeIDs[id] = struct{}{}
 		if value, ok := seasonID.(string); ok {
 			episode.SeasonID = value
 		}

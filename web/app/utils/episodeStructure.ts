@@ -62,3 +62,26 @@ export function canonicalEpisodeNumber(episode: EpisodeStructure, season?: numbe
     ?? numbers[0]
     ?? null
 }
+
+/**
+ * Provider numbering is useful evidence, but every provider also contributes
+ * an `aired` alias and reconciled sources can repeat an identical scheme.
+ * Keep those details in the canonical document while presenting one compact
+ * row per meaningful numbering scheme in the UI.
+ */
+export function displayEpisodeNumbers(numbers: EpisodeNumbering[] | null | undefined): EpisodeNumbering[] {
+  if (!Array.isArray(numbers)) return []
+  const seen = new Set<string>()
+  const result: EpisodeNumbering[] = []
+  for (const item of numbers) {
+    const scheme = String(item?.scheme ?? '').trim().toLowerCase()
+    const number = finiteNumber(item?.number)
+    if (!scheme || scheme === 'aired' || number == null) continue
+    const season = finiteNumber(item?.season)
+    const key = `${scheme}:${season ?? ''}:${number}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push({ ...item, scheme, number, ...(season == null ? {} : { season }) })
+  }
+  return result
+}

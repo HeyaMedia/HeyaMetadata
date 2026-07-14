@@ -6,12 +6,14 @@
 const route = useRoute()
 const api = useHeyaApi()
 const id = computed(() => route.params.id as string)
+const { languages, signature } = useLocale()
+const localeSignature = computed(signature)
 
-const { data, pending, error } = await useAsyncData('episode', () => api.episode(id.value), { watch: [id] })
+const { data, pending, error } = await useAsyncData('episode', () => api.episode(id.value), { watch: [id, localeSignature] })
 
 const ep = computed<any>(() => data.value?.data ?? {})
 const show = computed(() => data.value?.show)
-const title = computed(() => preferredText(ep.value.titles) || formatValue(ep.value.name) || 'Episode')
+const title = computed(() => preferredText(ep.value.titles, languages()) || formatValue(ep.value.name) || 'Episode')
 
 // Resolve the canonical season resource once for display numbering. Provider
 // `aired` schemes can disagree (or flatten cours), while season_id is Heya's
@@ -28,13 +30,13 @@ const canonicalSeason = computed<number | null>(() => {
 })
 
 const numbers = computed<any[]>(() => (Array.isArray(ep.value.numbers) ? ep.value.numbers : []))
+const displayedNumbers = computed(() => displayEpisodeNumbers(numbers.value))
 const aired = computed(() => canonicalEpisodeNumber(ep.value, canonicalSeason.value) ?? {})
 const absolute = computed(() => numbers.value.find(n => n?.scheme === 'absolute')?.number)
 
 const synopsis = computed(() => {
-  if (formatValue(ep.value.summary)) return formatValue(ep.value.summary)
   const items: any[] = Array.isArray(ep.value.overviews) ? ep.value.overviews : []
-  return formatValue((items.find(o => o.language === 'en') ?? items[0])?.value)
+  return preferredText(items, languages()) || formatValue(ep.value.summary)
 })
 const stillId = computed(() => {
   const images: any[] = Array.isArray(ep.value.images) ? ep.value.images : []
@@ -128,10 +130,11 @@ useSchemaOrg(computed(() => {
             <FactList :facts="facts" />
           </OverviewPanel>
           <RatingsPanel :ratings="ep.ratings" />
-          <OverviewPanel v-if="numbers.length" title="Numbering" kicker="Across providers" full>
+          <OverviewPanel v-if="displayedNumbers.length" title="Numbering" kicker="Across providers" full>
             <div class="chip-row">
-              <span v-for="(scheme, si) in numbers" :key="si" class="chip">
-                {{ formatKey(scheme.scheme || 'num') }} · <template v-if="scheme.season != null">S{{ scheme.season }}·</template>E{{ scheme.number ?? '?' }}
+              <span v-for="(scheme, si) in displayedNumbers" :key="si" class="chip">
+                <template v-if="scheme.scheme === 'absolute'">Absolute #{{ scheme.number }}</template>
+                <template v-else>{{ formatKey(scheme.scheme || 'num') }} · <template v-if="scheme.season != null">S{{ scheme.season }}·</template>E{{ scheme.number ?? '?' }}</template>
               </span>
             </div>
           </OverviewPanel>

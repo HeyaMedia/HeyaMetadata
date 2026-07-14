@@ -22,8 +22,8 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvmaze"
 )
 
-var tmdbDefinition = episodic.Definition{Kind: "tv_show", Provider: "tmdb", Namespace: "tv", NormalizerVersion: tmdbTVNormalizerVersion, MergeVersion: "tv-show-combiner/v7"}
-var tvmazeDefinition = episodic.Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-tv-show/v3", MergeVersion: "tv-show-combiner/v7"}
+var tmdbDefinition = episodic.Definition{Kind: "tv_show", Provider: "tmdb", Namespace: "tv", NormalizerVersion: tmdbTVNormalizerVersion, MergeVersion: "tv-show-combiner/v8"}
+var tvmazeDefinition = episodic.Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-tv-show/v3", MergeVersion: "tv-show-combiner/v8"}
 var htmlTags = regexp.MustCompile(`<[^>]+>`)
 
 type Service struct{ runtime *platform.Runtime }

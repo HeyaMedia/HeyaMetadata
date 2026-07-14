@@ -5,8 +5,9 @@
 const props = defineProps<{ seasons?: any[]; episodes?: any[] }>()
 
 const route = useRoute()
+const { languages } = useLocale()
 
-interface Episode { id?: string; season: number | null; number: number | null; title: string; air: string; runtime: string; summary: string; schemes: any[] }
+interface Episode { id?: string; season: number | null; number: number | null; title: string; air: string; runtime: string; summary: string; schemes: any[]; type: string; isSpecial: boolean }
 
 const allEpisodes = computed<Episode[]>(() =>
   (props.episodes ?? []).map(ep => {
@@ -16,11 +17,13 @@ const allEpisodes = computed<Episode[]>(() =>
       id: ep.id,
       season,
       number: primary.number ?? null,
-      title: preferredText(ep.titles) || (primary.number != null ? `Episode ${primary.number}` : 'Episode'),
+      title: preferredText(ep.titles, languages()) || (primary.number != null ? `Episode ${primary.number}` : 'Episode'),
       air: formatValue(ep.air_date),
       runtime: formatRuntime(ep.runtime_minutes),
-      summary: formatValue(ep.summary),
-      schemes: Array.isArray(ep.numbers) ? ep.numbers : [],
+      summary: preferredText(ep.overviews, languages()) || formatValue(ep.summary),
+      schemes: displayEpisodeNumbers(ep.numbers),
+      type: String(ep.episode_type || (ep.is_special ? 'special' : 'regular')).toLowerCase(),
+      isSpecial: Boolean(ep.is_special),
     }
   }),
 )
@@ -31,7 +34,7 @@ const seasonList = computed<{ number: number; name: string; count: number; id?: 
   for (const ep of allEpisodes.value) if (ep.season != null) numbers.add(ep.season)
   return [...numbers].filter(n => Number.isFinite(n)).sort((a, b) => a - b).map(number => ({
     number,
-    name: declared.find(s => s.number === number)?.name || `Season ${number}`,
+    name: number === 0 ? 'Specials & extras' : `Season ${number}`,
     id: declared.find(s => s.number === number)?.id,
     count: allEpisodes.value.filter(ep => ep.season === number).length,
   }))
@@ -48,13 +51,43 @@ const activeSeason = computed(() => {
 // The active season's standalone page id, for a one-click jump to /seasons/{id}.
 const activeSeasonMeta = computed(() => seasonList.value.find(s => s.number === activeSeason.value))
 
+const extraTypes = computed(() => {
+  const episodes = allEpisodes.value.filter(ep => ep.season === 0)
+  const order = ['special', 'trailer', 'credit', 'parody']
+  const values = [...new Set(episodes.map(ep => ep.type || 'special'))]
+    .sort((a, b) => {
+      const left = order.indexOf(a)
+      const right = order.indexOf(b)
+      return (left < 0 ? 100 : left) - (right < 0 ? 100 : right) || a.localeCompare(b)
+    })
+  const labels: Record<string, string> = { special: 'Specials', trailer: 'Trailers', credit: 'Credits', parody: 'Parodies' }
+  return values.map(value => ({ value, label: labels[value] || titleCase(value), count: episodes.filter(ep => ep.type === value).length }))
+})
+
+const activeExtraType = computed(() => {
+  const requested = String(route.query.episode_type || '').toLowerCase()
+  if (extraTypes.value.some(item => item.value === requested)) return requested
+  if (extraTypes.value.some(item => item.value === 'special')) return 'special'
+  return extraTypes.value[0]?.value ?? ''
+})
+
 const shownEpisodes = computed(() => {
-  const list = hasSeasons.value ? allEpisodes.value.filter(ep => ep.season === activeSeason.value) : allEpisodes.value
+  let list = hasSeasons.value ? allEpisodes.value.filter(ep => ep.season === activeSeason.value) : allEpisodes.value
+  if (activeSeason.value === 0 && activeExtraType.value) list = list.filter(ep => ep.type === activeExtraType.value)
   return [...list].sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
 })
 
+const regularEpisodeCount = computed(() => allEpisodes.value.filter(ep => ep.season !== 0 && !ep.isSpecial).length)
+const extrasCount = computed(() => allEpisodes.value.filter(ep => ep.season === 0 || ep.isSpecial).length)
+
 function selectSeason(number: number) {
-  navigateTo({ path: route.path, query: { ...route.query, season: String(number) } })
+  const query = { ...route.query, season: String(number) }
+  delete query.episode_type
+  navigateTo({ path: route.path, query })
+}
+
+function selectExtraType(type: string) {
+  navigateTo({ path: route.path, query: { ...route.query, season: '0', episode_type: type } })
 }
 
 const openKey = ref<string | null>(null)
@@ -65,7 +98,9 @@ function toggle(key: string) { openKey.value = openKey.value === key ? null : ke
   <section v-if="allEpisodes.length" class="seasons">
     <header class="section-head">
       <div><span class="section-label">Structure</span><h2>Episodes</h2></div>
-      <span class="seasons__count">{{ allEpisodes.length }} total</span>
+      <span class="seasons__count">
+        {{ regularEpisodeCount }} episodes<template v-if="extrasCount"> · {{ extrasCount }} extras</template>
+      </span>
     </header>
 
     <div v-if="hasSeasons" class="seasons__nav">
@@ -83,9 +118,28 @@ function toggle(key: string) { openKey.value = openKey.value === key ? null : ke
           {{ season.name }}<small>{{ season.count }}</small>
         </button>
       </div>
-      <NuxtLink v-if="activeSeasonMeta?.id" :to="`/seasons/${activeSeasonMeta.id}`" class="btn--link seasons__open">
+      <NuxtLink
+        v-if="activeSeasonMeta?.id"
+        :to="activeSeason === 0 && activeExtraType ? `/seasons/${activeSeasonMeta.id}?episode_type=${activeExtraType}` : `/seasons/${activeSeasonMeta.id}`"
+        class="btn--link seasons__open"
+      >
         View full season ↗
       </NuxtLink>
+    </div>
+
+    <div v-if="activeSeason === 0 && extraTypes.length > 1" class="seasons__types" role="tablist" aria-label="Extra type">
+      <button
+        v-for="type in extraTypes"
+        :key="type.value"
+        type="button"
+        role="tab"
+        :aria-selected="type.value === activeExtraType"
+        class="type-pill"
+        :class="{ 'is-active': type.value === activeExtraType }"
+        @click="selectExtraType(type.value)"
+      >
+        {{ type.label }}<small>{{ type.count }}</small>
+      </button>
     </div>
 
     <ul class="episode-list">
@@ -104,7 +158,8 @@ function toggle(key: string) { openKey.value = openKey.value === key ? null : ke
           <p v-else class="muted episode__summary">No synopsis available for this episode.</p>
           <div v-if="ep.schemes.length" class="episode__schemes">
             <span v-for="(scheme, si) in ep.schemes" :key="si" class="chip">
-              {{ formatKey(scheme.scheme || 'num') }} S{{ scheme.season ?? '?' }}·E{{ scheme.number ?? '?' }}
+              <template v-if="scheme.scheme === 'absolute'">Absolute #{{ scheme.number }}</template>
+              <template v-else>{{ formatKey(scheme.scheme || 'num') }} <template v-if="scheme.season != null">S{{ scheme.season }}·</template>E{{ scheme.number ?? '?' }}</template>
             </span>
           </div>
           <NuxtLink v-if="ep.id" :to="`/episodes/${ep.id}`" class="btn--link episode__open">Open episode page ↗</NuxtLink>
@@ -153,6 +208,23 @@ function toggle(key: string) { openKey.value = openKey.value === key ? null : ke
 .season-pill.is-active { border-color: var(--gold); color: var(--gold); }
 .season-pill small { color: var(--muted-2); font-family: var(--font-mono); font-size: 0.62rem; }
 .season-pill.is-active small { color: var(--gold); }
+.seasons__types { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: -0.45rem 0 1.1rem; }
+.type-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 2rem;
+  background: transparent;
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+}
+.type-pill:hover, .type-pill.is-active { border-color: var(--line-strong); color: var(--text); }
+.type-pill.is-active { background: var(--panel); }
+.type-pill small { color: var(--gold); font-size: 0.58rem; }
 
 .episode-list { margin: 0; padding: 0; list-style: none; }
 .episode { border-top: 1px solid var(--line-soft); }

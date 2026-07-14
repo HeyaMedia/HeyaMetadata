@@ -104,9 +104,30 @@ export interface LocalizedText {
   primary?: boolean
 }
 
-/** Pick a display title from an array of localized {value,language,type}. */
-export function preferredText(items: LocalizedText[] | null | undefined): string {
+function comparableLanguage(value: string | null | undefined): string {
+  const normalized = String(value ?? '').trim().toLowerCase().replace('_', '-')
+  const base = normalized.split('-')[0]
+  const aliases: Record<string, string> = {
+    eng: 'en', jpn: 'ja', ger: 'de', deu: 'de', fre: 'fr', fra: 'fr',
+    spa: 'es', ita: 'it', por: 'pt', kor: 'ko', chi: 'zh', zho: 'zh',
+  }
+  return aliases[base] ?? base
+}
+
+/** Pick a display title, honoring the page's requested language when supplied. */
+export function preferredText(items: LocalizedText[] | null | undefined, languages: string[] = []): string {
   if (!Array.isArray(items) || !items.length) return ''
+  const requested = languages.map(comparableLanguage).filter(Boolean)
+  if (requested[0]) {
+    const localized = items.find(item => comparableLanguage(item?.language) === requested[0] && formatValue(item?.value))
+    if (localized) return formatValue(localized.value)
+  }
+  const untagged = items.find(item => !comparableLanguage(item?.language) && formatValue(item?.value))
+  if (untagged) return formatValue(untagged.value)
+  for (const language of requested.slice(1)) {
+    const localized = items.find(item => comparableLanguage(item?.language) === language && formatValue(item?.value))
+    if (localized) return formatValue(localized.value)
+  }
   const primary = items.find(item => item?.primary || item?.type === 'display' || item?.type === 'main')
   return formatValue((primary ?? items[0])?.value)
 }

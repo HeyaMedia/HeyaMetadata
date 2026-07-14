@@ -27,7 +27,7 @@ func TestCacheControlFor(t *testing.T) {
 		{path: "/api/v2/stats", want: "public, max-age=300, stale-while-revalidate=3600"},
 		{path: "/api/v2/collections", want: "public, max-age=300, stale-while-revalidate=3600"},
 		{path: "/api/v2/search", want: "public, max-age=3600, stale-while-revalidate=86400"},
-		{path: "/api/v2/entities/abc", want: "public, max-age=86400, stale-while-revalidate=604800"},
+		{path: "/api/v2/entities/abc", want: "public, max-age=0, s-maxage=300, stale-while-revalidate=3600"},
 		{path: "/api/openapi.json", want: "public, max-age=300, stale-while-revalidate=3600"},
 		{path: "/schemas/Entity.json", want: "public, max-age=300, stale-while-revalidate=3600"},
 	}

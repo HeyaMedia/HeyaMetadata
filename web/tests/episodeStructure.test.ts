@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canonicalEpisodeNumber, canonicalEpisodeSeason } from '../app/utils/episodeStructure'
+import { canonicalEpisodeNumber, canonicalEpisodeSeason, displayEpisodeNumbers } from '../app/utils/episodeStructure'
 
 const seasons = [
   { id: 'season-one', number: 1, episode_ids: ['episode-one'] },
@@ -30,5 +30,23 @@ describe('canonical episodic structure', () => {
 
   it('keeps explicitly typed specials in season zero', () => {
     expect(canonicalEpisodeSeason({ is_special: true, numbers: [{ scheme: 'special', number: 1 }] }, seasons)).toBe(0)
+  })
+})
+
+describe('display episode numbering', () => {
+  it('omits aired aliases and deduplicates reconciled provider schemes', () => {
+    expect(displayEpisodeNumbers([
+      { provider: 'tmdb', scheme: 'aired', season: 1, number: 35 },
+      { provider: 'tmdb', scheme: 'tmdb', season: 1, number: 35 },
+      { provider: 'tvdb', scheme: 'aired', season: 2, number: 7 },
+      { provider: 'tvdb', scheme: 'tvdb', season: 2, number: 7 },
+      { provider: 'thexem', scheme: 'tvdb', season: 2, number: 7 },
+      { provider: 'tvdb', scheme: 'absolute', number: 35 },
+      { provider: 'thexem', scheme: 'absolute', number: 35 },
+    ])).toEqual([
+      { provider: 'tmdb', scheme: 'tmdb', season: 1, number: 35 },
+      { provider: 'tvdb', scheme: 'tvdb', season: 2, number: 7 },
+      { provider: 'tvdb', scheme: 'absolute', number: 35 },
+    ])
   })
 })

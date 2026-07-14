@@ -4,13 +4,25 @@
 const route = useRoute()
 const api = useHeyaApi()
 const id = computed(() => route.params.id as string)
+const { languages, signature } = useLocale()
+const localeSignature = computed(signature)
 
-const { data, pending, error } = await useAsyncData('season', () => api.season(id.value), { watch: [id] })
+const { data, pending, error } = await useAsyncData('season', () => api.season(id.value), { watch: [id, localeSignature] })
 
 const season = computed<any>(() => data.value?.data ?? {})
 const show = computed(() => data.value?.show)
-const name = computed(() => formatValue(season.value.name) || (season.value.number != null ? `Season ${season.value.number}` : 'Season'))
-const episodes = computed<any[]>(() => (Array.isArray(data.value?.episodes) ? data.value!.episodes! : []))
+const name = computed(() => Number(season.value.number) === 0 ? 'Specials & extras' : (season.value.number != null ? `Season ${season.value.number}` : 'Season'))
+const allEpisodes = computed<any[]>(() => (Array.isArray(data.value?.episodes) ? data.value!.episodes! : []))
+const extraTypes = computed(() => [...new Set(allEpisodes.value.map(ep => String(ep.episode_type || 'special').toLowerCase()))])
+const activeExtraType = computed(() => {
+  if (Number(season.value.number) !== 0) return ''
+  const requested = String(route.query.episode_type || '').toLowerCase()
+  if (extraTypes.value.includes(requested)) return requested
+  return extraTypes.value.includes('special') ? 'special' : (extraTypes.value[0] || '')
+})
+const episodes = computed<any[]>(() => activeExtraType.value
+  ? allEpisodes.value.filter(ep => String(ep.episode_type || 'special').toLowerCase() === activeExtraType.value)
+  : allEpisodes.value)
 
 // Prefer a season poster; fall back to any season image, then the show poster.
 const posterId = computed(() => {
@@ -19,7 +31,7 @@ const posterId = computed(() => {
 })
 const overview = computed(() => {
   const items: any[] = Array.isArray(season.value.overviews) ? season.value.overviews : []
-  return formatValue((items.find(o => o.language === 'en') ?? items[0])?.value)
+  return preferredText(items, languages())
 })
 
 // Seasons carry no entity-style provenance map, but external_ids and image
@@ -38,7 +50,11 @@ function epNumber(ep: any) {
   return canonicalEpisodeNumber(ep, Number(season.value.number))?.number
 }
 function epTitle(ep: any) {
-  return preferredText(ep.titles) || (epNumber(ep) != null ? `Episode ${epNumber(ep)}` : 'Episode')
+  return preferredText(ep.titles, languages()) || (epNumber(ep) != null ? `Episode ${epNumber(ep)}` : 'Episode')
+}
+
+function selectExtraType(type: string) {
+  navigateTo({ path: route.path, query: { ...route.query, episode_type: type } })
 }
 
 // --- SEO (reactive; the season resource loads after mount) ------------------
@@ -88,7 +104,7 @@ useSchemaOrg(computed(() => {
             <span v-if="formatDate(season.premiere_date)" class="chip">Premiered {{ formatDate(season.premiere_date) }}</span>
             <span v-if="formatDate(season.end_date)" class="chip">Ended {{ formatDate(season.end_date) }}</span>
             <span v-if="season.episode_count" class="chip">{{ season.episode_count }} episodes</span>
-            <span v-else-if="episodes.length" class="chip">{{ episodes.length }} available</span>
+            <span v-else-if="allEpisodes.length" class="chip">{{ allEpisodes.length }} available</span>
           </div>
           <p v-if="overview" class="season-hero__overview">{{ overview }}</p>
         </div>
@@ -97,6 +113,18 @@ useSchemaOrg(computed(() => {
       <DetailSections :images="(season.images as any) || []" :provenance="provenance" :raw="data">
         <section class="season-episodes">
           <header class="section-head"><div><span class="section-label">Structure</span><h2>Episodes</h2></div></header>
+          <div v-if="Number(season.number) === 0 && extraTypes.length > 1" class="extra-types" aria-label="Extra type">
+            <button
+              v-for="type in extraTypes"
+              :key="type"
+              type="button"
+              class="chip extra-type"
+              :class="{ 'is-active': type === activeExtraType }"
+              @click="selectExtraType(type)"
+            >
+              {{ titleCase(type) }}
+            </button>
+          </div>
           <ul v-if="episodes.length" class="line-list">
             <li v-for="ep in episodes" :key="ep.id">
               <span class="line-list__index">{{ epNumber(ep) != null ? String(epNumber(ep)).padStart(2, '0') : '—' }}</span>
@@ -134,6 +162,9 @@ useSchemaOrg(computed(() => {
 .section-head h2 { margin: 0.3rem 0 0; font-size: 1.2rem; font-weight: 500; }
 .season-episodes__link { color: var(--text-dim); }
 .season-episodes__link:hover { color: var(--gold); }
+.extra-types { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 1rem; }
+.extra-type { cursor: pointer; }
+.extra-type.is-active { border-color: var(--gold); color: var(--gold); }
 
 @media (max-width: 620px) {
   .season-hero { grid-template-columns: 1fr; }

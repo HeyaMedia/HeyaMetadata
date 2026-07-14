@@ -199,6 +199,69 @@ func TestIntegrationSeasonSplitDoesNotReuseOneLegacySeasonUUIDTwice(t *testing.T
 	}
 }
 
+func TestIntegrationEpisodeSplitDoesNotReuseOneLegacyEpisodeUUIDTwice(t *testing.T) {
+	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
+		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local platform stack")
+	}
+	ctx := context.Background()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := platform.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	var observationID string
+	if err := runtime.DB.QueryRow(ctx, `INSERT INTO provider_observations(provider,provider_namespace,provider_record_id,request_key,response_status,observed_at,normalizer_version,retention_class)VALUES('tmdb','integration',$1,$2,200,now(),'integration','provider_raw_48h')RETURNING id`, suffix, "integration/episode-split/"+suffix).Scan(&observationID); err != nil {
+		t.Fatal(err)
+	}
+	observedAt := time.Now().UTC()
+	showID := "show-" + suffix
+	regularID, specialID := "regular-"+suffix, "special-"+suffix
+	record := NormalizedRecord{
+		SchemaVersion: 1, Kind: "anime", Provider: "tmdb", Namespace: "tv", ProviderID: showID,
+		PrimaryObservationID: observationID, ObservedAt: observedAt, NormalizerVersion: "integration",
+		Titles:      []Title{{Value: "Episode split " + suffix, Type: "main"}},
+		ExternalIDs: []ExternalID{{Provider: "tmdb", Namespace: "tv", Value: showID}},
+		Seasons:     []Season{{Number: 1}},
+		Episodes: []Episode{{
+			ExternalIDs: []ExternalID{{Provider: "tmdb", Namespace: "episode", Value: regularID}, {Provider: "tvdb", Namespace: "episode", Value: specialID}},
+			Titles:      []Title{{Value: "Previously merged"}}, Numbers: []EpisodeNumber{{Scheme: "aired", Season: 1, Number: 8, Provider: "tmdb"}}, EpisodeType: "regular",
+		}},
+	}
+	def := Definition{Kind: "anime", Provider: "tmdb", Namespace: "tv", NormalizerVersion: "integration", MergeVersion: "integration"}
+	first, err := Persist(ctx, runtime, def, record, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cleanupIntegrationEpisodic(runtime, first.EntityID, []string{observationID}) })
+	legacyEpisodeID := first.Document.Data.Episodes[0].ID
+
+	record.Seasons = []Season{{Number: 0}, {Number: 1}}
+	record.Episodes = []Episode{
+		{ExternalIDs: []ExternalID{{Provider: "tmdb", Namespace: "episode", Value: regularID}}, Titles: []Title{{Value: "Regular episode"}}, Numbers: []EpisodeNumber{{Scheme: "aired", Season: 1, Number: 8, Provider: "tmdb"}}, EpisodeType: "regular"},
+		{ExternalIDs: []ExternalID{{Provider: "tvdb", Namespace: "episode", Value: specialID}}, Titles: []Title{{Value: "Actual special"}}, Numbers: []EpisodeNumber{{Scheme: "aired", Season: 0, Number: 1, Provider: "tvdb"}}, EpisodeType: "regular"},
+	}
+	second, err := Persist(ctx, runtime, def, record, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Document.Data.Episodes) != 2 || second.Document.Data.Episodes[0].ID == second.Document.Data.Episodes[1].ID {
+		t.Fatalf("episode UUID split failed: legacy=%s episodes=%+v", legacyEpisodeID, second.Document.Data.Episodes)
+	}
+	var claimedEpisodeIDs int
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(DISTINCT episode_id) FROM episodic_episode_external_ids WHERE show_entity_id=$1 AND ((provider='tmdb' AND normalized_value=$2) OR (provider='tvdb' AND normalized_value=$3))`, first.EntityID, regularID, specialID).Scan(&claimedEpisodeIDs); err != nil {
+		t.Fatal(err)
+	}
+	if claimedEpisodeIDs != 2 {
+		t.Fatalf("split external identities still claim %d episode UUIDs", claimedEpisodeIDs)
+	}
+}
+
 func cleanupIntegrationEpisodic(runtime *platform.Runtime, entityID string, observationIDs []string) {
 	ctx := context.Background()
 	for _, statement := range []string{

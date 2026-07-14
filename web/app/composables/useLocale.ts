@@ -10,6 +10,12 @@ const locale = reactive({
 })
 
 export function useLocale() {
+  function languages(): string[] {
+    return [locale.language, ...locale.fallbackLanguages.split(',')]
+      .map(value => value.trim())
+      .filter((value, index, values) => value && values.indexOf(value) === index)
+  }
+
   /** Locale query params for entity/image endpoints. */
   function query(): URLSearchParams {
     const params = new URLSearchParams()
@@ -21,10 +27,8 @@ export function useLocale() {
 
   /** Accept-Language header for read requests. */
   function headers(): Record<string, string> {
-    const languages = [locale.language, ...locale.fallbackLanguages.split(',')]
-      .map(value => value.trim())
-      .filter((value, index, values) => value && values.indexOf(value) === index)
-    return languages.length ? { 'Accept-Language': languages.join(', ') } : {}
+    const preferences = languages()
+    return preferences.length ? { 'Accept-Language': preferences.join(', ') } : {}
   }
 
   /** Stable string signature for cache keys / watchers. */
@@ -32,5 +36,5 @@ export function useLocale() {
     return `${locale.language}|${locale.fallbackLanguages}|${locale.country}`
   }
 
-  return { locale, query, headers, signature }
+  return { locale, query, headers, languages, signature }
 }

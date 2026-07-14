@@ -26,9 +26,9 @@ import (
 
 const tvdbAnimeNormalizerVersion = "tvdb-anime-series/v4"
 
-var tmdbAnimeDefinition = episodic.Definition{Kind: "anime", Provider: "tmdb", Namespace: "tv", NormalizerVersion: "tmdb-anime/v1", MergeVersion: "anime-combiner/v8"}
-var anidbDefinition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v3", MergeVersion: "anime-combiner/v8"}
-var tvmazeAnimeDefinition = episodic.Definition{Kind: "anime", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-anime/v1", MergeVersion: "anime-combiner/v8"}
+var tmdbAnimeDefinition = episodic.Definition{Kind: "anime", Provider: "tmdb", Namespace: "tv", NormalizerVersion: "tmdb-anime/v1", MergeVersion: "anime-combiner/v9"}
+var anidbDefinition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v3", MergeVersion: "anime-combiner/v9"}
+var tvmazeAnimeDefinition = episodic.Definition{Kind: "anime", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-anime/v1", MergeVersion: "anime-combiner/v9"}
 
 type Service struct{ runtime *platform.Runtime }
 

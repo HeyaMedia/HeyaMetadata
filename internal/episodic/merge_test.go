@@ -83,6 +83,63 @@ func TestMergeUsesExactAiredNumberAndTitleAcrossOneDayProviderDifference(t *test
 	}
 }
 
+func TestMergeUsesExactAiredNumberAcrossOneDayTimezoneDifference(t *testing.T) {
+	tmdb := NormalizedRecord{Provider: "tmdb", Episodes: []Episode{{
+		ProviderID: "4891872", AirDate: "2024-01-11", Titles: []Title{{Value: "Wait's Over, Isami!"}},
+		ExternalIDs: []ExternalID{{Provider: "tmdb", Namespace: "episode", Value: "4891872"}},
+		Numbers:     []EpisodeNumber{{Scheme: "aired", Season: 1, Number: 1, Provider: "tmdb"}, {Scheme: "tmdb", Season: 1, Number: 1, Provider: "tmdb"}},
+		EpisodeType: "regular",
+	}}}
+	tvdb := NormalizedRecord{Provider: "tvdb", Episodes: []Episode{{
+		ProviderID: "10235286", AirDate: "2024-01-12", Titles: []Title{{Value: "待たせたな、イサミ！", Language: "ja"}},
+		ExternalIDs: []ExternalID{{Provider: "tvdb", Namespace: "episode", Value: "10235286"}},
+		Numbers:     []EpisodeNumber{{Scheme: "aired", Season: 1, Number: 1, Provider: "tvdb"}, {Scheme: "tvdb", Season: 1, Number: 1, Provider: "tvdb"}},
+		EpisodeType: "regular",
+	}}}
+	merged := Merge([]NormalizedRecord{tmdb, tvdb})
+	if len(merged.Episodes) != 1 || len(merged.Episodes[0].ExternalIDs) != 2 {
+		t.Fatalf("episodes=%+v", merged.Episodes)
+	}
+}
+
+func TestMergeDoesNotUseAiredNumberAcrossLargerDateDifference(t *testing.T) {
+	tmdb := NormalizedRecord{Provider: "tmdb", Episodes: []Episode{{
+		AirDate: "2024-01-11", Titles: []Title{{Value: "Part One"}},
+		Numbers: []EpisodeNumber{{Scheme: "aired", Season: 1, Number: 1, Provider: "tmdb"}}, EpisodeType: "regular",
+	}}}
+	tvdb := NormalizedRecord{Provider: "tvdb", Episodes: []Episode{{
+		AirDate: "2024-01-13", Titles: []Title{{Value: "第一話", Language: "ja"}},
+		Numbers: []EpisodeNumber{{Scheme: "aired", Season: 1, Number: 1, Provider: "tvdb"}}, EpisodeType: "regular",
+	}}}
+	if merged := Merge([]NormalizedRecord{tmdb, tvdb}); len(merged.Episodes) != 2 {
+		t.Fatalf("episodes=%+v", merged.Episodes)
+	}
+}
+
+func TestMergeDoesNotUseUniqueAirDateAcrossRegularAndSpecial(t *testing.T) {
+	tmdb := NormalizedRecord{Provider: "tmdb", Episodes: []Episode{{
+		ProviderID: "regular-8", AirDate: "2024-02-29", Titles: []Title{{Value: "Until We Meet Again, Smith"}},
+		Numbers: []EpisodeNumber{{Scheme: "aired", Season: 1, Number: 8, Provider: "tmdb"}}, EpisodeType: "regular",
+	}}}
+	tvdb := NormalizedRecord{Provider: "tvdb", Episodes: []Episode{{
+		ProviderID: "special-1", AirDate: "2024-02-29", Titles: []Title{{Value: "Memories of Deathdrives: Cupiditas"}},
+		Numbers: []EpisodeNumber{{Scheme: "aired", Season: 0, Number: 1, Provider: "tvdb"}}, EpisodeType: "regular",
+	}}}
+	merged := Merge([]NormalizedRecord{tmdb, tvdb})
+	if len(merged.Episodes) != 2 {
+		t.Fatalf("regular and special collapsed: %+v", merged.Episodes)
+	}
+	foundSpecial := false
+	for _, episode := range merged.Episodes {
+		if episode.IsSpecial && episode.EpisodeType == "special" {
+			foundSpecial = true
+		}
+	}
+	if !foundSpecial {
+		t.Fatalf("season-zero aired episode was not normalized as a special: %+v", merged.Episodes)
+	}
+}
+
 func TestMergeKeepsDistinctSameDaySpecialsSeparateAcrossAuthorities(t *testing.T) {
 	a := NormalizedRecord{Provider: "tvmaze", Episodes: []Episode{
 		{ProviderID: "1", AirDate: "2020-01-01", Titles: []Title{{Value: "Behind the Scenes"}}, Numbers: []EpisodeNumber{{Scheme: "tvmaze", Season: 0, Number: 1}}, IsSpecial: true, EpisodeType: "special"},
@@ -141,5 +198,56 @@ func TestMergeUsesTheXEMAnimeSeasonCountsOverFlattenedProviderCounts(t *testing.
 	merged := Merge([]NormalizedRecord{tmdb, thexem})
 	if len(merged.Seasons) != 2 || merged.Seasons[0].EpisodeCount != 11 || merged.Seasons[1].EpisodeCount != 12 {
 		t.Fatalf("seasons=%+v", merged.Seasons)
+	}
+}
+
+func TestMergePrefersTheXEMTVDBAddressOverRestartedAbsoluteNumber(t *testing.T) {
+	tvdb := NormalizedRecord{Provider: "tvdb", Episodes: []Episode{
+		{
+			ProviderID:  "season-1-episode-1",
+			ExternalIDs: []ExternalID{{Provider: "tvdb", Namespace: "episode", Value: "s1e1"}},
+			Numbers: []EpisodeNumber{
+				{Scheme: "tvdb", Season: 1, Number: 1, Provider: "tvdb"},
+				{Scheme: "absolute", Number: 1, Provider: "tvdb"},
+			},
+		},
+		{
+			ProviderID:  "season-2-episode-1",
+			ExternalIDs: []ExternalID{{Provider: "tvdb", Namespace: "episode", Value: "s2e1"}},
+			Numbers: []EpisodeNumber{
+				{Scheme: "tvdb", Season: 2, Number: 1, Provider: "tvdb"},
+				{Scheme: "absolute", Number: 29, Provider: "tvdb"},
+			},
+		},
+	}}
+	thexem := NormalizedRecord{Provider: "thexem", Episodes: []Episode{
+		{
+			ProviderID:  "mapping-s1e1",
+			ExternalIDs: []ExternalID{{Provider: "thexem", Namespace: "episode_mapping", Value: "s1e1"}},
+			Numbers: []EpisodeNumber{
+				{Scheme: "aired", Season: 1, Number: 1, Provider: "thexem"},
+				{Scheme: "tvdb", Season: 1, Number: 1, Provider: "thexem"},
+				{Scheme: "absolute", Number: 1, Provider: "thexem"},
+			},
+		},
+		{
+			ProviderID:  "mapping-s2e1",
+			ExternalIDs: []ExternalID{{Provider: "thexem", Namespace: "episode_mapping", Value: "s2e1"}},
+			Numbers: []EpisodeNumber{
+				{Scheme: "aired", Season: 2, Number: 1, Provider: "thexem"},
+				{Scheme: "tvdb", Season: 2, Number: 1, Provider: "thexem"},
+				{Scheme: "absolute", Number: 1, Provider: "thexem"},
+			},
+		},
+	}}
+
+	merged := Merge([]NormalizedRecord{tvdb, thexem})
+	if len(merged.Episodes) != 2 {
+		t.Fatalf("episodes=%+v", merged.Episodes)
+	}
+	for _, episode := range merged.Episodes {
+		if len(episode.ExternalIDs) != 2 {
+			t.Fatalf("mapping was not attached to the canonical episode: %+v", episode)
+		}
 	}
 }

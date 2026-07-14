@@ -52,6 +52,25 @@ describe('formatValue — localized titles', () => {
     expect(preferredText([{ value: 'Solo' }])).toBe('Solo')
     expect(preferredText([])).toBe('')
   })
+
+  it('preferredText obeys language order and ISO language aliases', () => {
+    const episodeTitles = [
+      { value: 'The Journey\'s End', type: 'main' },
+      { value: '冒険の終わり', language: 'jpn', type: 'main' },
+      { value: 'The Journey`s End', language: 'en', type: 'main' },
+    ]
+    expect(preferredText(episodeTitles, ['en', 'ja'])).toBe('The Journey`s End')
+    expect(preferredText(episodeTitles, ['ja', 'en'])).toBe('冒険の終わり')
+  })
+
+  it('uses a neutral display title before a secondary language fallback', () => {
+    const futureEpisodeTitles = [
+      { value: 'The Divine Revolte', type: 'main' },
+      { value: '神技のレヴォルテ', language: 'jpn', type: 'main' },
+    ]
+    expect(preferredText(futureEpisodeTitles, ['en', 'ja'])).toBe('The Divine Revolte')
+    expect(preferredText(futureEpisodeTitles, ['ja', 'en'])).toBe('神技のレヴォルテ')
+  })
 })
 
 describe('formatValue — artist credits', () => {

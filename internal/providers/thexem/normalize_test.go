@@ -40,3 +40,29 @@ func TestNormalizeAnimeSplitsFlattenedTVDBSeason(t *testing.T) {
 		t.Fatalf("titles=%+v", record.Titles)
 	}
 }
+
+func TestNormalizeAnimeUsesTVDBSeriesAbsoluteNumber(t *testing.T) {
+	t.Parallel()
+	payloads := []providers.Payload{{
+		StatusCode: http.StatusOK, ObservationID: "mapping-observation", ObservedAt: time.Unix(1, 0),
+		Body: []byte(`{"result":"success","data":[
+			{"scene":{"season":2,"episode":1,"absolute":1},"anidb":{"season":2,"episode":1,"absolute":1},"tvdb":{"season":2,"episode":1,"absolute":29}}
+		]}`),
+	}}
+	record, _, err := NormalizeAnime(payloads, "424536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record.Episodes) != 1 {
+		t.Fatalf("episodes=%+v", record.Episodes)
+	}
+	for _, number := range record.Episodes[0].Numbers {
+		if number.Scheme == "absolute" {
+			if number.Number != 29 {
+				t.Fatalf("absolute=%+v", number)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing absolute numbering: %+v", record.Episodes[0].Numbers)
+}

@@ -300,6 +300,11 @@ For anime, TheXEM is the structural authority that translates a flattened
 TMDB/TVDB season into its real cour/season partition. Every upstream number is
 still retained as named provenance. For example, 86 episode TVDB `1x12` remains
 queryable as TVDB `1x12`, but TheXEM places it canonically at season `2x1`.
+Provider-native season/episode addresses outrank weaker absolute-number matches,
+and TVDB's series-wide absolute number is preferred when AniDB or scene numbering
+restarts at one for a new cour. This keeps Frieren's 38 regular episodes as 28
+in season 1 and 10 in season 2 rather than emitting localized or mapping-only
+duplicates.
 Anime Lists season-specific AniDB, MAL, and AniList IDs are moved through the
 same mapping, so they attach to the correct canonical season resource. Existing
 season and episode Heya UUIDs remain stable wherever the old resource can be

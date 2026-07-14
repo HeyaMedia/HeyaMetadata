@@ -68,7 +68,10 @@ func cacheControlFor(path string) string {
 	case strings.HasPrefix(path, "/api/openapi"), strings.HasPrefix(path, "/api/docs"), strings.HasPrefix(path, "/schemas/"):
 		return "public, max-age=300, stale-while-revalidate=3600"
 	case strings.HasPrefix(path, "/api/v2/"):
-		return "public, max-age=86400, stale-while-revalidate=604800"
+		// Canonical documents can change immediately after a provider refresh.
+		// Browsers must revalidate their ETag on navigation while a shared edge
+		// may absorb repeated traffic for a short window.
+		return "public, max-age=0, s-maxage=300, stale-while-revalidate=3600"
 	default:
 		return "no-store"
 	}
