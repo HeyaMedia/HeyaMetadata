@@ -160,6 +160,28 @@ func TestTMDBAnimeMappingKeepsCourIdentifiersOnCanonicalSeasons(t *testing.T) {
 	}
 }
 
+func TestAnimeListCoursFollowTheXEMSeasonSplit(t *testing.T) {
+	seasonOne := 1
+	root := animelists.Entry{AniDBID: 15441, MALID: 41457, AniListID: 116589, TVDBID: 378609}
+	root.Season.TVDB = &seasonOne
+	later := animelists.Entry{AniDBID: 16172, MALID: 48569, AniListID: 131586, TVDBID: 378609}
+	later.Season.TVDB = &seasonOne
+	later.EpisodeOffset.TVDB = 11
+	record, _, _ := normalizeTMDBAnimeListMapping(providers.Payload{ObservationID: "obs", ObservedAt: time.Unix(1, 0)}, "100565", []animelists.Entry{root, later})
+	remapAnimeListSeasonEvidence(&record, []animelists.Entry{root, later}, func(_ int, firstEpisode int) (int, bool) {
+		if firstEpisode == 12 {
+			return 2, true
+		}
+		return 1, true
+	})
+	if len(record.Seasons) != 2 || record.Seasons[0].Number != 1 || record.Seasons[1].Number != 2 {
+		t.Fatalf("seasons=%+v", record.Seasons)
+	}
+	if got := record.Seasons[1].ExternalIDs[0]; got.Provider != "anidb" || got.Value != "16172" {
+		t.Fatalf("season two IDs=%+v", record.Seasons[1].ExternalIDs)
+	}
+}
+
 func TestTVDBAnimeSeasonSupplementUsesSeasonIdentity(t *testing.T) {
 	payload := providers.Payload{ObservationID: "obs", ObservedAt: time.Unix(1, 0), Body: []byte(`{"data":{"id":267440,"name":"Attack on Titan","seasons":[{"id":777,"number":2,"name":"Season 2"}],"episodes":[]}}`)}
 	record, err := normalizeTVDBAnime(payload, 2, 0)

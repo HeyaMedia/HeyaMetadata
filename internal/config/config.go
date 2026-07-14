@@ -63,6 +63,7 @@ type ProvidersConfig struct {
 	LastFM      LastFMConfig
 	AniDB       AniDBConfig
 	AnimeLists  AnimeListsConfig
+	TheXEM      TheXEMConfig
 	TVMaze      TVMazeConfig
 	Wikidata    WikidataConfig
 	OpenOpus    OpenOpusConfig
@@ -120,6 +121,12 @@ type LRCLIBConfig struct {
 type AnimeListsConfig struct {
 	URL       string
 	UserAgent string
+}
+
+type TheXEMConfig struct {
+	BaseURL           string
+	RequestsPerSecond float64
+	UserAgent         string
 }
 
 type WikidataConfig struct {
@@ -254,6 +261,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	theXEMRate, err := envFloat("HEYA_METADATA_THEXEM_REQUESTS_PER_SECOND", 2)
+	if err != nil {
+		return Config{}, err
+	}
 	wikidataRate, err := envFloat("HEYA_METADATA_WIKIDATA_REQUESTS_PER_SECOND", 1)
 	if err != nil {
 		return Config{}, err
@@ -353,6 +364,9 @@ func Load() (Config, error) {
 		}, AnimeLists: AnimeListsConfig{
 			URL:       env("HEYA_METADATA_ANIME_LISTS_URL", "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-mini.json"),
 			UserAgent: env("HEYA_METADATA_ANIME_LISTS_USER_AGENT", "heya-media/1.0 anime-lists-sync"),
+		}, TheXEM: TheXEMConfig{
+			BaseURL: env("HEYA_METADATA_THEXEM_BASE_URL", "https://thexem.info"), RequestsPerSecond: theXEMRate,
+			UserAgent: env("HEYA_METADATA_THEXEM_USER_AGENT", "HeyaMetadata/dev (+https://github.com/HeyaMedia/HeyaMetadata)"),
 		}, TVMaze: TVMazeConfig{
 			BaseURL: env("HEYA_METADATA_TVMAZE_BASE_URL", "https://api.tvmaze.com"), RequestsPerSecond: tvMazeRate,
 		}, Wikidata: WikidataConfig{
@@ -526,6 +540,16 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Providers.AnimeLists.UserAgent) == "" {
 		return fmt.Errorf("HEYA_METADATA_ANIME_LISTS_USER_AGENT is required")
+	}
+	theXEMURL, err := url.Parse(c.Providers.TheXEM.BaseURL)
+	if err != nil || theXEMURL.Scheme != "https" || theXEMURL.Host == "" {
+		return fmt.Errorf("HEYA_METADATA_THEXEM_BASE_URL must be an absolute HTTPS URL")
+	}
+	if strings.TrimSpace(c.Providers.TheXEM.UserAgent) == "" {
+		return fmt.Errorf("HEYA_METADATA_THEXEM_USER_AGENT is required")
+	}
+	if c.Providers.TheXEM.RequestsPerSecond <= 0 || c.Providers.TheXEM.RequestsPerSecond > 1000 {
+		return fmt.Errorf("HEYA_METADATA_THEXEM_REQUESTS_PER_SECOND must be greater than 0 and at most 1000")
 	}
 	tvMazeURL, err := url.Parse(c.Providers.TVMaze.BaseURL)
 	if err != nil || tvMazeURL.Scheme != "https" || tvMazeURL.Host == "" {

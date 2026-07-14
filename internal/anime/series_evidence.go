@@ -3,6 +3,7 @@ package anime
 import (
 	"context"
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -68,6 +69,36 @@ func normalizeTMDBAnimeListMapping(payload providers.Payload, tmdbID string, val
 		record.Seasons[index].ExternalIDs = appendExternalIDs(record.Seasons[index].ExternalIDs, ids...)
 	}
 	return record, root, rootFound
+}
+
+// remapAnimeListSeasonEvidence moves cour-scoped identities from Anime Lists'
+// TVDB season/offset address onto the canonical season partition supplied by
+// TheXEM. This is necessary for series such as 86 EIGHTY-SIX, where TVDB and
+// TMDB flatten two AniDB seasons into one aired season.
+func remapAnimeListSeasonEvidence(record *episodic.NormalizedRecord, values []animelists.Entry, canonicalSeason func(tvdbSeason, firstEpisode int) (int, bool)) {
+	if record == nil || canonicalSeason == nil {
+		return
+	}
+	seasonIndexes := map[int]int{}
+	seasons := []episodic.Season{}
+	for _, value := range values {
+		if value.Season.TVDB == nil || *value.Season.TVDB < 1 {
+			continue
+		}
+		seasonNumber := *value.Season.TVDB
+		if mapped, ok := canonicalSeason(seasonNumber, value.EpisodeOffset.TVDB+1); ok && mapped >= 0 {
+			seasonNumber = mapped
+		}
+		index, exists := seasonIndexes[seasonNumber]
+		if !exists {
+			index = len(seasons)
+			seasonIndexes[seasonNumber] = index
+			seasons = append(seasons, episodic.Season{Number: seasonNumber})
+		}
+		seasons[index].ExternalIDs = appendExternalIDs(seasons[index].ExternalIDs, animeEntryExternalIDs(value)...)
+	}
+	sort.Slice(seasons, func(i, j int) bool { return seasons[i].Number < seasons[j].Number })
+	record.Seasons = seasons
 }
 
 func splitAnimeSeriesExternalIDs(values []episodic.ExternalID) (entityIDs, seriesIDs []episodic.ExternalID) {

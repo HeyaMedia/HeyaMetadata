@@ -287,6 +287,27 @@ promotes the existing canonical UUID instead of allocating a duplicate. This
 ordering is a private implementation detail; clients continue to submit all
 known evidence and receive only Heya identities.
 
+## TheXEM episode mapping
+
+TheXEM is a credential-free supplemental episode-numbering source. It is
+queried by the TVDB series identifier already crosswalked behind a TMDB-rooted
+show; it never becomes a public identity or a competing show root. Mapping and
+curated-name responses share the provider cache and rate gate. Successful
+responses are reusable for 24 hours, remain hot in Redis for up to one hour,
+and retain raw evidence for 48 hours.
+
+For anime, TheXEM is the structural authority that translates a flattened
+TMDB/TVDB season into its real cour/season partition. Every upstream number is
+still retained as named provenance. For example, 86 episode TVDB `1x12` remains
+queryable as TVDB `1x12`, but TheXEM places it canonically at season `2x1`.
+Anime Lists season-specific AniDB, MAL, and AniList IDs are moved through the
+same mapping, so they attach to the correct canonical season resource. Existing
+season and episode Heya UUIDs remain stable wherever the old resource can be
+matched; a newly exposed cour receives a new UUID.
+
+For conventional television, TheXEM adds alternate scene, AniDB, absolute, and
+TVDB numbering without replacing the normal aired-season structure.
+
 ## AniDB and TVMaze supplemental collection
 
 AniDB uses its official HTTP XML API on the mandated `api.anidb.net:9001`

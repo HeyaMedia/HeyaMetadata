@@ -16,13 +16,14 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/fanart"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/thexem"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tmdb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvmaze"
 )
 
-var tmdbDefinition = episodic.Definition{Kind: "tv_show", Provider: "tmdb", Namespace: "tv", NormalizerVersion: tmdbTVNormalizerVersion, MergeVersion: "tv-show-combiner/v6"}
-var tvmazeDefinition = episodic.Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-tv-show/v3", MergeVersion: "tv-show-combiner/v6"}
+var tmdbDefinition = episodic.Definition{Kind: "tv_show", Provider: "tmdb", Namespace: "tv", NormalizerVersion: tmdbTVNormalizerVersion, MergeVersion: "tv-show-combiner/v7"}
+var tvmazeDefinition = episodic.Definition{Kind: "tv_show", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-tv-show/v3", MergeVersion: "tv-show-combiner/v7"}
 var htmlTags = regexp.MustCompile(`<[^>]+>`)
 
 type Service struct{ runtime *platform.Runtime }
@@ -112,6 +113,15 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, id string, jobI
 			if supplemental, normalizeErr := fanart.NormalizeTV(values[0].Body, values[0].ObservationID, values[0].ObservedAt, "tv_show"); normalizeErr == nil {
 				records = append(records, supplemental)
 			}
+		}
+	}
+	if tvdbID := externalID(record, "tvdb", "series"); tvdbID != "" {
+		supplemental, found, collectErr := s.collectTheXEM(ctx, tvdbID, jobID)
+		if collectErr != nil {
+			return result, collectErr
+		}
+		if found {
+			records = append(records, supplemental)
 		}
 	}
 	return episodic.PersistMany(ctx, s.runtime, tmdbDefinition, records, jobID)
@@ -230,8 +240,35 @@ func (s *Service) IngestTVMazeWithCredentials(ctx context.Context, id string, jo
 			}
 		}
 	}
+	if tvdbID := externalID(record, "tvdb", "series"); tvdbID != "" {
+		supplemental, found, collectErr := s.collectTheXEM(ctx, tvdbID, jobID)
+		if collectErr != nil {
+			return result, collectErr
+		}
+		if found {
+			records = append(records, supplemental)
+		}
+	}
 	return episodic.PersistMany(ctx, s.runtime, tvmazeDefinition, records, jobID)
 }
+
+func (s *Service) collectTheXEM(ctx context.Context, tvdbID string, jobID int64) (episodic.NormalizedRecord, bool, error) {
+	base := thexem.New(s.runtime.Config.Providers.TheXEM)
+	cache, err := providercache.New(s.runtime, thexem.NormalizerVersion, base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+	if err != nil {
+		return episodic.NormalizedRecord{}, false, err
+	}
+	payloads, err := thexem.NewCached(s.runtime.Config.Providers.TheXEM, cache).Collect(ctx, providers.Identifier{Provider: "tvdb", Namespace: "series", Value: tvdbID})
+	if err != nil || len(payloads) == 0 || payloads[0].StatusCode != http.StatusOK {
+		return episodic.NormalizedRecord{}, false, nil
+	}
+	record, mapping, err := thexem.NormalizeTV(payloads, tvdbID, "tv_show")
+	if err != nil || len(mapping.Rows) == 0 {
+		return episodic.NormalizedRecord{}, false, nil
+	}
+	return record, true, nil
+}
+
 func (s *Service) Resolve(ctx context.Context, provider, namespace, value string) (string, error) {
 	return episodic.Resolve(ctx, s.runtime, "tv_show", provider, namespace, value)
 }

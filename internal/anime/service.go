@@ -17,6 +17,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/anidb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/animelists"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/fanart"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/thexem"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tmdb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvmaze"
@@ -25,9 +26,9 @@ import (
 
 const tvdbAnimeNormalizerVersion = "tvdb-anime-series/v4"
 
-var tmdbAnimeDefinition = episodic.Definition{Kind: "anime", Provider: "tmdb", Namespace: "tv", NormalizerVersion: "tmdb-anime/v1", MergeVersion: "anime-combiner/v7"}
-var anidbDefinition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v3", MergeVersion: "anime-combiner/v7"}
-var tvmazeAnimeDefinition = episodic.Definition{Kind: "anime", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-anime/v1", MergeVersion: "anime-combiner/v7"}
+var tmdbAnimeDefinition = episodic.Definition{Kind: "anime", Provider: "tmdb", Namespace: "tv", NormalizerVersion: "tmdb-anime/v1", MergeVersion: "anime-combiner/v8"}
+var anidbDefinition = episodic.Definition{Kind: "anime", Provider: "anidb", Namespace: "anime", NormalizerVersion: "anidb-anime/v3", MergeVersion: "anime-combiner/v8"}
+var tvmazeAnimeDefinition = episodic.Definition{Kind: "anime", Provider: "tvmaze", Namespace: "show", NormalizerVersion: "tvmaze-anime/v1", MergeVersion: "anime-combiner/v8"}
 
 type Service struct{ runtime *platform.Runtime }
 
@@ -75,6 +76,8 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, id string, jobI
 
 	var mapping animelists.Entry
 	mappingFound := false
+	var mappingRecord *episodic.NormalizedRecord
+	var mappingEntries []animelists.Entry
 	if tvdbID != "" {
 		mappingBase := animelists.New(s.runtime.Config.Providers.AnimeLists)
 		mappingCache, cacheErr := providercache.New(s.runtime, "anime-lists-mapping/v2", mappingBase.Capability().RawRetention, mappingBase.Capability().ResponseCache, jobID)
@@ -83,9 +86,10 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, id string, jobI
 		}
 		mappingPayload, values, lookupErr := animelists.NewCached(s.runtime.Config.Providers.AnimeLists, mappingCache).LookupTVDBSeries(ctx, tvdbID)
 		if lookupErr == nil && mappingPayload.StatusCode == http.StatusOK && len(values) > 0 {
-			mappingRecord, root, rootFound := normalizeTMDBAnimeListMapping(mappingPayload, id, values)
+			normalizedMapping, root, rootFound := normalizeTMDBAnimeListMapping(mappingPayload, id, values)
 			mapping, mappingFound = root, rootFound
-			records = append(records, mappingRecord)
+			mappingRecord = &normalizedMapping
+			mappingEntries = values
 		}
 	}
 
@@ -153,6 +157,25 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, id string, jobI
 				records = append(records, supplemental)
 			}
 		}
+	}
+	if tvdbID != "" {
+		xemBase := thexem.New(s.runtime.Config.Providers.TheXEM)
+		xemCache, cacheErr := providercache.New(s.runtime, thexem.NormalizerVersion, xemBase.Capability().RawRetention, xemBase.Capability().ResponseCache, jobID)
+		if cacheErr != nil {
+			return result, cacheErr
+		}
+		xemPayloads, collectErr := thexem.NewCached(s.runtime.Config.Providers.TheXEM, xemCache).Collect(ctx, providers.Identifier{Provider: "tvdb", Namespace: "series", Value: tvdbID})
+		if collectErr == nil && len(xemPayloads) > 0 && xemPayloads[0].StatusCode == http.StatusOK {
+			if supplemental, xemMapping, normalizeErr := thexem.NormalizeAnime(xemPayloads, tvdbID); normalizeErr == nil {
+				if mappingRecord != nil {
+					remapAnimeListSeasonEvidence(mappingRecord, mappingEntries, xemMapping.CanonicalAnimeSeason)
+				}
+				records = append(records, supplemental)
+			}
+		}
+	}
+	if mappingRecord != nil {
+		records = append(records, *mappingRecord)
 	}
 	return episodic.PersistMany(ctx, s.runtime, tmdbAnimeDefinition, records, jobID)
 }

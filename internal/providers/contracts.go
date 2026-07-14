@@ -23,18 +23,19 @@ func (e *StatusError) Error() string {
 type Scope string
 
 const (
-	ScopeIdentity        Scope = "identity"
-	ScopeTitles          Scope = "titles"
-	ScopeDescriptions    Scope = "descriptions"
-	ScopeClassification  Scope = "classification"
-	ScopeReleases        Scope = "releases"
-	ScopeRatings         Scope = "ratings"
-	ScopeCredits         Scope = "credits"
-	ScopeArtwork         Scope = "artwork"
-	ScopeCollections     Scope = "collections"
-	ScopeRecommendations Scope = "recommendations"
-	ScopeLyrics          Scope = "lyrics"
-	ScopeFingerprints    Scope = "fingerprints"
+	ScopeIdentity         Scope = "identity"
+	ScopeTitles           Scope = "titles"
+	ScopeDescriptions     Scope = "descriptions"
+	ScopeClassification   Scope = "classification"
+	ScopeReleases         Scope = "releases"
+	ScopeRatings          Scope = "ratings"
+	ScopeCredits          Scope = "credits"
+	ScopeArtwork          Scope = "artwork"
+	ScopeCollections      Scope = "collections"
+	ScopeRecommendations  Scope = "recommendations"
+	ScopeLyrics           Scope = "lyrics"
+	ScopeFingerprints     Scope = "fingerprints"
+	ScopeEpisodeNumbering Scope = "episode_numbering"
 )
 
 type Identifier struct {

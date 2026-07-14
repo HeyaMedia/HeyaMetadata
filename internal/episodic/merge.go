@@ -201,8 +201,11 @@ func Merge(records []NormalizedRecord) NormalizedRecord {
 			}
 		}
 	}
-	if out.SeasonCount == 0 {
+	if len(out.Seasons) > 0 {
 		out.SeasonCount = len(out.Seasons)
+	}
+	if len(out.Episodes) > 0 {
+		out.EpisodeCount = len(out.Episodes)
 	}
 	sortEpisodes(out.Episodes)
 	return out
@@ -288,6 +291,25 @@ func episodeIndex(values []Episode, incoming Episode) int {
 			}
 		}
 	}
+	// Different providers often disagree on localized episode titles while
+	// still sharing one unambiguous air date. Match only when exactly one
+	// pre-existing episode has that date; same-day double episodes and
+	// specials remain separate.
+	if incoming.AirDate != "" {
+		candidate := -1
+		for i, existing := range values {
+			if existing.AirDate != incoming.AirDate || sharesNumberingAuthority(existing.Numbers, incoming.Numbers) {
+				continue
+			}
+			if candidate >= 0 {
+				return -1
+			}
+			candidate = i
+		}
+		if candidate >= 0 {
+			return candidate
+		}
+	}
 	return -1
 }
 
@@ -313,6 +335,8 @@ func normalizeEpisode(episode *Episode) {
 }
 
 func mergeSeason(target *Season, incoming Season) {
+	targetHasStructureAuthority := hasSeasonExternalID(*target, "thexem", "anime_season")
+	incomingHasStructureAuthority := hasSeasonExternalID(incoming, "thexem", "anime_season")
 	if target.ProviderID == "" {
 		target.ProviderID = incoming.ProviderID
 	}
@@ -342,13 +366,17 @@ func mergeSeason(target *Season, incoming Season) {
 	if target.Status == "" {
 		target.Status = incoming.Status
 	}
-	if target.EpisodeOrder == 0 {
+	if incomingHasStructureAuthority {
+		target.EpisodeOrder = incoming.EpisodeOrder
+		target.EpisodeCount = incoming.EpisodeCount
+		target.AiredEpisodeCount = incoming.AiredEpisodeCount
+	} else if !targetHasStructureAuthority && target.EpisodeOrder == 0 {
 		target.EpisodeOrder = incoming.EpisodeOrder
 	}
-	if target.EpisodeCount == 0 {
+	if !targetHasStructureAuthority && !incomingHasStructureAuthority && target.EpisodeCount == 0 {
 		target.EpisodeCount = incoming.EpisodeCount
 	}
-	if target.AiredEpisodeCount == 0 {
+	if !targetHasStructureAuthority && !incomingHasStructureAuthority && target.AiredEpisodeCount == 0 {
 		target.AiredEpisodeCount = incoming.AiredEpisodeCount
 	}
 	if target.PremiereDate == "" {
@@ -357,6 +385,15 @@ func mergeSeason(target *Season, incoming Season) {
 	if target.EndDate == "" {
 		target.EndDate = incoming.EndDate
 	}
+}
+
+func hasSeasonExternalID(season Season, provider, namespace string) bool {
+	for _, external := range season.ExternalIDs {
+		if strings.EqualFold(external.Provider, provider) && strings.EqualFold(external.Namespace, namespace) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasText(values []Text, value Text) bool {
@@ -501,7 +538,7 @@ func episodeNumbersMatch(existing, incoming Episode, left, right EpisodeNumber) 
 	if providerNumberingScheme(left.Scheme) {
 		return true
 	}
-	if left.Scheme != "aired" || hasNumberingScheme(existing.Numbers, "absolute") || hasNumberingScheme(incoming.Numbers, "absolute") {
+	if left.Scheme != "aired" {
 		return false
 	}
 	return sameEpisodeDate(existing, incoming) || episodesShareTitle(existing, incoming)
@@ -514,15 +551,6 @@ func providerNumberingScheme(scheme string) bool {
 	default:
 		return false
 	}
-}
-
-func hasNumberingScheme(numbers []EpisodeNumber, scheme string) bool {
-	for _, number := range numbers {
-		if number.Scheme == scheme {
-			return true
-		}
-	}
-	return false
 }
 
 func sameEpisodeDate(left, right Episode) bool {
@@ -544,7 +572,7 @@ func normalizedEpisodeTitle(value string) string {
 }
 func hasNumber(values []EpisodeNumber, value EpisodeNumber) bool {
 	for _, existing := range values {
-		if existing.Scheme == value.Scheme && existing.Season == value.Season && existing.Number == value.Number {
+		if existing.Scheme == value.Scheme && existing.Season == value.Season && existing.Number == value.Number && existing.Provider == value.Provider {
 			return true
 		}
 	}

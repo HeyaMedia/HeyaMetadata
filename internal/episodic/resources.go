@@ -53,6 +53,7 @@ func episodeIdentityKey(episode Episode) string {
 
 func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, record *NormalizedRecord) error {
 	seasonIDs := make(map[int]string, len(record.Seasons))
+	allocatedSeasonIDs := make(map[string]int, len(record.Seasons))
 	for i := range record.Seasons {
 		season := &record.Seasons[i]
 		if len(season.Titles) == 0 && season.Name != "" {
@@ -66,6 +67,10 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 			err := tx.QueryRow(ctx, `SELECT season_id::text FROM episodic_season_external_ids WHERE show_entity_id=$1 AND provider=$2 AND namespace=$3 AND normalized_value=$4`, showID, strings.ToLower(external.Provider), strings.ToLower(external.Namespace), strings.ToLower(strings.TrimSpace(external.Value))).Scan(&id)
 			if err != nil && err != pgx.ErrNoRows {
 				return err
+			}
+			if allocatedNumber, allocated := allocatedSeasonIDs[id]; allocated && allocatedNumber != season.Number {
+				id = ""
+				continue
 			}
 			if id != "" {
 				break
@@ -86,6 +91,7 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 		}
 		season.ID = id
 		seasonIDs[season.Number] = id
+		allocatedSeasonIDs[id] = season.Number
 		for _, external := range season.ExternalIDs {
 			if external.Value == "" {
 				continue
@@ -385,6 +391,8 @@ func preferredEpisodeNumber(numbers []EpisodeNumber) (EpisodeNumber, bool) {
 
 func episodeNumberProviderPriority(provider string) int {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "thexem":
+		return -1
 	case "tvmaze":
 		return 0
 	case "anidb":

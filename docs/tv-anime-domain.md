@@ -48,8 +48,9 @@ TVDB, and IMDb normally identify the whole multi-season series. Those
 granularities are preserved without turning each AniDB entry into a competing
 show root. The TMDB TV identity owns the canonical anime entity; Anime Lists
 maps season/cour-specific AniDB, MAL, and AniList identifiers onto canonical
-season resources. The season-one or unscoped mapping may also corroborate the
-series identity.
+season resources. TheXEM translates the TVDB episode offsets in those mappings
+to the canonical cour/season that actually owns them. The season-one or
+unscoped mapping may also corroborate the series identity.
 
 When TMDB genuinely has no corresponding series, an AniDB-rooted fallback may
 retain its narrower entity boundary. If a TMDB crosswalk appears later, the
@@ -68,6 +69,14 @@ Anime episode numbering is a projection over provider assertions. Absolute,
 seasonal, cour, aired, DVD, and specials numbering remain named schemes with
 provenance. TV seasons and episodes use the same scheme-aware primitive, but the
 default TV projection does not inherit anime-specific assumptions.
+
+TheXEM is the private structural authority when an anime is flattened by its
+screen providers. 86 is represented by TMDB and TVDB as one 23-episode regular
+season, while TheXEM maps those episodes to an 11-episode first cour and a
+12-episode second cour. HeyaMetadata therefore exposes Specials, Season 1, and
+Season 2 as three canonical season resources. Episode 12 retains TMDB/TVDB
+`1x12` evidence while its canonical `aired` address is `2x1`. Clients use only
+the Heya season and episode UUIDs and need no knowledge of that reconciliation.
 
 ## Canonical guarantees
 

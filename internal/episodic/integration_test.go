@@ -141,6 +141,64 @@ func TestIntegrationTMDBRootPromotionReusesExistingEpisodicIdentity(t *testing.T
 	}
 }
 
+func TestIntegrationSeasonSplitDoesNotReuseOneLegacySeasonUUIDTwice(t *testing.T) {
+	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
+		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local platform stack")
+	}
+	ctx := context.Background()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := platform.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	observations := make([]string, 3)
+	for index, provider := range []string{"tmdb", "anime_lists", "thexem"} {
+		if err := runtime.DB.QueryRow(ctx, `INSERT INTO provider_observations(provider,provider_namespace,provider_record_id,request_key,response_status,observed_at,normalizer_version,retention_class)VALUES($1,'integration',$2,$3,200,now(),'integration','provider_raw_48h')RETURNING id`, provider, suffix, "integration/season-split/"+provider+"/"+suffix).Scan(&observations[index]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	observedAt := time.Now().UTC()
+	root := NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "tmdb", Namespace: "tv", ProviderID: suffix, PrimaryObservationID: observations[0], ObservedAt: observedAt, NormalizerVersion: "integration", Titles: []Title{{Value: "Season split " + suffix, Type: "main"}}, Seasons: []Season{{Number: 1, ExternalIDs: []ExternalID{{Provider: "tmdb", Namespace: "season", Value: "tmdb-season-" + suffix}}}}}
+	oldMapping := NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "anime_lists", Namespace: "mapping", ProviderID: suffix, PrimaryObservationID: observations[1], ObservedAt: observedAt, NormalizerVersion: "integration", Seasons: []Season{{Number: 1, ExternalIDs: []ExternalID{{Provider: "anidb", Namespace: "anime", Value: "root-" + suffix}, {Provider: "anidb", Namespace: "anime", Value: "cour-two-" + suffix}}}}}
+	def := Definition{Kind: "anime", Provider: "tmdb", Namespace: "tv", NormalizerVersion: "integration", MergeVersion: "integration"}
+	first, err := PersistMany(ctx, runtime, def, []NormalizedRecord{root, oldMapping}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cleanupIntegrationEpisodic(runtime, first.EntityID, observations) })
+	legacySeasonID := first.Document.Data.Seasons[0].ID
+
+	newMapping := oldMapping
+	newMapping.Seasons = []Season{
+		{Number: 1, ExternalIDs: []ExternalID{{Provider: "anidb", Namespace: "anime", Value: "root-" + suffix}}},
+		{Number: 2, ExternalIDs: []ExternalID{{Provider: "anidb", Namespace: "anime", Value: "cour-two-" + suffix}}},
+	}
+	xem := NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "thexem", Namespace: "mapping", ProviderID: suffix, PrimaryObservationID: observations[2], ObservedAt: observedAt.Add(time.Second), NormalizerVersion: "integration", Seasons: []Season{
+		{Number: 1, ExternalIDs: []ExternalID{{Provider: "thexem", Namespace: "anime_season", Value: "one-" + suffix}}},
+		{Number: 2, ExternalIDs: []ExternalID{{Provider: "thexem", Namespace: "anime_season", Value: "two-" + suffix}}},
+	}}
+	second, err := PersistMany(ctx, runtime, def, []NormalizedRecord{root, newMapping, xem}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Document.Data.Seasons) != 2 || second.Document.Data.Seasons[0].ID != legacySeasonID || second.Document.Data.Seasons[1].ID == legacySeasonID {
+		t.Fatalf("season UUID split failed: legacy=%s seasons=%+v", legacySeasonID, second.Document.Data.Seasons)
+	}
+	var mappedSeasonID string
+	if err := runtime.DB.QueryRow(ctx, `SELECT season_id::text FROM episodic_season_external_ids WHERE show_entity_id=$1 AND provider='anidb' AND namespace='anime' AND normalized_value=$2`, first.EntityID, "cour-two-"+suffix).Scan(&mappedSeasonID); err != nil {
+		t.Fatal(err)
+	}
+	if mappedSeasonID != second.Document.Data.Seasons[1].ID {
+		t.Fatalf("cour identity stayed on old season: got=%s want=%s", mappedSeasonID, second.Document.Data.Seasons[1].ID)
+	}
+}
+
 func cleanupIntegrationEpisodic(runtime *platform.Runtime, entityID string, observationIDs []string) {
 	ctx := context.Background()
 	for _, statement := range []string{
@@ -157,6 +215,7 @@ func cleanupIntegrationEpisodic(runtime *platform.Runtime, entityID string, obse
 		`DELETE FROM episodic_episodes WHERE show_entity_id=$1`,
 		`DELETE FROM episodic_seasons WHERE show_entity_id=$1`,
 		`DELETE FROM canonical_tv_shows WHERE entity_id=$1`,
+		`DELETE FROM canonical_anime WHERE entity_id=$1`,
 		`DELETE FROM normalized_records WHERE entity_id=$1`,
 		`DELETE FROM external_id_claims WHERE entity_id=$1`,
 		`DELETE FROM entity_access_stats WHERE entity_id=$1`,
