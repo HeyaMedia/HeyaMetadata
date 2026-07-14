@@ -2,6 +2,7 @@ package movies
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -17,5 +18,16 @@ func TestProviderFailureClass(t *testing.T) {
 		if got := providerFailureClass(errors.New(message)); got != want {
 			t.Fatalf("%q: got %q, want %q", message, got, want)
 		}
+	}
+}
+
+func TestNonNilStringsForSearchProjection(t *testing.T) {
+	t.Parallel()
+	if got := nonNilStrings(nil); got == nil || len(got) != 0 {
+		t.Fatalf("nil values: got %#v, want a non-nil empty slice", got)
+	}
+	want := []string{"en"}
+	if got := nonNilStrings(want); !reflect.DeepEqual(got, want) {
+		t.Fatalf("values: got %#v, want %#v", got, want)
 	}
 }

@@ -584,8 +584,8 @@ func (s *Service) merge(ctx context.Context, normalizedID string, additionalNorm
             countries = EXCLUDED.countries, languages = EXCLUDED.languages, popularity = EXCLUDED.popularity,
             summary = EXCLUDED.summary, projection_version = EXCLUDED.projection_version, updated_at = now()`,
 		entityID, slug, projection.Detail.Display.Title, projection.Detail.Display.Year,
-		projection.Detail.Data.Release.NormalizedStatus, projection.Detail.Data.Classification.Genres,
-		projection.Detail.Data.Classification.Countries, projection.Detail.Data.Classification.SpokenLanguages,
+		projection.Detail.Data.Release.NormalizedStatus, nonNilStrings(projection.Detail.Data.Classification.Genres),
+		nonNilStrings(projection.Detail.Data.Classification.Countries), nonNilStrings(projection.Detail.Data.Classification.SpokenLanguages),
 		popularity, summaryJSON, projectionVersion); err != nil {
 		return Result{}, fmt.Errorf("write movie search projection: %w", err)
 	}
@@ -635,6 +635,13 @@ func (s *Service) merge(ctx context.Context, normalizedID string, additionalNorm
 		return Result{}, fmt.Errorf("commit movie merge: %w", err)
 	}
 	return Result{EntityID: entityID, NormalizedID: normalizedID, ProjectionVersion: projectionVersion, Detail: projection.Detail}, nil
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 func (s *Service) cache(ctx context.Context, result Result) error {

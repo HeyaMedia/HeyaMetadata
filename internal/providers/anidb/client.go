@@ -134,6 +134,11 @@ func classify(expectedID string) func(*providers.Payload) {
 		if envelope.XMLName.Local == "error" {
 			duration := time.Duration(0)
 			if strings.Contains(strings.ToLower(envelope.Message), "not found") {
+				// AniDB transports a missing anime as an HTTP 200 XML error
+				// envelope. Convert that application-level result into the
+				// provider status understood by discovery so a bad AID is
+				// treated as unused evidence instead of a retryable parse error.
+				payload.StatusCode = http.StatusNotFound
 				duration = time.Hour
 			}
 			payload.ReuseDurationOverride = &duration

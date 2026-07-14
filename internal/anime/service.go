@@ -167,6 +167,8 @@ func (s *Service) Detail(ctx context.Context, id string) (episodic.Document, boo
 }
 
 type detail struct {
+	XMLName      xml.Name
+	ErrorMessage string `xml:",chardata"`
 	ID           string `xml:"id,attr"`
 	Type         string `xml:"type"`
 	EpisodeCount int    `xml:"episodecount"`
@@ -215,7 +217,16 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 	if err := xml.Unmarshal(payload.Body, &value); err != nil {
 		return episodic.NormalizedRecord{}, err
 	}
-	if value.ID == "" {
+	if value.XMLName.Local == "error" {
+		if strings.Contains(strings.ToLower(value.ErrorMessage), "not found") {
+			// Cached observations created before application-level AniDB errors
+			// were classified may still carry HTTP 200. Preserve correct
+			// not-found semantics while those observations age out.
+			return episodic.NormalizedRecord{}, &providers.StatusError{Provider: "anidb", StatusCode: http.StatusNotFound}
+		}
+		return episodic.NormalizedRecord{}, fmt.Errorf("AniDB error response: %s", strings.TrimSpace(value.ErrorMessage))
+	}
+	if value.XMLName.Local != "anime" || value.ID == "" {
 		return episodic.NormalizedRecord{}, fmt.Errorf("invalid AniDB anime detail")
 	}
 	record := episodic.NormalizedRecord{SchemaVersion: 1, Kind: "anime", Provider: "anidb", Namespace: "anime", ProviderID: value.ID, PrimaryObservationID: payload.ObservationID, ObservedAt: payload.ObservedAt, Overview: strings.TrimSpace(value.Description), Format: normalizeType(value.Type), StartDate: value.StartDate, EndDate: value.EndDate, EpisodeCount: value.EpisodeCount, ExternalIDs: []episodic.ExternalID{{Provider: "anidb", Namespace: "anime", Value: value.ID}}}

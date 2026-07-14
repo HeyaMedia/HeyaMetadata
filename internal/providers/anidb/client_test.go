@@ -38,7 +38,22 @@ func TestLogicalErrorIsNotReusable(t *testing.T) {
 	t.Parallel()
 	payload := providers.Payload{StatusCode: http.StatusOK, Body: []byte(`<error>Banned</error>`)}
 	classify("1")(&payload)
+	if payload.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want %d", payload.StatusCode, http.StatusOK)
+	}
 	if payload.ReuseDurationOverride == nil || *payload.ReuseDurationOverride != time.Duration(0) {
+		t.Fatalf("reuse: %+v", payload.ReuseDurationOverride)
+	}
+}
+
+func TestAnimeNotFoundEnvelopeIsClassifiedAsNotFound(t *testing.T) {
+	t.Parallel()
+	payload := providers.Payload{StatusCode: http.StatusOK, Body: []byte(`<error>Anime not found</error>`)}
+	classify("14921")(&payload)
+	if payload.StatusCode != http.StatusNotFound {
+		t.Fatalf("status: got %d, want %d", payload.StatusCode, http.StatusNotFound)
+	}
+	if payload.ReuseDurationOverride == nil || *payload.ReuseDurationOverride != time.Hour {
 		t.Fatalf("reuse: %+v", payload.ReuseDurationOverride)
 	}
 }
