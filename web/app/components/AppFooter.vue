@@ -4,7 +4,7 @@
 <template>
   <footer class="app-footer">
     <div class="shell app-footer__inner">
-      <span class="app-footer__brand">Heya Metadata v2</span>
+      <span class="app-footer__brand">Heya v2</span>
       <p>One canonical truth, assembled from many imperfect sources.</p>
       <div class="app-footer__links">
         <a href="/api/docs" target="_blank" rel="noopener">API reference ↗</a>

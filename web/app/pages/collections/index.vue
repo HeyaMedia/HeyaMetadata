@@ -1,4 +1,10 @@
 <script setup lang="ts">
+useSeoMeta({
+  title: 'Collections',
+  description: 'Browse provider-backed movie franchises assembled from the films already in the canonical library.',
+  twitterCard: 'summary_large_image',
+})
+
 const api = useHeyaApi()
 const { data, pending } = await useAsyncData(
   'collections',

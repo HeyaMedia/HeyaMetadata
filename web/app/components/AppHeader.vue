@@ -19,11 +19,17 @@ async function signOut() {
   await navigateTo('/')
 }
 
-const primaryNav = [
-  { label: 'Latest', to: '/', exact: true },
+// Two nav clusters: the observatory (browse the catalog) and the HeyaMediaServer
+// product pages. The Download CTA lives in the tools cluster, pinned top-right.
+const libraryNav = [
   { label: 'Browse', to: '/browse', exact: false },
   { label: 'Collections', to: '/collections', exact: false },
   { label: 'Stats', to: '/stats', exact: false },
+]
+const productNav = [
+  { label: 'Features', to: '/features', exact: false },
+  { label: 'Docs', to: '/docs', exact: false },
+  { label: 'Blog', to: '/blog', exact: false },
 ]
 
 const domainNav = KINDS.filter(kind => kind.route && !kind.route.includes('/'))
@@ -49,17 +55,23 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
 <template>
   <header class="app-header">
     <div class="shell app-header__inner">
-      <NuxtLink to="/" class="brand" aria-label="Heya Metadata home">
+      <NuxtLink to="/" class="brand" aria-label="Heya home">
         <span class="brand__mark">H</span>
         <span class="brand__text">
           <strong>Heya</strong>
-          <small>Metadata Observatory</small>
         </span>
       </NuxtLink>
 
       <nav class="app-header__nav" aria-label="Primary">
         <NuxtLink
-          v-for="item in primaryNav"
+          v-for="item in libraryNav"
+          :key="item.to"
+          :to="item.to"
+          :class="{ 'is-active': isActive(item.to, item.exact) }"
+        >{{ item.label }}</NuxtLink>
+        <span class="app-header__nav-divider" aria-hidden="true" />
+        <NuxtLink
+          v-for="item in productNav"
           :key="item.to"
           :to="item.to"
           :class="{ 'is-active': isActive(item.to, item.exact) }"
@@ -69,6 +81,13 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
       <GlobalSearch class="app-header__search" size="bar" :initial-query="(route.query.q as string) || ''" />
 
       <div class="app-header__tools">
+        <NuxtLink to="/downloads" class="btn btn--sm btn--gold header-download">
+          <svg class="header-download__icon" viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
+            <path d="M8 1.5v8m0 0 3-3m-3 3-3-3M2.5 12.5h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span class="header-download__label">Download</span>
+        </NuxtLink>
+
         <button
           type="button"
           class="tool-button locale-toggle"
@@ -131,8 +150,14 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
         <div class="shell mobile-menu__inner">
           <GlobalSearch size="bar" :initial-query="(route.query.q as string) || ''" />
           <div class="mobile-menu__group">
-            <span class="section-label">Library</span>
-            <NuxtLink v-for="item in primaryNav" :key="item.to" :to="item.to">{{ item.label }}</NuxtLink>
+            <span class="section-label">Observatory</span>
+            <NuxtLink to="/">Latest</NuxtLink>
+            <NuxtLink v-for="item in libraryNav" :key="item.to" :to="item.to">{{ item.label }}</NuxtLink>
+          </div>
+          <div class="mobile-menu__group">
+            <span class="section-label">HeyaMediaServer</span>
+            <NuxtLink v-for="item in productNav" :key="item.to" :to="item.to">{{ item.label }}</NuxtLink>
+            <NuxtLink to="/downloads">Download</NuxtLink>
           </div>
           <div class="mobile-menu__group">
             <span class="section-label">Domains</span>
@@ -196,14 +221,18 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
 .brand__text strong { font-size: 0.92rem; letter-spacing: 0.08em; }
 .brand__text small { margin-top: 0.1rem; color: #718087; font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; }
 
-.app-header__nav { display: flex; align-items: center; gap: 1.35rem; font-size: 0.76rem; }
-.app-header__nav a { color: #9ba5a9; }
+.app-header__nav { display: flex; align-items: center; gap: 1.1rem; font-size: 0.76rem; }
+.app-header__nav a { color: #9ba5a9; white-space: nowrap; }
 .app-header__nav a:hover { color: #fff; }
 .app-header__nav a.is-active { color: var(--gold); }
+.app-header__nav-divider { width: 1px; height: 1rem; background: var(--line-strong); }
 
-.app-header__search { flex: 1 1 auto; max-width: 24rem; margin-left: auto; }
+.app-header__search { flex: 1 1 auto; max-width: 18rem; margin-left: auto; }
 
 .app-header__tools { display: flex; align-items: center; gap: 1rem; flex: 0 0 auto; }
+
+.header-download { flex: 0 0 auto; gap: 0.45rem; padding-inline: 0.85rem; }
+.header-download__icon { flex: none; }
 .tool-button {
   display: inline-flex;
   align-items: center;
@@ -295,10 +324,22 @@ const loginTarget = computed(() => ({ path: '/login', query: onAuthPage.value ? 
 .mobile-menu__group a { color: #c3ccca; font-size: 0.85rem; }
 .mobile-menu__group a:hover { color: #fff; }
 
-@media (max-width: 900px) {
-  .app-header__nav { display: none; }
+/* Drop the inline search first — the burger menu and the home/browse pages all
+   carry their own search — so the two nav clusters keep breathing room longer. */
+@media (max-width: 1180px) {
   .app-header__search { display: none; }
+}
+
+/* Then collapse the nav + secondary tools into the burger, but keep the brand
+   and the Download CTA pinned so the primary action never leaves the corner. */
+@media (max-width: 1040px) {
+  .app-header__nav { display: none; }
   .app-header__burger { display: flex; }
   .account, .locale-toggle { display: none; }
+}
+
+@media (max-width: 520px) {
+  .header-download__label { display: none; }
+  .header-download { padding-inline: 0.6rem; }
 }
 </style>

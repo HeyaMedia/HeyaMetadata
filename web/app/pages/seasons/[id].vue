@@ -41,6 +41,31 @@ function epNumber(ep: any) {
 function epTitle(ep: any) {
   return preferredText(ep.titles) || (epNumber(ep) != null ? `Episode ${epNumber(ep)}` : 'Episode')
 }
+
+// --- SEO (reactive; the season resource loads after mount) ------------------
+const site = useSiteConfig()
+const seoImage = computed(() => (posterId.value ? imageVariantUrl(site.url, posterId.value) : undefined))
+const seoDescription = computed(() => {
+  const label = show.value?.title ? `${name.value} of ${show.value.title}` : name.value
+  return metaDescription(overview.value, `${label} — canonical episode list and metadata on Heya.`)
+})
+
+useSeoMeta({
+  title: () => (data.value ? name.value : undefined),
+  description: () => (data.value ? seoDescription.value : undefined),
+  ogImage: () => seoImage.value,
+  ogType: () => 'video.tv_show',
+  twitterCard: () => (seoImage.value ? 'summary_large_image' : 'summary'),
+})
+
+useSchemaOrg(computed(() => {
+  if (!data.value) return []
+  const node: Record<string, any> = { '@type': 'TVSeason', name: name.value, url: `${site.url}${route.path}` }
+  if (overview.value) node.description = overview.value
+  if (seoImage.value) node.image = seoImage.value
+  if (season.value.number != null) node.seasonNumber = season.value.number
+  return [node]
+}))
 </script>
 
 <template>

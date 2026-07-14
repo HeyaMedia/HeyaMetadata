@@ -49,6 +49,31 @@ const facts = computed(() => [
   { label: 'Episode', value: aired.value.number },
   { label: 'Absolute №', value: absolute.value },
 ])
+
+// --- SEO (reactive; the episode resource loads after mount) -----------------
+const site = useSiteConfig()
+const seoImage = computed(() => (stillId.value ? imageVariantUrl(site.url, stillId.value) : undefined))
+const seoDescription = computed(() => {
+  const label = show.value?.title ? `${title.value} from ${show.value.title}` : title.value
+  return metaDescription(synopsis.value, `${label} — canonical episode metadata on Heya.`)
+})
+
+useSeoMeta({
+  title: () => (data.value ? title.value : undefined),
+  description: () => (data.value ? seoDescription.value : undefined),
+  ogImage: () => seoImage.value,
+  ogType: () => 'video.episode',
+  twitterCard: () => (seoImage.value ? 'summary_large_image' : 'summary'),
+})
+
+useSchemaOrg(computed(() => {
+  if (!data.value) return []
+  const node: Record<string, any> = { '@type': 'TVEpisode', name: title.value, url: `${site.url}${route.path}` }
+  if (synopsis.value) node.description = synopsis.value
+  if (seoImage.value) node.image = seoImage.value
+  if (aired.value.number != null) node.episodeNumber = aired.value.number
+  return [node]
+}))
 </script>
 
 <template>

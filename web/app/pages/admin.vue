@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { AdminJob, AdminJobAction } from '~/utils/types'
 
+useSeoMeta({ robots: 'noindex, nofollow', title: 'Admin' })
+
 // Admin-only ops view. Primary purpose: watch and manage the River job queue.
 // Access is enforced by the backend (403 for non-admins); the UI also gates on
 // the session role so non-admins get a clean message instead of a failed fetch.

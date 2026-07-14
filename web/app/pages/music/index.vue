@@ -2,6 +2,12 @@
 import type { CardShape } from '~/utils/kinds'
 import type { EntitySummary } from '~/utils/types'
 
+useSeoMeta({
+  title: 'Music',
+  description: 'Browse artists, albums, and recordings assembled from MusicBrainz, Discogs, and storefront evidence.',
+  twitterCard: 'summary_large_image',
+})
+
 // Music spans several kinds, so this is a curated landing rather than a single
 // locked browse. Each section is fetched independently.
 const api = useHeyaApi()

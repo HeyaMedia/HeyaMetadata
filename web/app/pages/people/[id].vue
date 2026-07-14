@@ -67,6 +67,33 @@ const identityLinks = computed(() =>
     .filter(link => link.url),
 )
 const homepage = computed(() => formatValue(info.value.homepage))
+
+// --- SEO (reactive; person reads resolve async in the background) ------------
+const site = useSiteConfig()
+const seoImage = computed(() => (image.value ? imageVariantUrl(site.url, image.value) : undefined))
+const seoDescription = computed(() =>
+  metaDescription(biography.value, `Filmography, biography, and canonical identity for ${name.value}, on Heya.`),
+)
+
+useSeoMeta({
+  title: () => (data.value ? name.value : undefined),
+  description: () => (data.value ? seoDescription.value : undefined),
+  ogImage: () => seoImage.value,
+  ogType: () => 'profile',
+  twitterCard: () => (seoImage.value ? 'summary_large_image' : 'summary'),
+})
+
+useSchemaOrg(computed(() => {
+  if (!data.value) return []
+  const node: Record<string, any> = { name: name.value, url: `${site.url}${route.path}` }
+  if (biography.value) node.description = biography.value
+  if (seoImage.value) node.image = seoImage.value
+  const birth = formatValue(info.value.birth_date)
+  const death = formatValue(info.value.death_date)
+  if (birth) node.birthDate = birth
+  if (death) node.deathDate = death
+  return [definePerson(node)]
+}))
 </script>
 
 <template>

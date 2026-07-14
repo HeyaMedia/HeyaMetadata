@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@nuxtjs/seo": "^5.3.2",
     "nuxt": "^4.4.8",
     "vue": "^3.5.30",
     "vue-router": "^4.6.4"

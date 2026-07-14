@@ -2,6 +2,15 @@
 import type { CardShape } from '~/utils/kinds'
 import type { CollectionCard, EntitySummary, LibraryStats } from '~/utils/types'
 
+// Home is the only page that skips the global "· Heya" title suffix, so it pins
+// its own standalone template and a bare "Heya" title.
+useHead({ titleTemplate: '%s' })
+useSeoMeta({
+  title: 'Heya',
+  description: 'The canonical library of reconciled movie, TV, anime, music, book, and manga metadata — search it, inspect every upstream source, and audit the result.',
+  twitterCard: 'summary_large_image',
+})
+
 // Homepage = library overview, not a search screen. Each shelf is fetched
 // independently (its own latest?kind= call) so a burst of one domain can never
 // crowd out the others. Shelves prefer root entities.

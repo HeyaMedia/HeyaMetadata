@@ -17,6 +17,10 @@ const props = withDefaults(defineProps<{
 const route = useRoute()
 const { entity, images, pending, error, refreshing, refreshFromProviders } = useEntity(() => props.id)
 
+// Reactive SEO (title/description/og:image/twitter/JSON-LD) for all 12 detail
+// pages that render through this shell. Fields stay empty until the entity loads.
+useEntitySeo(entity)
+
 const activeTab = computed(() => (route.query.tab as string) || 'overview')
 
 // Redirect to the canonical route when the loaded entity's kind does not match

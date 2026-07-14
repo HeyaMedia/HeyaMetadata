@@ -2,6 +2,12 @@
 import { kindMeta } from '~/utils/kinds'
 import type { DiscoveryCandidate } from '~/utils/types'
 
+useSeoMeta({
+  title: 'Search',
+  description: 'Search what Heya already knows, inspect upstream candidates, resolve the right identity, and audit the result.',
+  twitterCard: 'summary_large_image',
+})
+
 // Search workbench. q + kind live in the URL and drive the local canonical
 // search (restored on reload/back/forward). Upstream discovery and resolution
 // are explicit, side-effecting actions kept in memory — never auto-run from a URL.

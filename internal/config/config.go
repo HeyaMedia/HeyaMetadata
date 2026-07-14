@@ -13,6 +13,7 @@ type Config struct {
 	Host        string
 	Port        int
 	WebRoot     string
+	SiteURL     string
 	LogLevel    string
 	LogFormat   string
 	DatabaseURL string
@@ -294,6 +295,7 @@ func Load() (Config, error) {
 		Host:        env("HEYA_METADATA_HOST", "0.0.0.0"),
 		Port:        port,
 		WebRoot:     env("HEYA_METADATA_WEB_ROOT", ""),
+		SiteURL:     strings.TrimRight(env("HEYA_METADATA_SITE_URL", "https://heya.media"), "/"),
 		LogLevel:    env("HEYA_METADATA_LOG_LEVEL", "info"),
 		LogFormat:   env("HEYA_METADATA_LOG_FORMAT", "text"),
 		DatabaseURL: env("HEYA_METADATA_DATABASE_URL", "postgres://heya_metadata:heya_metadata_dev@127.0.0.1:5441/heya_metadata?sslmode=disable"),
@@ -419,6 +421,12 @@ func envBool(key string, fallback bool) (bool, error) {
 func (c Config) Validate() error {
 	if _, err := url.ParseRequestURI(c.DatabaseURL); err != nil {
 		return fmt.Errorf("HEYA_METADATA_DATABASE_URL is invalid: %w", err)
+	}
+	if c.SiteURL != "" {
+		siteURL, err := url.Parse(c.SiteURL)
+		if err != nil || (siteURL.Scheme != "http" && siteURL.Scheme != "https") || siteURL.Host == "" {
+			return fmt.Errorf("HEYA_METADATA_SITE_URL must be an absolute HTTP(S) URL")
+		}
 	}
 	redisURL, err := url.Parse(c.RedisURL)
 	if err != nil || (redisURL.Scheme != "redis" && redisURL.Scheme != "rediss") || redisURL.Host == "" {

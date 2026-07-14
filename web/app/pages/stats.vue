@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { kindLabel } from '~/utils/kinds'
 
+useSeoMeta({
+  title: 'Library stats',
+  description: 'Real coverage for the canonical library — entity counts by kind, accepted provider claims, image coverage, and projection freshness.',
+  twitterCard: 'summary_large_image',
+})
+
 // Coverage/debugging page — real totals, not social proof. Charts are CSS-native.
 const api = useHeyaApi()
 const { data: stats, pending } = await useAsyncData('stats', () => api.stats(), { default: () => ({}) })

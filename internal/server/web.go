@@ -8,12 +8,21 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 )
 
 // WithWebUI serves a compiled single-page application alongside the API. API
 // and schema paths always remain authoritative; browser navigation falls back
-// to index.html only for requests that accept HTML.
-func WithWebUI(api http.Handler, root string) (http.Handler, error) {
+// to index.html only for requests that accept HTML. For those HTML documents the
+// server injects per-route <head> metadata (title, description, canonical, Open
+// Graph, Twitter Card, JSON-LD) so non-JS crawlers and social scrapers receive
+// real metadata. It also serves an authoritative robots.txt and a DB-backed
+// sitemap.xml. The SEO path is strictly read-only and best-effort: any failure
+// serves the unmodified shell. runtime may be nil, which disables entity
+// resolution (static-route metadata and robots.txt still apply).
+func WithWebUI(api http.Handler, root string, runtime *platform.Runtime, siteURL string) (http.Handler, error) {
 	if api == nil {
 		return nil, fmt.Errorf("API handler is required")
 	}
@@ -38,10 +47,20 @@ func WithWebUI(api http.Handler, root string) (http.Handler, error) {
 		return nil, fmt.Errorf("read web index: %w", err)
 	}
 
+	seo := &seoRenderer{runtime: runtime, siteURL: strings.TrimRight(siteURL, "/")}
 	files := http.FileServer(http.Dir(root))
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if isAPIPath(request.URL.Path) || (request.Method != http.MethodGet && request.Method != http.MethodHead) {
 			api.ServeHTTP(writer, request)
+			return
+		}
+
+		switch request.URL.Path {
+		case "/robots.txt":
+			writeRobots(writer, seo.siteURL)
+			return
+		case "/sitemap.xml":
+			seo.writeSitemap(request.Context(), writer)
 			return
 		}
 
@@ -57,9 +76,17 @@ func WithWebUI(api http.Handler, root string) (http.Handler, error) {
 		}
 
 		if cleanPath == "/" || strings.Contains(request.Header.Get("Accept"), "text/html") {
+			body := index
+			modTime := indexModTime
+			if injected, ok := seo.render(request.Context(), index, cleanPath); ok {
+				body = injected
+				// The injected variant differs per route, so drop Last-Modified
+				// to avoid a stale conditional match against the shared shell.
+				modTime = time.Time{}
+			}
 			writer.Header().Set("Cache-Control", "no-cache")
 			writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-			http.ServeContent(writer, request, "index.html", indexModTime, bytes.NewReader(index))
+			http.ServeContent(writer, request, "index.html", modTime, bytes.NewReader(body))
 			return
 		}
 

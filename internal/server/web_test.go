@@ -25,7 +25,7 @@ func TestWithWebUIServesAssetsAndFallsBackForBrowserRoutes(t *testing.T) {
 		writer.WriteHeader(http.StatusTeapot)
 		_, _ = writer.Write([]byte("api:" + request.URL.Path))
 	})
-	handler, err := WithWebUI(api, root)
+	handler, err := WithWebUI(api, root, nil, "https://heya.media")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestWithWebUIServesAssetsAndFallsBackForBrowserRoutes(t *testing.T) {
 }
 
 func TestWithWebUIRejectsIncompleteRoot(t *testing.T) {
-	if _, err := WithWebUI(http.NotFoundHandler(), t.TempDir()); err == nil {
+	if _, err := WithWebUI(http.NotFoundHandler(), t.TempDir(), nil, "https://heya.media"); err == nil {
 		t.Fatal("expected missing index.html to fail")
 	}
 }

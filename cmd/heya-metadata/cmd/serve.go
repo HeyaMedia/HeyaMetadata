@@ -48,11 +48,11 @@ func newServeCommand() *cobra.Command {
 			application := server.NewWithRuntime(buildinfo.Version, runtime)
 			handler := application.Handler()
 			if cfg.WebRoot != "" {
-				handler, err = server.WithWebUI(handler, cfg.WebRoot)
+				handler, err = server.WithWebUI(handler, cfg.WebRoot, runtime, cfg.SiteURL)
 				if err != nil {
 					return fmt.Errorf("configure web UI: %w", err)
 				}
-				slog.Info("web UI enabled", "root", cfg.WebRoot)
+				slog.Info("web UI enabled", "root", cfg.WebRoot, "site_url", cfg.SiteURL)
 			}
 			httpServer := &http.Server{
 				Addr:              cfg.Address(),

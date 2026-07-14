@@ -1,5 +1,5 @@
 <script setup lang="ts">
-useHead({ title: 'Create account · Heya Metadata' })
+useSeoMeta({ robots: 'noindex, nofollow', title: 'Create account' })
 </script>
 
 <template>

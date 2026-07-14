@@ -1,4 +1,9 @@
 <script setup lang="ts">
+useSeoMeta({
+  title: 'Books',
+  description: 'Browse canonical book works with reconciled titles, editions, cover art, and the upstream records behind each match.',
+  twitterCard: 'summary_large_image',
+})
 </script>
 
 <template>

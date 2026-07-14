@@ -22,6 +22,35 @@ function memberLink(member: { entity_id?: string; resolution_state?: string }): 
   return `/movies/${member.entity_id}`
 }
 const linkTag = resolveComponent('NuxtLink')
+
+// --- SEO (reactive; the collection loads after mount) -----------------------
+const site = useSiteConfig()
+const seoTitle = computed(() => formatValue(collection.value?.name))
+const seoImage = computed(() => {
+  const imageId = collection.value?.image_id
+  return imageId ? imageVariantUrl(site.url, imageId) : undefined
+})
+const seoDescription = computed(() =>
+  metaDescription(collection.value?.overview, `Every film in the ${seoTitle.value || 'collection'}, tracked with canonical metadata on Heya.`),
+)
+
+useSeoMeta({
+  title: () => (collection.value ? (seoTitle.value || undefined) : undefined),
+  description: () => (collection.value ? seoDescription.value : undefined),
+  ogImage: () => seoImage.value,
+  ogType: () => 'website',
+  twitterCard: () => (seoImage.value ? 'summary_large_image' : 'summary'),
+})
+
+// A movie franchise is a series of works → CreativeWorkSeries (no define* helper).
+useSchemaOrg(computed(() => {
+  if (!collection.value || !seoTitle.value) return []
+  const node: Record<string, any> = { '@type': 'CreativeWorkSeries', name: seoTitle.value, url: `${site.url}${route.path}` }
+  const overview = formatValue(collection.value.overview)
+  if (overview) node.description = overview
+  if (seoImage.value) node.image = seoImage.value
+  return [node]
+}))
 </script>
 
 <template>

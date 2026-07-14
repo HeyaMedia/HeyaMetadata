@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Signed-in user's account. Requires a session; redirects to /login once we know
 // there isn't one.
-useHead({ title: 'Account · Heya Metadata' })
+useSeoMeta({ robots: 'noindex, nofollow', title: 'Account' })
 
 const auth = useAuth()
 const { user, ready, isAuthenticated } = auth
