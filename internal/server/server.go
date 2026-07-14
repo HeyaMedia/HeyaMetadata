@@ -54,7 +54,7 @@ func newServer(version string, checker ReadinessChecker, runtime *platform.Runti
 	registerPersons(api, runtime)
 	registerAdmin(api, runtime)
 
-	return &Server{handler: mux, api: api}
+	return &Server{handler: cacheHeaders(mux), api: api}
 }
 
 func (s *Server) Handler() http.Handler {
