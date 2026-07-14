@@ -18,6 +18,8 @@ var publicOperations = map[string]struct {
 	method string
 	path   string
 }{
+	"connectivity-ip":             {http.MethodGet, "/v1/ip"},
+	"connectivity-check":          {http.MethodPost, "/v1/check"},
 	"health-live":                 {http.MethodGet, "/api/v2/health/live"},
 	"health-ready":                {http.MethodGet, "/api/v2/health/ready"},
 	"auth-register":               {http.MethodPost, "/api/v2/auth/register"},

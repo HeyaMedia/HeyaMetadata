@@ -78,6 +78,7 @@ func TestOpenAPIDocumentContainsPublicRoutes(t *testing.T) {
 
 	text := string(document)
 	for _, path := range []string{
+		"/v1/ip", "/v1/check",
 		"/api/v2/health/live", "/api/v2/health/ready",
 		"/api/v2/auth/register", "/api/v2/auth/login", "/api/v2/auth/logout", "/api/v2/auth/me",
 		"/api/v2/auth/api-keys", "/api/v2/auth/api-keys/{id}",

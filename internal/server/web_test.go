@@ -42,6 +42,7 @@ func TestWithWebUIServesAssetsAndFallsBackForBrowserRoutes(t *testing.T) {
 		{name: "browser route", path: "/artists/canonical-id", accept: "text/html,application/xhtml+xml", status: http.StatusOK, contains: "observatory", cachePart: "no-cache"},
 		{name: "asset", path: "/_nuxt/app.js", accept: "*/*", status: http.StatusOK, contains: "export default", cachePart: "immutable"},
 		{name: "API", path: "/api/v2/health/live", accept: "text/html", status: http.StatusTeapot, contains: "api:/api/v2/health/live"},
+		{name: "connectivity API", path: "/v1/ip", accept: "text/html", status: http.StatusTeapot, contains: "api:/v1/ip"},
 		{name: "schema", path: "/schemas/Health.json", accept: "text/html", status: http.StatusTeapot, contains: "api:/schemas/Health.json"},
 		{name: "missing asset", path: "/missing.png", accept: "image/png", status: http.StatusTeapot, contains: "api:/missing.png"},
 	}

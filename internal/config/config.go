@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -10,19 +11,27 @@ import (
 )
 
 type Config struct {
-	Host        string
-	Port        int
-	WebRoot     string
-	SiteURL     string
-	LogLevel    string
-	LogFormat   string
-	DatabaseURL string
-	RedisURL    string
-	S3          S3Config
-	Worker      WorkerConfig
-	Chromaprint ChromaprintConfig
-	Providers   ProvidersConfig
-	Captcha     CaptchaConfig
+	Host         string
+	Port         int
+	WebRoot      string
+	SiteURL      string
+	LogLevel     string
+	LogFormat    string
+	DatabaseURL  string
+	RedisURL     string
+	S3           S3Config
+	Worker       WorkerConfig
+	Chromaprint  ChromaprintConfig
+	Providers    ProvidersConfig
+	Captcha      CaptchaConfig
+	Connectivity ConnectivityConfig
+}
+
+// ConnectivityConfig defines which immediate reverse proxies may supply the
+// caller address used by the outside-in connectivity probe. Header values are
+// ignored unless request.RemoteAddr belongs to one of these networks.
+type ConnectivityConfig struct {
+	TrustedProxyCIDRs []string
 }
 
 // CaptchaConfig enables the self-hosted proof-of-work captcha on register/login
@@ -323,6 +332,10 @@ func Load() (Config, error) {
 		},
 		Worker:  WorkerConfig{MaxWorkers: maxWorkers},
 		Captcha: CaptchaConfig{Secret: env("HEYA_METADATA_CAPTCHA_SECRET", "")},
+		Connectivity: ConnectivityConfig{TrustedProxyCIDRs: envList(
+			"HEYA_METADATA_CONNECTIVITY_TRUSTED_PROXIES",
+			"127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16",
+		)},
 		Chromaprint: ChromaprintConfig{
 			FPCalcPath: env("HEYA_METADATA_FPCALC_PATH", ""), MaxPerRelease: chromaprintMax,
 		},
@@ -432,7 +445,27 @@ func envBool(key string, fallback bool) (bool, error) {
 	return parsed, nil
 }
 
+func envList(key, fallback string) []string {
+	value := env(key, fallback)
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
 func (c Config) Validate() error {
+	for _, rawPrefix := range c.Connectivity.TrustedProxyCIDRs {
+		if _, err := netip.ParsePrefix(rawPrefix); err != nil {
+			return fmt.Errorf("HEYA_METADATA_CONNECTIVITY_TRUSTED_PROXIES contains invalid CIDR %q: %w", rawPrefix, err)
+		}
+	}
 	if _, err := url.ParseRequestURI(c.DatabaseURL); err != nil {
 		return fmt.Errorf("HEYA_METADATA_DATABASE_URL is invalid: %w", err)
 	}

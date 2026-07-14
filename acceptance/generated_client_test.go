@@ -87,6 +87,62 @@ func TestGeneratedClientDecodesTypedAcceptedResponses(t *testing.T) {
 	}
 }
 
+func TestGeneratedClientDecodesConnectivityResponses(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		parse  func(*http.Response) (bool, error)
+	}{
+		{
+			name:   "check success",
+			status: http.StatusOK,
+			body:   `{"observed_ip":"84.23.101.7","reachable":true,"verified":true,"latency_ms":23,"tls":null,"error":null}`,
+			parse: func(response *http.Response) (bool, error) {
+				parsed, err := heyametadata.ParseConnectivityCheckResponse(response)
+				return parsed != nil && parsed.JSON200 != nil && parsed.JSON200.Verified && parsed.JSON200.ObservedIp == "84.23.101.7", err
+			},
+		},
+		{
+			name:   "check rate limit",
+			status: http.StatusTooManyRequests,
+			body:   `{"retry_after_seconds":15}`,
+			parse: func(response *http.Response) (bool, error) {
+				parsed, err := heyametadata.ParseConnectivityCheckResponse(response)
+				return parsed != nil && parsed.JSON429 != nil && parsed.JSON429.RetryAfterSeconds == 15, err
+			},
+		},
+		{
+			name:   "IP success",
+			status: http.StatusOK,
+			body:   `{"ip":"84.23.101.7"}`,
+			parse: func(response *http.Response) (bool, error) {
+				parsed, err := heyametadata.ParseConnectivityIpResponse(response)
+				return parsed != nil && parsed.JSON200 != nil && parsed.JSON200.Ip == "84.23.101.7", err
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			response := &http.Response{
+				Status:     http.StatusText(test.status),
+				StatusCode: test.status,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(test.body)),
+			}
+			decoded, err := test.parse(response)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !decoded {
+				t.Fatal("generated response did not populate the expected connectivity body")
+			}
+		})
+	}
+}
+
 func TestGeneratedClientDecodesRetryableDiscoveryFailure(t *testing.T) {
 	body := `{"id":"00000000-0000-4000-8000-000000000001","state":"failed","error":"upstream unavailable","expires_at":"2026-07-14T00:00:00Z"}`
 	for _, test := range []struct {

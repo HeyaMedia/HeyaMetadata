@@ -659,6 +659,40 @@ type CollectionsOutputBody struct {
 	Collections *[]CollectionCard `json:"collections"`
 }
 
+// ConnectivityCheckRequest defines model for ConnectivityCheckRequest.
+type ConnectivityCheckRequest struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema    *string `json:"$schema,omitempty"`
+	Challenge string  `json:"challenge"`
+	Port      int64   `json:"port"`
+}
+
+// ConnectivityCheckResult defines model for ConnectivityCheckResult.
+type ConnectivityCheckResult struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema     *string     `json:"$schema,omitempty"`
+	Error      *ProbeError `json:"error,omitempty"`
+	LatencyMs  int64       `json:"latency_ms"`
+	ObservedIp string      `json:"observed_ip"`
+	Reachable  bool        `json:"reachable"`
+	Tls        *TLSInfo    `json:"tls,omitempty"`
+	Verified   bool        `json:"verified"`
+}
+
+// ConnectivityIPResult defines model for ConnectivityIPResult.
+type ConnectivityIPResult struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema *string `json:"$schema,omitempty"`
+	Ip     string  `json:"ip"`
+}
+
+// ConnectivityRateLimitResponse defines model for ConnectivityRateLimitResponse.
+type ConnectivityRateLimitResponse struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema            *string `json:"$schema,omitempty"`
+	RetryAfterSeconds int64   `json:"retry_after_seconds"`
+}
+
 // CreatedAPIKey defines model for CreatedAPIKey.
 type CreatedAPIKey struct {
 	CreatedAt time.Time          `json:"created_at"`
@@ -1176,6 +1210,12 @@ type PersonSummary struct {
 	ProfileImageId *openapi_types.UUID `json:"profile_image_id,omitempty"`
 }
 
+// ProbeError defines model for ProbeError.
+type ProbeError struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
+}
+
 // Rating defines model for Rating.
 type Rating struct {
 	ScaleMax float64 `json:"scale_max"`
@@ -1357,6 +1397,13 @@ type StatsOutputBody struct {
 	ProviderClaims     map[string]int64 `json:"provider_claims"`
 	ProviderRecords    int64            `json:"provider_records"`
 	Stale              int64            `json:"stale"`
+}
+
+// TLSInfo defines model for TLSInfo.
+type TLSInfo struct {
+	LeafSha256 string    `json:"leaf_sha256"`
+	Sans       *[]string `json:"sans"`
+	SelfSigned bool      `json:"self_signed"`
 }
 
 // Text defines model for Text.
@@ -2069,6 +2116,9 @@ type ResolveEntityJSONRequestBody = ResolutionInputBody
 // DiscoverTvShowJSONRequestBody defines body for DiscoverTvShow for application/json ContentType.
 type DiscoverTvShowJSONRequestBody = DedicatedDiscoveryRequest
 
+// ConnectivityCheckJSONRequestBody defines body for ConnectivityCheck for application/json ContentType.
+type ConnectivityCheckJSONRequestBody = ConnectivityCheckRequest
+
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
 
@@ -2321,6 +2371,14 @@ type ClientInterface interface {
 
 	// TvShowDetail request
 	TvShowDetail(ctx context.Context, id openapi_types.UUID, params *TvShowDetailParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ConnectivityCheckWithBody request with any body
+	ConnectivityCheckWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ConnectivityCheck(ctx context.Context, body ConnectivityCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ConnectivityIp request
+	ConnectivityIp(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) AdminJobs(ctx context.Context, params *AdminJobsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -3081,6 +3139,42 @@ func (c *Client) DiscoverTvShow(ctx context.Context, params *DiscoverTvShowParam
 
 func (c *Client) TvShowDetail(ctx context.Context, id openapi_types.UUID, params *TvShowDetailParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewTvShowDetailRequest(c.Server, id, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ConnectivityCheckWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConnectivityCheckRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ConnectivityCheck(ctx context.Context, body ConnectivityCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConnectivityCheckRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ConnectivityIp(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConnectivityIpRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -7289,6 +7383,73 @@ func NewTvShowDetailRequest(server string, id openapi_types.UUID, params *TvShow
 	return req, nil
 }
 
+// NewConnectivityCheckRequest calls the generic ConnectivityCheck builder with application/json body
+func NewConnectivityCheckRequest(server string, body ConnectivityCheckJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewConnectivityCheckRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewConnectivityCheckRequestWithBody generates requests for ConnectivityCheck with any type of body
+func NewConnectivityCheckRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/check")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewConnectivityIpRequest generates requests for ConnectivityIp
+func NewConnectivityIpRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/ip")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -7511,6 +7672,14 @@ type ClientWithResponsesInterface interface {
 
 	// TvShowDetailWithResponse request
 	TvShowDetailWithResponse(ctx context.Context, id openapi_types.UUID, params *TvShowDetailParams, reqEditors ...RequestEditorFn) (*TvShowDetailResponse, error)
+
+	// ConnectivityCheckWithBodyWithResponse request with any body
+	ConnectivityCheckWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConnectivityCheckResponse, error)
+
+	ConnectivityCheckWithResponse(ctx context.Context, body ConnectivityCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*ConnectivityCheckResponse, error)
+
+	// ConnectivityIpWithResponse request
+	ConnectivityIpWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ConnectivityIpResponse, error)
 }
 
 type AdminJobsResponse struct {
@@ -9161,6 +9330,68 @@ func (r TvShowDetailResponse) ContentType() string {
 	return ""
 }
 
+type ConnectivityCheckResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ConnectivityCheckResult
+	JSON429      *ConnectivityRateLimitResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ConnectivityCheckResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ConnectivityCheckResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ConnectivityCheckResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ConnectivityIpResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ConnectivityIPResult
+	JSON429      *ConnectivityRateLimitResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ConnectivityIpResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ConnectivityIpResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ConnectivityIpResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // AdminJobsWithResponse request returning *AdminJobsResponse
 func (c *ClientWithResponses) AdminJobsWithResponse(ctx context.Context, params *AdminJobsParams, reqEditors ...RequestEditorFn) (*AdminJobsResponse, error) {
 	rsp, err := c.AdminJobs(ctx, params, reqEditors...)
@@ -9723,6 +9954,32 @@ func (c *ClientWithResponses) TvShowDetailWithResponse(ctx context.Context, id o
 		return nil, err
 	}
 	return ParseTvShowDetailResponse(rsp)
+}
+
+// ConnectivityCheckWithBodyWithResponse request with arbitrary body returning *ConnectivityCheckResponse
+func (c *ClientWithResponses) ConnectivityCheckWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConnectivityCheckResponse, error) {
+	rsp, err := c.ConnectivityCheckWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConnectivityCheckResponse(rsp)
+}
+
+func (c *ClientWithResponses) ConnectivityCheckWithResponse(ctx context.Context, body ConnectivityCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*ConnectivityCheckResponse, error) {
+	rsp, err := c.ConnectivityCheck(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConnectivityCheckResponse(rsp)
+}
+
+// ConnectivityIpWithResponse request returning *ConnectivityIpResponse
+func (c *ClientWithResponses) ConnectivityIpWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ConnectivityIpResponse, error) {
+	rsp, err := c.ConnectivityIp(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConnectivityIpResponse(rsp)
 }
 
 // ParseAdminJobsResponse parses an HTTP response from a AdminJobsWithResponse call
@@ -11687,6 +11944,72 @@ func ParseTvShowDetailResponse(rsp *http.Response) (*TvShowDetailResponse, error
 			return nil, err
 		}
 		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseConnectivityCheckResponse parses an HTTP response from a ConnectivityCheckWithResponse call
+func ParseConnectivityCheckResponse(rsp *http.Response) (*ConnectivityCheckResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ConnectivityCheckResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConnectivityCheckResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ConnectivityRateLimitResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseConnectivityIpResponse parses an HTTP response from a ConnectivityIpWithResponse call
+func ParseConnectivityIpResponse(rsp *http.Response) (*ConnectivityIpResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ConnectivityIpResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConnectivityIPResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ConnectivityRateLimitResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
 
 	}
 

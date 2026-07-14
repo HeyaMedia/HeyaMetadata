@@ -23,6 +23,8 @@ func New(backend, frontend *url.URL, logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/api", api)
 	mux.Handle("/api/", api)
+	mux.Handle("/v1", api)
+	mux.Handle("/v1/", api)
 	// robots.txt and sitemap.xml are authored by the Go backend so dev matches
 	// prod; everything else is the Nuxt dev server.
 	mux.Handle("/robots.txt", api)

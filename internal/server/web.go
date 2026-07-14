@@ -95,5 +95,5 @@ func WithWebUI(api http.Handler, root string, runtime *platform.Runtime, siteURL
 }
 
 func isAPIPath(value string) bool {
-	return value == "/api" || strings.HasPrefix(value, "/api/") || value == "/schemas" || strings.HasPrefix(value, "/schemas/")
+	return value == "/api" || strings.HasPrefix(value, "/api/") || value == "/v1" || strings.HasPrefix(value, "/v1/") || value == "/schemas" || strings.HasPrefix(value, "/schemas/")
 }

@@ -23,6 +23,8 @@ func TestRoutesAPIAndWebTraffic(t *testing.T) {
 	}{
 		{path: "/api", want: "api:/api"},
 		{path: "/api/v2/health/live", want: "api:/api/v2/health/live"},
+		{path: "/v1/ip", want: "api:/v1/ip"},
+		{path: "/v1/check", want: "api:/v1/check"},
 		{path: "/", want: "web:/"},
 		{path: "/_nuxt/client.js", want: "web:/_nuxt/client.js"},
 	} {

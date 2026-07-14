@@ -56,6 +56,15 @@ func TestConfigValidateRejectsInvalidDependencyURLs(t *testing.T) {
 	}
 }
 
+func TestConfigValidateRejectsInvalidConnectivityProxyCIDR(t *testing.T) {
+	t.Parallel()
+	config := validConfig()
+	config.Connectivity.TrustedProxyCIDRs = []string{"not-a-network"}
+	if err := config.Validate(); err == nil {
+		t.Fatal("expected invalid trusted proxy CIDR to be rejected")
+	}
+}
+
 func TestConfigValidateRejectsInvalidMusicBrainzPolicy(t *testing.T) {
 	t.Parallel()
 	for name, mutate := range map[string]func(*Config){

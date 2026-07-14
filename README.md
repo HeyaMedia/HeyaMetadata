@@ -39,9 +39,10 @@ origin and two private hot-reloading services:
 | — | River worker under Air | Restarts from the same rebuilt Go binary |
 | `3032` | Nuxt/Vite | Frontend HMR |
 
-The proxy sends `/api` and `/api/*` to Go and everything else to Nuxt. It stays
-running while Air replaces the backend. In the `mprocs` UI, press `r` on the
-proxy pane when changing the proxy implementation itself.
+The proxy sends `/api`, `/api/*`, and the public connectivity routes under
+`/v1/*` to Go and everything else to Nuxt. It stays running while Air replaces
+the backend. In the `mprocs` UI, press `r` on the proxy pane when changing the
+proxy implementation itself.
 
 The Nuxt app is the Metadata Observatory: a development workbench for local
 query search, identifier-first discovery, optional candidate resolution, River
@@ -61,6 +62,11 @@ Development URLs:
 - Readiness: <http://127.0.0.1:3030/api/v2/health/ready>
 - Search: <http://127.0.0.1:3030/api/v2/search?q=matrix>
 - Changes: <http://127.0.0.1:3030/api/v2/changes>
+- Observed public IP: <http://127.0.0.1:3030/v1/ip> (requires a trusted proxy header in local development)
+
+The server also exposes the source-IP-only outside-in probe used by Heya's
+remote-access setup. Its contract and proxy configuration are documented in
+[`docs/connectivity-check.md`](./docs/connectivity-check.md).
 
 Run individual processes in separate terminals when needed:
 

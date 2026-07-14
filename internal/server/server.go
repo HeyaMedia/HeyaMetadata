@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/connectivity"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -40,7 +41,16 @@ func newServer(version string, checker ReadinessChecker, runtime *platform.Runti
 	config.DocsRenderer = huma.DocsRendererScalar
 
 	api := humago.New(mux, config)
+	trustedProxies := []string{"127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
+	if runtime != nil {
+		trustedProxies = runtime.Config.Connectivity.TrustedProxyCIDRs
+	}
+	clientIPs, err := connectivity.NewClientIPResolver(trustedProxies)
+	if err != nil {
+		panic(fmt.Sprintf("configure connectivity client IP resolver: %v", err))
+	}
 	registerHealth(api, version, checker)
+	registerConnectivity(api, runtime, clientIPs)
 	registerAuth(api, runtime)
 	registerMovies(api, runtime)
 	registerImages(api, runtime)
@@ -54,7 +64,7 @@ func newServer(version string, checker ReadinessChecker, runtime *platform.Runti
 	registerPersons(api, runtime)
 	registerAdmin(api, runtime)
 
-	return &Server{handler: cacheHeaders(mux), api: api}
+	return &Server{handler: captureRequestDetails(cacheHeaders(mux)), api: api}
 }
 
 func (s *Server) Handler() http.Handler {
