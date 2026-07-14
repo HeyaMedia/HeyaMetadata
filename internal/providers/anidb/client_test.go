@@ -2,6 +2,7 @@ package anidb
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,32 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/config"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 )
+
+func TestBannedResponseDefersFollowingNetworkRequests(t *testing.T) {
+	t.Parallel()
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		_, _ = writer.Write([]byte(`<error>Banned</error>`))
+	}))
+	defer server.Close()
+	client := New(config.AniDBConfig{BaseURL: server.URL, Client: "heyatest", ClientVersion: 1})
+	payloads, err := client.Collect(context.Background(), providers.Identifier{Provider: "anidb", Namespace: "anime", Value: "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payloads) != 1 || payloads[0].StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("payloads: %+v", payloads)
+	}
+	_, err = client.Collect(context.Background(), providers.Identifier{Provider: "anidb", Namespace: "anime", Value: "2"})
+	var statusError *providers.StatusError
+	if !errors.As(err, &statusError) || statusError.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("second request error: %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("network requests: got %d, want 1", requests)
+	}
+}
 
 func TestCollectorSendsRegisteredClientButSharesContentIdentity(t *testing.T) {
 	t.Parallel()
@@ -34,9 +61,9 @@ func TestCollectorSendsRegisteredClientButSharesContentIdentity(t *testing.T) {
 	}
 }
 
-func TestLogicalErrorIsNotReusable(t *testing.T) {
+func TestOtherLogicalErrorIsNotReusable(t *testing.T) {
 	t.Parallel()
-	payload := providers.Payload{StatusCode: http.StatusOK, Body: []byte(`<error>Banned</error>`)}
+	payload := providers.Payload{StatusCode: http.StatusOK, Body: []byte(`<error>Invalid request</error>`)}
 	classify("1")(&payload)
 	if payload.StatusCode != http.StatusOK {
 		t.Fatalf("status: got %d, want %d", payload.StatusCode, http.StatusOK)
@@ -54,6 +81,18 @@ func TestAnimeNotFoundEnvelopeIsClassifiedAsNotFound(t *testing.T) {
 		t.Fatalf("status: got %d, want %d", payload.StatusCode, http.StatusNotFound)
 	}
 	if payload.ReuseDurationOverride == nil || *payload.ReuseDurationOverride != time.Hour {
+		t.Fatalf("reuse: %+v", payload.ReuseDurationOverride)
+	}
+}
+
+func TestBannedEnvelopeIsClassifiedAsRateLimited(t *testing.T) {
+	t.Parallel()
+	payload := providers.Payload{StatusCode: http.StatusOK, Body: []byte(`<error>Banned</error>`)}
+	classify("1")(&payload)
+	if payload.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status: got %d, want %d", payload.StatusCode, http.StatusTooManyRequests)
+	}
+	if payload.ReuseDurationOverride == nil || *payload.ReuseDurationOverride != 0 {
 		t.Fatalf("reuse: %+v", payload.ReuseDurationOverride)
 	}
 }

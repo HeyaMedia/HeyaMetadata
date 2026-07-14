@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
@@ -84,9 +83,10 @@ func (w *SourceCollectWorker) Work(ctx context.Context, job *river.Job[SourceCol
 			case http.StatusNotFound:
 				_ = providercredentials.Delete(context.WithoutCancel(ctx), w.runtime.Redis, job.Args.CredentialRef)
 				return river.JobCancel(err)
-			case http.StatusTooManyRequests:
-				return river.JobSnooze(2 * time.Minute)
 			}
+		}
+		if snooze, ok := providerRateLimitSnooze(err); ok {
+			return snooze
 		}
 		return err
 	}

@@ -77,7 +77,7 @@ func (w *DiscoverySearchWorker) Work(ctx context.Context, job *river.Job[Discove
 	var result discovery.Result
 	identifierResult, handled, err := w.service.ResolveFreshIdentifiers(ctx, run.Request, job.ID, credentials)
 	if err != nil {
-		return err
+		return discoveryWorkError(err)
 	}
 	if handled {
 		if identifierResult.Kind == discovery.KindArtist && identifierResult.EntityID != "" {
@@ -118,7 +118,7 @@ func (w *DiscoverySearchWorker) Work(ctx context.Context, job *river.Job[Discove
 		return fmt.Errorf("discovery kind %q is not implemented", run.Request.Kind)
 	}
 	if err != nil {
-		return err
+		return discoveryWorkError(err)
 	}
 	result.IdentifierEvidence = identifierResult.IdentifierEvidence
 	discovery.FinalizeSearchResult(&result)
@@ -181,5 +181,16 @@ func shouldFailDiscoveryRun(job *river.Job[DiscoverySearchArgs], workErr error) 
 		return false
 	}
 	var cancelErr *river.JobCancelError
+	var snoozeErr *river.JobSnoozeError
+	if errors.As(workErr, &snoozeErr) {
+		return false
+	}
 	return job.Attempt >= job.MaxAttempts || errors.As(workErr, &cancelErr)
+}
+
+func discoveryWorkError(err error) error {
+	if snooze, ok := providerRateLimitSnooze(err); ok {
+		return snooze
+	}
+	return err
 }

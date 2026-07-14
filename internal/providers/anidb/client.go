@@ -17,6 +17,11 @@ import (
 
 var clientPattern = regexp.MustCompile(`^[a-z]{4,16}$`)
 
+const (
+	requestsPerSecond = 0.2
+	bannedCooldown    = 30 * time.Minute
+)
+
 type Client struct {
 	config config.AniDBConfig
 	http   *providers.HTTPClient
@@ -35,7 +40,10 @@ func newClient(config config.AniDBConfig, client *providers.HTTPClient) *Client 
 	return &Client{
 		config: config,
 		http:   client,
-		gate:   providers.SharedRequestGate("anidb:"+config.BaseURL, 0.5),
+		// AniDB's two-second interval is an absolute short-term ceiling, not
+		// a safe sustained batch rate. Keep the conservative five-second
+		// cadence used by the original service.
+		gate: providers.SharedRequestGate("anidb:"+config.BaseURL, requestsPerSecond),
 	}
 }
 
@@ -85,8 +93,14 @@ func (c *Client) Collect(ctx context.Context, identifier providers.Identifier) (
 		if !clientPattern.MatchString(strings.ToLower(c.config.Client)) {
 			return fmt.Errorf("AniDB requires a registered 4-16 letter HEYA_METADATA_ANIDB_CLIENT")
 		}
+		if c.gate.DeferredFor() > 0 {
+			return &providers.StatusError{Provider: "anidb", StatusCode: http.StatusTooManyRequests}
+		}
 		return c.gate.Wait(ctx)
 	}, classify(identifier.Value))
+	if err == nil && !payload.FromCache && payload.StatusCode == http.StatusTooManyRequests {
+		c.gate.Defer(bannedCooldown)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -133,13 +147,18 @@ func classify(expectedID string) func(*providers.Payload) {
 		}
 		if envelope.XMLName.Local == "error" {
 			duration := time.Duration(0)
-			if strings.Contains(strings.ToLower(envelope.Message), "not found") {
+			message := strings.ToLower(envelope.Message)
+			if strings.Contains(message, "not found") {
 				// AniDB transports a missing anime as an HTTP 200 XML error
 				// envelope. Convert that application-level result into the
 				// provider status understood by discovery so a bad AID is
 				// treated as unused evidence instead of a retryable parse error.
 				payload.StatusCode = http.StatusNotFound
 				duration = time.Hour
+			} else if strings.Contains(message, "banned") {
+				// The HTTP API also transports bans as HTTP 200. Expose a
+				// rate-limit status to River and do not cache the error body.
+				payload.StatusCode = http.StatusTooManyRequests
 			}
 			payload.ReuseDurationOverride = &duration
 			return

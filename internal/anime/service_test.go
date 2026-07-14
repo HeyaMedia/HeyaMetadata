@@ -26,6 +26,21 @@ func TestNormalizeTreatsLegacyCachedNotFoundEnvelopeAsNotFound(t *testing.T) {
 	}
 }
 
+func TestNormalizeTreatsLegacyCachedBannedEnvelopeAsRateLimited(t *testing.T) {
+	t.Parallel()
+	_, err := normalize(providers.Payload{
+		StatusCode: http.StatusOK,
+		Body:       []byte(`<error>Banned</error>`),
+	})
+	var statusError *providers.StatusError
+	if !errors.As(err, &statusError) {
+		t.Fatalf("error: got %v, want provider status error", err)
+	}
+	if statusError.Provider != "anidb" || statusError.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status error: %+v", statusError)
+	}
+}
+
 func TestNormalizePreservesNamedAniDBNumberingSchemes(t *testing.T) {
 	payload := providers.Payload{ObservationID: "obs", ObservedAt: time.Unix(1, 0), StatusCode: http.StatusOK, Body: []byte(`<anime id="23"><type>TV Series</type><episodecount>1</episodecount><startdate>1998-01-01</startdate><titles><title xml:lang="x-jat" type="main">Cowboy Bebop</title><title xml:lang="ja" type="official">カウボーイビバップ</title></titles><tags><tag weight="600"><name>space</name></tag><tag weight="200"><name>noise</name></tag></tags><episodes><episode id="2"><epno type="2">S1</epno><title xml:lang="en">Special</title></episode><episode id="1"><epno type="1">1</epno><title xml:lang="en">Episode One</title></episode></episodes></anime>`)}
 	record, err := normalize(payload)

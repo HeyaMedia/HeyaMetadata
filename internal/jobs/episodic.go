@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	animeservice "github.com/HeyaMedia/HeyaMetadata/internal/anime"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
@@ -115,9 +114,9 @@ func classifyEpisodicError(label string, err error) error {
 		if status.StatusCode == http.StatusNotFound {
 			return river.JobCancel(wrapped)
 		}
-		if status.StatusCode == http.StatusTooManyRequests {
-			return river.JobSnooze(2 * time.Minute)
-		}
+	}
+	if snooze, ok := providerRateLimitSnooze(err); ok {
+		return snooze
 	}
 	return wrapped
 }

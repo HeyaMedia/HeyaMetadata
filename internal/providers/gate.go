@@ -11,9 +11,10 @@ import (
 // concurrent jobs cannot accidentally multiply a provider's configured rate.
 // It belongs in HTTPClient's prepare callback so cache hits never wait.
 type RequestGate struct {
-	mu       sync.Mutex
-	interval time.Duration
-	next     time.Time
+	mu            sync.Mutex
+	interval      time.Duration
+	next          time.Time
+	deferredUntil time.Time
 }
 
 var sharedRequestGates = struct {
@@ -45,20 +46,26 @@ func SharedRequestGate(key string, requestsPerSecond float64) *RequestGate {
 }
 
 func (g *RequestGate) Wait(ctx context.Context) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	wait := time.Until(g.next)
-	if wait > 0 {
+	for {
+		g.mu.Lock()
+		wait := time.Until(g.next)
+		if wait <= 0 {
+			g.next = time.Now().Add(g.interval)
+			g.mu.Unlock()
+			return nil
+		}
+		g.mu.Unlock()
+
 		timer := time.NewTimer(wait)
-		defer timer.Stop()
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return ctx.Err()
 		case <-timer.C:
 		}
+		// Re-check under the lock: a provider response may have extended
+		// the gate while this caller was waiting for ordinary spacing.
 	}
-	g.next = time.Now().Add(g.interval)
-	return nil
 }
 
 // Defer pauses every caller sharing this gate. Providers use it when an
@@ -73,4 +80,20 @@ func (g *RequestGate) Defer(delay time.Duration) {
 	if next.After(g.next) {
 		g.next = next
 	}
+	if next.After(g.deferredUntil) {
+		g.deferredUntil = next
+	}
+}
+
+// DeferredFor reports an explicit provider-requested cooldown without
+// including the gate's ordinary request spacing. Callers can use it to snooze
+// durable work instead of occupying a worker while a long cooldown elapses.
+func (g *RequestGate) DeferredFor() time.Duration {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	remaining := time.Until(g.deferredUntil)
+	if remaining <= 0 {
+		return 0
+	}
+	return remaining
 }

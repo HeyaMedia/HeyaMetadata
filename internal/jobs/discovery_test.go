@@ -3,6 +3,7 @@ package jobs
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/discovery"
 	"github.com/riverqueue/river"
@@ -31,6 +32,9 @@ func TestDiscoveryRunFailsOnlyOnTerminalWorkerError(t *testing.T) {
 	job.Attempt = job.MaxAttempts
 	if !shouldFailDiscoveryRun(job, providerFailure) {
 		t.Fatal("exhausted job did not fail its discovery")
+	}
+	if shouldFailDiscoveryRun(job, river.JobSnooze(30*time.Minute)) {
+		t.Fatal("snoozed rate-limited job was exposed as a failed discovery")
 	}
 
 	job.Attempt = 1

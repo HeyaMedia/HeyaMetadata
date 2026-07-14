@@ -218,11 +218,15 @@ func normalize(payload providers.Payload) (episodic.NormalizedRecord, error) {
 		return episodic.NormalizedRecord{}, err
 	}
 	if value.XMLName.Local == "error" {
-		if strings.Contains(strings.ToLower(value.ErrorMessage), "not found") {
+		message := strings.ToLower(value.ErrorMessage)
+		if strings.Contains(message, "not found") {
 			// Cached observations created before application-level AniDB errors
 			// were classified may still carry HTTP 200. Preserve correct
 			// not-found semantics while those observations age out.
 			return episodic.NormalizedRecord{}, &providers.StatusError{Provider: "anidb", StatusCode: http.StatusNotFound}
+		}
+		if strings.Contains(message, "banned") {
+			return episodic.NormalizedRecord{}, &providers.StatusError{Provider: "anidb", StatusCode: http.StatusTooManyRequests}
 		}
 		return episodic.NormalizedRecord{}, fmt.Errorf("AniDB error response: %s", strings.TrimSpace(value.ErrorMessage))
 	}
