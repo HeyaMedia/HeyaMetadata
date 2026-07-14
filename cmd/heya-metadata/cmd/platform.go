@@ -38,21 +38,17 @@ func newMigrateCommand() *cobra.Command {
 				return fmt.Errorf("connect to Postgres: %w", err)
 			}
 
-			appMigrations, err := migrations.MigrateApp(cmd.Context(), runtime.DB)
-			if err != nil {
-				return err
-			}
-			riverResult, err := migrations.MigrateRiver(cmd.Context(), runtime.DB)
+			result, err := migrations.Migrate(cmd.Context(), runtime.DB)
 			if err != nil {
 				return err
 			}
 			if ui.JSONMode {
 				return ui.OutputJSON(map[string]any{
-					"application_migrations": len(appMigrations),
-					"river_migrations":       len(riverResult.Versions),
+					"application_migrations": len(result.Application),
+					"river_migrations":       len(result.River.Versions),
 				})
 			}
-			ui.Success("Applied %d application and %d River migrations", len(appMigrations), len(riverResult.Versions))
+			ui.Success("Applied %d application and %d River migrations", len(result.Application), len(result.River.Versions))
 			return nil
 		},
 	})

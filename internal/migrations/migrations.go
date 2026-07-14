@@ -33,6 +33,11 @@ type Status struct {
 	Pending []Migration
 }
 
+type Result struct {
+	Application []Migration
+	River       *rivermigrate.MigrateResult
+}
+
 func Load() ([]Migration, error) {
 	entries, err := fs.ReadDir(migrationFiles, "sql")
 	if err != nil {
@@ -182,4 +187,19 @@ func MigrateRiver(ctx context.Context, pool *pgxpool.Pool) (*rivermigrate.Migrat
 		return nil, fmt.Errorf("migrate River: %w", err)
 	}
 	return result, nil
+}
+
+// Migrate installs the River schema before applying application migrations.
+// Some application migrations enqueue durable repair work directly into
+// river_job, so this ordering is required for a genuinely fresh database.
+func Migrate(ctx context.Context, pool *pgxpool.Pool) (Result, error) {
+	riverResult, err := MigrateRiver(ctx, pool)
+	if err != nil {
+		return Result{}, err
+	}
+	application, err := MigrateApp(ctx, pool)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Application: application, River: riverResult}, nil
 }
