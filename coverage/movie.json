@@ -320,9 +320,18 @@
       "id": "movie.change_feed.public_projection",
       "kind": "movie",
       "category": "capability",
-      "description": "A committed public movie projection change becomes observable through a gap-free durable cursor.",
+      "description": "A committed public movie projection change becomes observable through a gap-free durable cursor with a persistent stream identity and explicit head cursor.",
       "providers": ["system"],
       "projection": {"document": "change", "path": "sequence"},
+      "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "movie.change_feed.reset_safety",
+      "kind": "movie",
+      "category": "capability",
+      "description": "A replaced stream or cursor beyond the public head returns a typed conflict so consumers reset to zero and replay idempotently instead of stalling forever.",
+      "providers": ["system"],
+      "projection": {"document": "change", "path": "stream_id"},
       "references": [{"name": "The Matrix", "external_ids": {"tmdb": "603"}, "expected_providers": ["system"]}]
     },
     {

@@ -415,12 +415,21 @@ components:
         entries:
           items:
             $ref: "#/components/schemas/ChangeEntry"
-          nullable: true
           type: array
+        head_cursor:
+          format: int64
+          minimum: 0
+          type: integer
         next_cursor:
           format: int64
+          minimum: 0
           type: integer
+        stream_id:
+          format: uuid
+          type: string
       required:
+        - stream_id
+        - head_cursor
         - entries
         - next_cursor
       type: object
@@ -1167,6 +1176,9 @@ components:
           format: uri
           readOnly: true
           type: string
+        code:
+          description: Stable machine-readable problem code
+          type: string
         detail:
           description: A human-readable explanation specific to this occurrence of the problem.
           example: Property foo is required but is missing.
@@ -1177,6 +1189,11 @@ components:
             $ref: "#/components/schemas/ErrorDetail"
           nullable: true
           type: array
+        head_cursor:
+          description: Highest currently available public change cursor
+          format: int64
+          minimum: 0
+          type: integer
         instance:
           description: A URI reference that identifies the specific occurrence of the problem.
           example: https://example.com/error-log/abc123
@@ -1187,6 +1204,10 @@ components:
           example: 400
           format: int64
           type: integer
+        stream_id:
+          description: Current persistent change-stream identity
+          format: uuid
+          type: string
         title:
           description: A short, human-readable summary of the problem type. This value should not change between occurrences of the error.
           example: Bad Request
@@ -2808,6 +2829,9 @@ paths:
               schema: {}
           description: OK
           headers:
+            Server-Timing:
+              schema:
+                type: string
             Vary:
               schema:
                 type: string
@@ -3299,6 +3323,7 @@ paths:
         - Library
   /api/v2/changes:
     get:
+      description: Returns the persistent stream identity and current public head. Clients must reset to cursor zero and replay idempotently after change_stream_changed or change_cursor_ahead.
       operationId: public-changes
       parameters:
         - explode: false
@@ -3317,6 +3342,14 @@ paths:
             maximum: 500
             minimum: 1
             type: integer
+        - description: Previously observed stream identity; a mismatch returns change_stream_changed
+          explode: false
+          in: query
+          name: stream_id
+          schema:
+            description: Previously observed stream identity; a mismatch returns change_stream_changed
+            format: uuid
+            type: string
       responses:
         "200":
           content:
@@ -3324,6 +3357,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/ChangesOutputBody"
           description: OK
+          headers:
+            Server-Timing:
+              schema:
+                type: string
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: The supplied stream identity changed or the cursor is ahead of the available stream
+          headers:
+            Server-Timing:
+              description: Origin database/read-model phase duration
+              schema:
+                type: string
         default:
           content:
             application/problem+json:
@@ -3545,6 +3593,9 @@ paths:
               schema: {}
           description: OK
           headers:
+            Server-Timing:
+              schema:
+                type: string
             Vary:
               schema:
                 type: string
@@ -3799,6 +3850,9 @@ paths:
               schema: {}
           description: OK
           headers:
+            Server-Timing:
+              schema:
+                type: string
             Vary:
               schema:
                 type: string
@@ -3813,7 +3867,7 @@ paths:
         - Entities
   /api/v2/entities/{id}/credits:
     get:
-      description: Every credit carries a canonical Heya person_entity_id. Provider fields are passive provenance only.
+      description: Every credit carries a canonical Heya person_entity_id. Provider fields are passive provenance only. Pages may contain up to 5,000 credits while retaining offset/limit pagination.
       operationId: entity-credits
       parameters:
         - in: path
@@ -3846,7 +3900,7 @@ paths:
           schema:
             default: 100
             format: int64
-            maximum: 250
+            maximum: 5000
             minimum: 1
             type: integer
       responses:
@@ -3856,6 +3910,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/EntityCreditsOutputBody"
           description: OK
+          headers:
+            Server-Timing:
+              schema:
+                type: string
         default:
           content:
             application/problem+json:
@@ -3931,6 +3989,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/EntityImagesOutputBody"
           description: OK
+          headers:
+            Server-Timing:
+              schema:
+                type: string
         default:
           content:
             application/problem+json:
@@ -4816,6 +4878,9 @@ paths:
               schema: {}
           description: OK
           headers:
+            Server-Timing:
+              schema:
+                type: string
             Vary:
               schema:
                 type: string
@@ -4886,6 +4951,9 @@ paths:
               schema: {}
           description: OK
           headers:
+            Server-Timing:
+              schema:
+                type: string
             Vary:
               schema:
                 type: string
@@ -5011,6 +5079,9 @@ paths:
               schema: {}
           description: OK
           headers:
+            Server-Timing:
+              schema:
+                type: string
             Vary:
               schema:
                 type: string
@@ -5092,6 +5163,9 @@ paths:
               schema: {}
           description: OK
           headers:
+            Server-Timing:
+              schema:
+                type: string
             Vary:
               schema:
                 type: string
@@ -5495,6 +5569,9 @@ paths:
               schema: {}
           description: OK
           headers:
+            Server-Timing:
+              schema:
+                type: string
             Vary:
               schema:
                 type: string

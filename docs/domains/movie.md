@@ -378,7 +378,10 @@ version. Merge output is idempotent on its complete input version set.
 
 The canonical update, API-document update or rebuild marker, search update or
 rebuild marker, and unsequenced outbox row commit together. The sequencer later
-assigns a public change cursor.
+assigns a public change cursor. The public feed carries a database-lifetime
+stream UUID and explicit head cursor; consumers follow the reset-and-replay
+contract in [`docs/change-feed.md`](../change-feed.md) after rebuilds or snapshot
+rollback.
 
 ## Freshness and failure behavior
 

@@ -2,11 +2,15 @@ package server
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
+	"strconv"
 	"strings"
 )
+
+const compressionThreshold = 1024
 
 // cacheRecorder buffers successful API responses so cacheHeaders can attach a
 // stable ETag before anything is written to the client. The API documents are
@@ -109,6 +113,23 @@ func cacheHeaders(next http.Handler) http.Handler {
 			writer.Header().Set("Cache-Control", cacheControlFor(request.URL.Path))
 		}
 
+		if success && compressibleJSON(writer.Header(), body) {
+			appendVary(writer.Header(), "Accept-Encoding")
+			if acceptsEncoding(request.Header.Get("Accept-Encoding"), "gzip") {
+				var compressed bytes.Buffer
+				encoder := gzip.NewWriter(&compressed)
+				if _, err := encoder.Write(body); err == nil {
+					if err := encoder.Close(); err == nil {
+						body = compressed.Bytes()
+						writer.Header().Set("Content-Encoding", "gzip")
+						writer.Header().Del("Content-Length")
+					}
+				} else {
+					_ = encoder.Close()
+				}
+			}
+		}
+
 		if success && len(body) > 0 && writer.Header().Get("ETag") == "" && writer.Header().Get("Cache-Control") != "no-store" {
 			sum := sha256.Sum256(body)
 			etag := `"` + hex.EncodeToString(sum[:8]) + `"`
@@ -122,6 +143,54 @@ func cacheHeaders(next http.Handler) http.Handler {
 		writer.WriteHeader(recorder.status)
 		_, _ = writer.Write(body)
 	})
+}
+
+func compressibleJSON(header http.Header, body []byte) bool {
+	if len(body) < compressionThreshold || header.Get("Content-Encoding") != "" {
+		return false
+	}
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(header.Get("Content-Type"), ";")[0]))
+	return contentType == "application/json" || contentType == "application/problem+json" || strings.HasSuffix(contentType, "+json")
+}
+
+func acceptsEncoding(header, wanted string) bool {
+	wildcard := false
+	for _, item := range strings.Split(strings.ToLower(header), ",") {
+		parts := strings.Split(item, ";")
+		name := strings.TrimSpace(parts[0])
+		quality := 1.0
+		for _, parameter := range parts[1:] {
+			key, value, ok := strings.Cut(strings.TrimSpace(parameter), "=")
+			if ok && key == "q" {
+				parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+				if err != nil {
+					quality = 0
+				} else {
+					quality = parsed
+				}
+			}
+		}
+		if name == wanted {
+			return quality > 0
+		}
+		if name == "*" {
+			wildcard = quality > 0
+		}
+	}
+	return wildcard
+}
+
+func appendVary(header http.Header, value string) {
+	for _, existing := range strings.Split(header.Get("Vary"), ",") {
+		if strings.EqualFold(strings.TrimSpace(existing), value) {
+			return
+		}
+	}
+	if current := header.Get("Vary"); current != "" {
+		header.Set("Vary", current+", "+value)
+	} else {
+		header.Set("Vary", value)
+	}
 }
 
 func etagMatches(header, etag string) bool {

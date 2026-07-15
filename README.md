@@ -61,7 +61,7 @@ Development URLs:
 - Liveness: <http://127.0.0.1:3030/api/v2/health/live>
 - Readiness: <http://127.0.0.1:3030/api/v2/health/ready>
 - Search: <http://127.0.0.1:3030/api/v2/search?q=matrix>
-- Changes: <http://127.0.0.1:3030/api/v2/changes>
+- Changes: <http://127.0.0.1:3030/api/v2/changes> (persist both `stream_id` and `next_cursor`)
 - Observed public IP: <http://127.0.0.1:3030/v1/ip> (requires a trusted proxy header in local development)
 
 The server also exposes the source-IP-only outside-in probe used by Heya's
@@ -174,7 +174,7 @@ provider freshness, and the public change outbox.
 make movie-ingest TMDB_ID=603
 
 curl http://127.0.0.1:3030/api/v2/search?q=matrix
-curl http://127.0.0.1:3030/api/v2/changes?after=0
+curl 'http://127.0.0.1:3030/api/v2/changes?after=0&limit=500'
 
 # Provider-backed identity discovery with structured disambiguation hints.
 go run ./cmd/heya-metadata discover artist --query ano --country JP \

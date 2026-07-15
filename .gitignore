@@ -7,4 +7,5 @@
 *.log
 HANDOFF.md
 HeyaMetadataV2.md
-docs/
+docs/*
+!docs/change-feed.md

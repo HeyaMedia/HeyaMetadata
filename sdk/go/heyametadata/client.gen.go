@@ -617,9 +617,11 @@ type ChangeEntry struct {
 // ChangesOutputBody defines model for ChangesOutputBody.
 type ChangesOutputBody struct {
 	// Schema A URL to the JSON Schema for this object.
-	Schema     *string        `json:"$schema,omitempty"`
-	Entries    *[]ChangeEntry `json:"entries"`
-	NextCursor int64          `json:"next_cursor"`
+	Schema     *string            `json:"$schema,omitempty"`
+	Entries    []ChangeEntry      `json:"entries"`
+	HeadCursor int64              `json:"head_cursor"`
+	NextCursor int64              `json:"next_cursor"`
+	StreamId   openapi_types.UUID `json:"stream_id"`
 }
 
 // CollectionCard defines model for CollectionCard.
@@ -935,17 +937,26 @@ type ErrorModel struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema *string `json:"$schema,omitempty"`
 
+	// Code Stable machine-readable problem code
+	Code *string `json:"code,omitempty"`
+
 	// Detail A human-readable explanation specific to this occurrence of the problem.
 	Detail *string `json:"detail,omitempty"`
 
 	// Errors Optional list of individual error details
 	Errors *[]ErrorDetail `json:"errors,omitempty"`
 
+	// HeadCursor Highest currently available public change cursor
+	HeadCursor *int64 `json:"head_cursor,omitempty"`
+
 	// Instance A URI reference that identifies the specific occurrence of the problem.
 	Instance *string `json:"instance,omitempty"`
 
 	// Status HTTP status code
 	Status *int64 `json:"status,omitempty"`
+
+	// StreamId Current persistent change-stream identity
+	StreamId *openapi_types.UUID `json:"stream_id,omitempty"`
 
 	// Title A short, human-readable summary of the problem type. This value should not change between occurrences of the error.
 	Title *string `json:"title,omitempty"`
@@ -1602,6 +1613,9 @@ type BrowseLibraryParamsSort string
 type PublicChangesParams struct {
 	After *int64 `form:"after,omitempty" json:"after,omitempty"`
 	Limit *int64 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// StreamId Previously observed stream identity; a mismatch returns change_stream_changed
+	StreamId *openapi_types.UUID `form:"stream_id,omitempty" json:"stream_id,omitempty"`
 }
 
 // DiscoverComicParams defines parameters for DiscoverComic.
@@ -4140,6 +4154,18 @@ func NewPublicChangesRequest(server string, params *PublicChangesParams) (*http.
 		if params.Limit != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.StreamId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "stream_id", *params.StreamId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "uuid"}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -8119,6 +8145,7 @@ type PublicChangesResponse struct {
 	Body                          []byte
 	HTTPResponse                  *http.Response
 	JSON200                       *ChangesOutputBody
+	ApplicationproblemJSON409     *ErrorModel
 	ApplicationproblemJSONDefault *ErrorModel
 }
 
@@ -10659,6 +10686,13 @@ func ParsePublicChangesResponse(rsp *http.Response) (*PublicChangesResponse, err
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorModel

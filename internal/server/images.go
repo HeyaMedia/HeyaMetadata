@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/images"
 	"github.com/HeyaMedia/HeyaMetadata/internal/jobs"
@@ -32,7 +34,8 @@ type entityImagesInput struct {
 	Limit             int    `query:"limit" minimum:"1" maximum:"100" default:"25" doc:"Maximum candidates returned per artwork class"`
 }
 type entityImagesOutput struct {
-	Body struct {
+	ServerTiming string `header:"Server-Timing"`
+	Body         struct {
 		LanguagePreferences []string                      `json:"language_preferences"`
 		Selections          map[string]string             `json:"selections"`
 		Results             []images.EntityImageCandidate `json:"results"`
@@ -108,7 +111,19 @@ func registerImages(api huma.API, runtime *platform.Runtime) {
 		payload, _ := json.Marshal(jobResource{ID: inserted.Job.ID, Kind: jobs.ImageVariantKind, State: string(inserted.Job.State)})
 		return &imageOutput{Status: http.StatusAccepted, ContentType: "application/json", CacheControl: "no-store", RetryAfter: "1", Body: payload}, nil
 	})
-	huma.Register(api, huma.Operation{OperationID: "entity-images", Method: http.MethodGet, Path: "/api/v2/entities/{id}/images", Summary: "Select language-aware artwork for an entity", Description: "Ranks artwork within each class by requested language, neutral fallback, country, provider score, and dimensions. The selected candidate for every returned class is also exposed in selections so clients do not need to reproduce ranking rules.", Tags: []string{"Entities", "Images"}}, func(ctx context.Context, input *entityImagesInput) (*entityImagesOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "entity-images", Method: http.MethodGet, Path: "/api/v2/entities/{id}/images", Summary: "Select language-aware artwork for an entity", Description: "Ranks artwork within each class by requested language, neutral fallback, country, provider score, and dimensions. The selected candidate for every returned class is also exposed in selections so clients do not need to reproduce ranking rules.", Tags: []string{"Entities", "Images"}}, func(ctx context.Context, input *entityImagesInput) (output *entityImagesOutput, returnErr error) {
+		started := time.Now()
+		defer func() {
+			duration := time.Since(started)
+			if output != nil {
+				output.ServerTiming = serverTiming("images", duration)
+			}
+			returned := 0
+			if output != nil {
+				returned = len(output.Body.Results)
+			}
+			slog.InfoContext(ctx, "entity images read", "entity_id", input.ID, "class", input.Class, "returned_rows", returned, "duration_ms", duration.Milliseconds(), "error", returnErr)
+		}()
 		if service == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
@@ -125,7 +140,7 @@ func registerImages(api huma.API, runtime *platform.Runtime) {
 		}
 		preferences := images.LanguagePreferences(input.Language, input.FallbackLanguages, input.AcceptLanguage)
 		candidates = images.RankCandidates(candidates, preferences, input.Country)
-		output := &entityImagesOutput{}
+		output = &entityImagesOutput{}
 		output.Body.LanguagePreferences = preferences
 		output.Body.Selections = map[string]string{}
 		perClass := map[string]int{}

@@ -11,6 +11,15 @@ func jsonResponse(description, schemaRef string) *huma.Response {
 	}
 }
 
+func problemJSONResponse(description, schemaRef string) *huma.Response {
+	return &huma.Response{
+		Description: description,
+		Content: map[string]*huma.MediaType{
+			"application/problem+json": {Schema: &huma.Schema{Ref: schemaRef}},
+		},
+	}
+}
+
 func acceptedJSONResponse(schemaRef string) *huma.Response {
 	response := jsonResponse("Accepted for asynchronous processing", schemaRef)
 	return withRetryAfter(response)
@@ -27,6 +36,17 @@ func withRetryAfter(response *huma.Response) *huma.Response {
 			Description: "Suggested number of seconds before polling the returned resource or job",
 			Schema:      &huma.Schema{Type: "string"},
 		},
+	}
+	return response
+}
+
+func withServerTiming(response *huma.Response) *huma.Response {
+	if response.Headers == nil {
+		response.Headers = map[string]*huma.Param{}
+	}
+	response.Headers["Server-Timing"] = &huma.Param{
+		Description: "Origin database/read-model phase duration",
+		Schema:      &huma.Schema{Type: "string"},
 	}
 	return response
 }

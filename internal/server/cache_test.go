@@ -1,8 +1,11 @@
 package server
 
 import (
+	"compress/gzip"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -104,5 +107,56 @@ func TestCacheHeadersLetsReadyImagesOverrideDefault(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v2/images/00000000-0000-0000-0000-000000000000", nil))
 	if got := response.Header().Get("Cache-Control"); got != "public, max-age=604800" {
 		t.Fatalf("Cache-Control = %q", got)
+	}
+}
+
+func TestCacheHeadersCompressesLargeJSONWhenRequested(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte(`{"document":"` + strings.Repeat("metadata-", 512) + `"}`)
+	handler := cacheHeaders(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write(payload)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/api/v2/entities/00000000-0000-0000-0000-000000000000", nil)
+	request.Header.Set("Accept-Encoding", "gzip")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if got := response.Header().Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("Content-Encoding = %q", got)
+	}
+	if got := response.Header().Get("Vary"); !strings.Contains(got, "Accept-Encoding") {
+		t.Fatalf("Vary = %q", got)
+	}
+	reader, err := gzip.NewReader(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if string(decoded) != string(payload) {
+		t.Fatal("compressed response did not round-trip")
+	}
+}
+
+func TestCacheHeadersHonorsGzipQualityZero(t *testing.T) {
+	t.Parallel()
+
+	handler := cacheHeaders(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(strings.Repeat("x", compressionThreshold+1)))
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/api/v2/entities/00000000-0000-0000-0000-000000000000", nil)
+	request.Header.Set("Accept-Encoding", "gzip;q=0, *;q=1")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if got := response.Header().Get("Content-Encoding"); got != "" {
+		t.Fatalf("Content-Encoding = %q", got)
 	}
 }

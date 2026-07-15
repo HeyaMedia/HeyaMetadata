@@ -628,12 +628,14 @@ or “track” ID space.
 ### Credits and people
 
 ```http
-GET /api/v2/entities/{id}/credits?credit_type=cast&offset=0&limit=100
-GET /api/v2/entities/{id}/credits?credit_type=crew&offset=0&limit=100
+GET /api/v2/entities/{id}/credits?credit_type=cast&offset=0&limit=5000
+GET /api/v2/entities/{id}/credits?credit_type=crew&offset=0&limit=5000
 ```
 
 Credits apply to movie, TV, and anime entities. Every projected credit carries
-the canonical `person_entity_id`; link to:
+the canonical `person_entity_id`. The endpoint retains `total`, `offset`, and
+`limit` pagination while permitting pages of up to 5,000 credits, so unusually
+large shows do not require a long chain of sequential requests. Link to:
 
 ```http
 GET /api/v2/persons/{person_entity_id}
@@ -816,13 +818,44 @@ cold entities. HeyaMedia does not need its old metadata auto-refresher.
 For durable cache/index synchronization, consume:
 
 ```http
-GET /api/v2/changes?after={cursor}&limit=500
+GET /api/v2/changes?after={cursor}&limit=500&stream_id={last-seen-stream-id}
 ```
 
-Process `entries` idempotently in sequence order, then persist `next_cursor`
-only after the batch is committed locally. Entries contain entity ID/kind,
-slug, change type, changed scopes, and projection version. The feed is gap-free;
-do not substitute “latest updated_at” polling.
+The initial request may omit `stream_id`. Every successful page returns:
+
+```json
+{
+  "stream_id": "6e53b69c-d158-46a5-913d-6e4a5401bcf8",
+  "head_cursor": 32554,
+  "entries": [],
+  "next_cursor": 32554
+}
+```
+
+Persist `stream_id` beside the cursor and include it on subsequent requests.
+`head_cursor` is the highest currently available public sequence, or zero for
+an empty stream. Process `entries` idempotently in sequence order, then persist
+`next_cursor` only after the entire batch is committed locally. Entries contain
+entity ID/kind, slug, change type, changed scopes, and projection version. The
+feed is gap-free; do not substitute “latest updated_at” polling.
+
+The endpoint returns `409 application/problem+json` with the current
+`stream_id` and `head_cursor` when synchronization cannot safely continue:
+
+- `code: change_stream_changed` means the database was rebuilt and now has a
+  different stream identity;
+- `code: change_cursor_ahead` means the consumer cursor is newer than the
+  available public head, such as after restoring an older database snapshot.
+
+For either code, discard the stored cursor, reset it to zero, adopt the returned
+`stream_id`, and replay the feed idempotently. Do not continue from the old
+cursor. A cursor exactly equal to `head_cursor` is valid and returns an empty
+page.
+
+Large JSON reads support `Accept-Encoding: gzip`; keep normal HTTP automatic
+decompression enabled. Entity, credit, artwork-list, and change-feed responses
+also expose a `Server-Timing` database/read-model phase (`entity`, `credits`,
+`images`, or `changes`) so network time can be separated from origin work.
 
 Recommended cache key:
 
@@ -1006,7 +1039,7 @@ type MetadataResolver interface {
 type MetadataLibrary interface {
     Browse(context.Context, BrowseRequest) (Page[CanonicalSummary], error)
     Latest(context.Context, string, int, Locale) ([]CanonicalSummary, error)
-    Changes(context.Context, int64, int) (ChangePage, error)
+    Changes(context.Context, string, int64, int) (ChangePage, error)
 }
 ```
 
@@ -1060,7 +1093,10 @@ as appropriate; no raw-body fallback is part of the supported contract.
 ## Error handling
 
 API errors use `application/problem+json` with standard `type`, `title`,
-`status`, `detail`, `instance`, and optional field errors.
+`status`, `detail`, `instance`, and optional field errors. Synchronization
+conflicts additionally carry `code`, `stream_id`, and `head_cursor`; handle
+`change_stream_changed` and `change_cursor_ahead` using the reset-and-replay
+procedure above.
 
 Client policy:
 
@@ -1133,7 +1169,8 @@ request user selection rather than auto-selecting on a title/author resemblance.
 6. Migrate detail reads, artwork, credits/people, discography/releases/tracks,
    TV seasons/episodes, books, and recommendations.
 7. Replace old recent/browse/stats/collection reads or proxy the v2 equivalents.
-8. Consume `/api/v2/changes` for cache/index invalidation.
+8. Consume `/api/v2/changes` for cache/index invalidation, persisting both its
+   stream identity and cursor and resetting to zero on either typed conflict.
 9. Remove HeyaMedia provider clients, enrichment workers, metadata Mongo
    collections, Meilisearch metadata indexing, and old image metadata only
    after no migrated call site references them.
@@ -1230,9 +1267,11 @@ Use no real provider secrets in fixtures, snapshots, or logs.
 
 ### Change feed and cache
 
-- save cursor 0, ingest/refresh an entity, consume its change entry, and commit
-  `next_cursor` only after local work succeeds;
+- save stream identity and cursor 0, ingest/refresh an entity, consume its
+  change entry, and commit `next_cursor` only after local work succeeds;
 - replay the same page and assert idempotency;
+- replace the database or restore an older snapshot and assert the typed 409
+  resets consumption to cursor zero instead of silently stalling;
 - verify locale-specific cached displays do not leak between languages;
 - verify a higher `projection_version` replaces an older cached document.
 

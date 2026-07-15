@@ -203,3 +203,20 @@ func TestPreferredWaitIsBounded(t *testing.T) {
 		t.Fatalf("invalid wait: got %s", got)
 	}
 }
+
+func TestCreditPageAllowsLargeBoundedReads(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		offset, limit, wantOffset, wantLimit int
+	}{
+		{offset: 0, limit: 5000, wantOffset: 0, wantLimit: 5000},
+		{offset: 25, limit: 2500, wantOffset: 25, wantLimit: 2500},
+		{offset: -1, limit: 0, wantOffset: 0, wantLimit: 100},
+		{offset: 0, limit: 5001, wantOffset: 0, wantLimit: 100},
+	} {
+		offset, limit := creditPage(test.offset, test.limit)
+		if offset != test.wantOffset || limit != test.wantLimit {
+			t.Errorf("creditPage(%d,%d)=(%d,%d), want (%d,%d)", test.offset, test.limit, offset, limit, test.wantOffset, test.wantLimit)
+		}
+	}
+}

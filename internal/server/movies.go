@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	animeservice "github.com/HeyaMedia/HeyaMetadata/internal/anime"
 	"github.com/HeyaMedia/HeyaMetadata/internal/artists"
 	"github.com/HeyaMedia/HeyaMetadata/internal/books"
+	"github.com/HeyaMedia/HeyaMetadata/internal/changelog"
 	"github.com/HeyaMedia/HeyaMetadata/internal/discovery"
 	"github.com/HeyaMedia/HeyaMetadata/internal/fingerprintmatch"
 	"github.com/HeyaMedia/HeyaMetadata/internal/images"
@@ -51,8 +54,9 @@ type entityInput struct {
 	MALClientID       string `header:"X-Heya-MAL-Client-ID" doc:"Optional request-scoped MyAnimeList client ID; never persisted"`
 }
 type entityOutput struct {
-	Vary string `header:"Vary"`
-	Body any
+	Vary         string `header:"Vary"`
+	ServerTiming string `header:"Server-Timing"`
+	Body         any
 }
 type entityMetadataInput struct {
 	ID     string `path:"id" format:"uuid"`
@@ -63,7 +67,7 @@ type entityCreditsInput struct {
 	ID         string `path:"id" format:"uuid"`
 	CreditType string `query:"credit_type" enum:"cast,crew" doc:"Optional credit type filter"`
 	Offset     int    `query:"offset" minimum:"0" default:"0"`
-	Limit      int    `query:"limit" minimum:"1" maximum:"250" default:"100"`
+	Limit      int    `query:"limit" minimum:"1" maximum:"5000" default:"100"`
 }
 type entityMetadataOutput struct {
 	Body struct {
@@ -88,7 +92,8 @@ type entityCredit struct {
 }
 
 type entityCreditsOutput struct {
-	Body struct {
+	ServerTiming string `header:"Server-Timing"`
+	Body         struct {
 		Results []entityCredit `json:"results"`
 		Total   int            `json:"total"`
 		Offset  int            `json:"offset"`
@@ -163,23 +168,17 @@ type searchOutput struct {
 }
 
 type changesInput struct {
-	After int64 `query:"after" minimum:"0"`
-	Limit int   `query:"limit" minimum:"1" maximum:"500" default:"100"`
-}
-type changeEntry struct {
-	Sequence          int64    `json:"sequence"`
-	EntityID          string   `json:"entity_id" format:"uuid"`
-	EntityKind        string   `json:"entity_kind"`
-	Slug              string   `json:"slug"`
-	ChangeType        string   `json:"change_type"`
-	ChangedScopes     []string `json:"changed_scopes"`
-	ProjectionVersion int64    `json:"projection_version"`
-	CreatedAt         string   `json:"created_at"`
+	After    int64  `query:"after" minimum:"0"`
+	Limit    int    `query:"limit" minimum:"1" maximum:"500" default:"100"`
+	StreamID string `query:"stream_id" format:"uuid" doc:"Previously observed stream identity; a mismatch returns change_stream_changed"`
 }
 type changesOutput struct {
-	Body struct {
-		Entries    []changeEntry `json:"entries"`
-		NextCursor int64         `json:"next_cursor"`
+	ServerTiming string `header:"Server-Timing"`
+	Body         struct {
+		StreamID   string                  `json:"stream_id" format:"uuid"`
+		HeadCursor int64                   `json:"head_cursor" minimum:"0"`
+		Entries    []changelog.ChangeEntry `json:"entries" nullable:"false"`
+		NextCursor int64                   `json:"next_cursor" minimum:"0"`
 	}
 }
 
@@ -215,7 +214,16 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		}
 	}
 
-	huma.Register(api, huma.Operation{OperationID: "entity-detail", Method: http.MethodGet, Path: "/api/v2/entities/{id}", Summary: "Get a canonical entity", Tags: []string{"Entities"}}, func(ctx context.Context, input *entityInput) (*entityOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "entity-detail", Method: http.MethodGet, Path: "/api/v2/entities/{id}", Summary: "Get a canonical entity", Tags: []string{"Entities"}}, func(ctx context.Context, input *entityInput) (output *entityOutput, returnErr error) {
+		started := time.Now()
+		entityKind := ""
+		defer func() {
+			duration := time.Since(started)
+			if output != nil {
+				output.ServerTiming = serverTiming("entity", duration)
+			}
+			slog.InfoContext(ctx, "entity document read", "entity_id", input.ID, "entity_kind", entityKind, "duration_ms", duration.Milliseconds(), "error", returnErr)
+		}()
 		if service == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
@@ -224,6 +232,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 			return nil, huma.Error404NotFound("entity not found")
 		}
 		input.ID = resolvedID
+		entityKind = kind
 		_ = accessstats.Track(ctx, runtime.Redis, input.ID)
 		if kind == "artist" {
 			document, fresh, err := artistService.Detail(ctx, input.ID)
@@ -375,7 +384,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		return presentEntity(ctx, runtime, input.ID, kind, document, localeFromEntity(input))
 	})
 
-	huma.Register(api, huma.Operation{OperationID: "entity-credits", Method: http.MethodGet, Path: "/api/v2/entities/{id}/credits", Summary: "Get canonical cast and crew credits", Description: "Every credit carries a canonical Heya person_entity_id. Provider fields are passive provenance only.", Tags: []string{"Entities", "Credits"}}, func(ctx context.Context, input *entityCreditsInput) (*entityCreditsOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "entity-credits", Method: http.MethodGet, Path: "/api/v2/entities/{id}/credits", Summary: "Get canonical cast and crew credits", Description: "Every credit carries a canonical Heya person_entity_id. Provider fields are passive provenance only. Pages may contain up to 5,000 credits while retaining offset/limit pagination.", Tags: []string{"Entities", "Credits"}}, func(ctx context.Context, input *entityCreditsInput) (*entityCreditsOutput, error) {
 		if runtime == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
@@ -383,7 +392,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		if err := runtime.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM entities WHERE id=$1 AND kind IN('movie','tv_show','anime') AND deleted_at IS NULL)`, input.ID).Scan(&exists); err != nil || !exists {
 			return nil, huma.Error404NotFound("entity not found")
 		}
-		offset, limit := metadataPage(input.Offset, input.Limit)
+		offset, limit := creditPage(input.Offset, input.Limit)
 		return creditProjectionPage(ctx, runtime, input.ID, input.CreditType, offset, limit)
 	})
 	huma.Register(api, huma.Operation{OperationID: "entity-ratings", Method: http.MethodGet, Path: "/api/v2/entities/{id}/ratings", Summary: "Get provider-native ratings without scale coercion", Tags: []string{"Entities", "Ratings"}}, func(ctx context.Context, input *entityMetadataInput) (*entityMetadataOutput, error) {
@@ -983,32 +992,40 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		return output, nil
 	})
 
-	huma.Register(api, huma.Operation{OperationID: "public-changes", Method: http.MethodGet, Path: "/api/v2/changes", Summary: "Read the gap-free public change feed", Tags: []string{"Changes"}}, func(ctx context.Context, input *changesInput) (*changesOutput, error) {
+	huma.Register(api, huma.Operation{
+		OperationID: "public-changes",
+		Method:      http.MethodGet,
+		Path:        "/api/v2/changes",
+		Summary:     "Read the gap-free public change feed",
+		Description: "Returns the persistent stream identity and current public head. Clients must reset to cursor zero and replay idempotently after change_stream_changed or change_cursor_ahead.",
+		Tags:        []string{"Changes"},
+		Responses: map[string]*huma.Response{
+			"409":     withServerTiming(problemJSONResponse("The supplied stream identity changed or the cursor is ahead of the available stream", "#/components/schemas/ErrorModel")),
+			"default": problemJSONResponse("Error", "#/components/schemas/ErrorModel"),
+		},
+	}, func(ctx context.Context, input *changesInput) (*changesOutput, error) {
 		if runtime == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
-		limit := input.Limit
-		if limit < 1 {
-			limit = 100
-		}
-		rows, err := runtime.DB.Query(ctx, `SELECT sequence,entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,created_at FROM change_log WHERE sequence > $1 AND scope='public' ORDER BY sequence LIMIT $2`, input.After, limit)
+		started := time.Now()
+		page, err := changelog.ReadPage(ctx, runtime, input.StreamID, input.After, input.Limit)
 		if err != nil {
+			var conflict *changelog.CursorConflict
+			if errors.As(err, &conflict) {
+				duration := time.Since(started)
+				slog.InfoContext(ctx, "change feed cursor rejected", "code", conflict.Code, "stream_id", conflict.StreamID, "head_cursor", conflict.Head, "after", input.After, "duration_ms", duration.Milliseconds())
+				problem := changeFeedConflict(conflict.Code, conflict.Error(), conflict.StreamID, conflict.Head)
+				return nil, huma.ErrorWithHeaders(problem, http.Header{"Server-Timing": {serverTiming("changes", duration)}})
+			}
 			return nil, err
 		}
-		defer rows.Close()
-		output := &changesOutput{}
-		output.Body.NextCursor = input.After
-		for rows.Next() {
-			var entry changeEntry
-			var createdAt time.Time
-			if err := rows.Scan(&entry.Sequence, &entry.EntityID, &entry.EntityKind, &entry.Slug, &entry.ChangeType, &entry.ChangedScopes, &entry.ProjectionVersion, &createdAt); err != nil {
-				return nil, err
-			}
-			entry.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-			output.Body.Entries = append(output.Body.Entries, entry)
-			output.Body.NextCursor = entry.Sequence
-		}
-		return output, rows.Err()
+		output := &changesOutput{ServerTiming: serverTiming("changes", page.QueryTime)}
+		output.Body.StreamID = page.StreamID
+		output.Body.HeadCursor = page.Head
+		output.Body.Entries = page.Entries
+		output.Body.NextCursor = page.Next
+		slog.InfoContext(ctx, "change feed read", "stream_id", page.StreamID, "head_cursor", page.Head, "after", input.After, "next_cursor", page.Next, "entry_count", len(page.Entries), "duration_ms", page.QueryTime.Milliseconds())
+		return output, nil
 	})
 }
 
@@ -1143,8 +1160,25 @@ func metadataPage(offset, limit int) (int, int) {
 	}
 	return offset, limit
 }
+
+func creditPage(offset, limit int) (int, int) {
+	if offset < 0 {
+		offset = 0
+	}
+	if limit < 1 || limit > 5000 {
+		limit = 100
+	}
+	return offset, limit
+}
+
 func creditProjectionPage(ctx context.Context, runtime *platform.Runtime, entityID, creditType string, offset, limit int) (*entityCreditsOutput, error) {
+	started := time.Now()
 	out := &entityCreditsOutput{}
+	defer func() {
+		duration := time.Since(started)
+		out.ServerTiming = serverTiming("credits", duration)
+		slog.InfoContext(ctx, "entity credits read", "entity_id", entityID, "credit_type", creditType, "offset", offset, "limit", limit, "total", out.Body.Total, "returned_rows", len(out.Body.Results), "duration_ms", duration.Milliseconds())
+	}()
 	out.Body.Offset, out.Body.Limit = offset, limit
 	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM entity_credit_projections WHERE entity_id=$1 AND ($2='' OR credit_type=$2)`, entityID, creditType).Scan(&out.Body.Total); err != nil {
 		return nil, err
