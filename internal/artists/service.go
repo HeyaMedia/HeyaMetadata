@@ -194,8 +194,13 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 			normalized, recordErr = fanart.NormalizeMusicArtist(recorded[0].Payload.Body, recorded[0].ID, recorded[0].Payload.ObservedAt)
 		case "wikidata":
 			normalized, recordErr = wikidata.NormalizeArtist(recorded[0].Payload.Body, step.Identifier.Value, recorded[0].ID, recorded[0].Payload.ObservedAt)
-			if recordErr == nil && !wikidataArtistRecordMatches(normalized, preferredName(spine)) {
-				recordErr = fmt.Errorf("Wikidata entity labels do not match the primary MusicBrainz artist name")
+			if recordErr == nil {
+				primaryName := preferredName(spine)
+				if !wikidataArtistRecordMatches(normalized, primaryName) {
+					recordErr = fmt.Errorf("Wikidata entity labels do not match the primary MusicBrainz artist name")
+				} else {
+					normalized = scopeSharedWikidataArtistNames(normalized, primaryName)
+				}
 			}
 		}
 		if recordErr != nil {
@@ -1180,6 +1185,28 @@ func wikidataArtistRecordMatches(record artistdomain.NormalizedRecordV1, primary
 		}
 	}
 	return false
+}
+
+func scopeSharedWikidataArtistNames(record artistdomain.NormalizedRecordV1, primaryName string) artistdomain.NormalizedRecordV1 {
+	shared := false
+	for _, warning := range record.Warnings {
+		if warning == "wikidata_item_spans_multiple_musicbrainz_artists" {
+			shared = true
+			break
+		}
+	}
+	if !shared {
+		return record
+	}
+	want := artistSlug(primaryName)
+	names := make([]artistdomain.Name, 0, len(record.Names))
+	for _, name := range record.Names {
+		if artistSlug(name.Value) == want {
+			names = append(names, name)
+		}
+	}
+	record.Names = names
+	return record
 }
 
 func artistSlug(value string) string {

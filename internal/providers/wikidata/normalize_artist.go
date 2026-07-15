@@ -69,6 +69,13 @@ func NormalizeArtist(body []byte, expectedID, observationID string, observedAt t
 	// identities under one real-world person. Its authority identifiers are
 	// therefore descriptive evidence only; MusicBrainz supplies the canonical
 	// artist crosswalk used by the merge layer.
+	musicBrainzArtists := map[string]bool{}
+	for _, value := range claimStrings(source.Claims["P434"]) {
+		musicBrainzArtists[strings.ToLower(value)] = true
+	}
+	if len(musicBrainzArtists) > 1 {
+		record.Warnings = append(record.Warnings, "wikidata_item_spans_multiple_musicbrainz_artists")
+	}
 	linkProperties := map[string]string{"P856": "official", "P2397": "youtube", "P2002": "twitter", "P2003": "instagram", "P2013": "facebook", "P7085": "tiktok"}
 	for property, kind := range linkProperties {
 		for _, value := range claimStrings(source.Claims[property]) {

@@ -104,6 +104,11 @@ Normalized records preserve every source claim. Combination is deterministic:
 - no provider-global score is presented as a universal rating;
 - user overrides may select presentation winners without deleting source facts.
 
+Wikidata artist items are descriptive rather than canonical identity roots. If
+one item lists several MusicBrainz artists or stage-name projects, only labels
+matching the current canonical artist enter its names and search projection;
+the item's descriptions and links may still contribute as attributed facts.
+
 ### Artist catalog reconciliation
 
 An artist discography is rebuilt from retained provider evidence; it is not a

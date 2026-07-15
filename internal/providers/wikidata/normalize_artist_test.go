@@ -20,3 +20,14 @@ func TestNormalizeArtistExtractsAuthorityIDsLanguagesAndLifecycle(t *testing.T) 
 		}
 	}
 }
+
+func TestNormalizeArtistMarksSharedMusicBrainzArtistItem(t *testing.T) {
+	body := []byte(`{"entities":{"Q74123":{"id":"Q74123","labels":{"en":{"language":"en","value":"Da Hool"},"de":{"language":"de","value":"DJ Hooligan"}},"claims":{"P434":[{"rank":"normal","mainsnak":{"snaktype":"value","datavalue":{"type":"string","value":"08e6bef1-633e-41d8-8201-a65e1ac8ec64"}}},{"rank":"normal","mainsnak":{"snaktype":"value","datavalue":{"type":"string","value":"f1b2b571-146c-4503-9ed5-7cc37b08de37"}}}]}}}}`)
+	record, err := NormalizeArtist(body, "Q74123", "observation", time.Unix(1, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record.Warnings) != 1 || record.Warnings[0] != "wikidata_item_spans_multiple_musicbrainz_artists" {
+		t.Fatalf("warnings=%v", record.Warnings)
+	}
+}

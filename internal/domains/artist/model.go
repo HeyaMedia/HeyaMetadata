@@ -12,7 +12,7 @@ const (
 	FanartNormalizerVersion      = "fanart-music-artist/v1"
 	LastFMNormalizerVersion      = "lastfm-artist/v3"
 	LastFMTopTracksVersion       = "lastfm-artist-top-tracks/v2"
-	WikidataNormalizerVersion    = "wikidata-artist/v2"
+	WikidataNormalizerVersion    = "wikidata-artist/v3"
 	MergeVersion                 = "artist-merge/v1"
 	ProjectionSchemaVersion      = 1
 )
