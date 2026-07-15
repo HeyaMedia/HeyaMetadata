@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/config"
+	rgdomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/releasegroup"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
 )
 
@@ -54,5 +55,22 @@ func TestArtistIngestionRootsPreferMusicBrainzBeforeStorefronts(t *testing.T) {
 	ordered := sortedIngestionRoots(values)
 	if len(ordered) != 3 || ordered[0].Provider != "musicbrainz" || ordered[1].Provider != "apple" || ordered[2].Provider != "deezer" {
 		t.Fatalf("ordered roots=%+v", ordered)
+	}
+}
+
+func TestStorefrontReleaseCreditsBecomeArtistRootsOnlyWhenReleaseMatches(t *testing.T) {
+	record := rgdomain.NormalizedRecordV1{
+		ProviderRecord: rgdomain.ProviderRecord{Provider: "apple", Namespace: "album", Value: "1440984578"},
+		Titles:         []rgdomain.Title{{Value: "The Hits Collection, Vol. One", Primary: true}},
+		Dates:          []rgdomain.DateValue{{Value: "2010-11-22"}},
+		Classification: rgdomain.Classification{PrimaryType: "album"},
+		ArtistCredits:  []rgdomain.ArtistCredit{{ArtistProvider: "apple", ArtistNamespace: "artist", ArtistID: "1352449404", ArtistName: "JAŸ-Z"}},
+	}
+	matched := artistRootsFromNormalizedRelease(ReleaseHint{Title: "The Hits Collection, Vol. One", Year: 2010, Type: "ep"}, record)
+	if len(matched) != 1 || matched[0] != (ingestionRoot{Kind: KindArtist, Provider: "apple", Namespace: "artist", Value: "1352449404"}) {
+		t.Fatalf("matched roots=%+v", matched)
+	}
+	if roots := artistRootsFromNormalizedRelease(ReleaseHint{Title: "Vault Playlist, Vol. 1", Year: 2017, Type: "ep"}, record); len(roots) != 0 {
+		t.Fatalf("mismatched storefront release produced roots=%+v", roots)
 	}
 }

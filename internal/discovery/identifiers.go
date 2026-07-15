@@ -28,7 +28,7 @@ func (s *Service) ResolveKnownIdentifiers(ctx context.Context, request Request) 
 	}
 	result := baseIdentifierResult(request)
 	entityEvidence := map[string][]int{}
-	hasSupportedUnresolved := false
+	hasSupportedUnresolved := hasArtistReleaseIdentityEvidence(request)
 	for index, identifier := range request.Identifiers {
 		evidence := IdentifierEvidence{Scheme: identifier.Scheme, Value: identifier.Value}
 		target, supported := claimTargetFor(request.Kind, identifier)
@@ -93,6 +93,21 @@ func (s *Service) ResolveKnownIdentifiers(ctx context.Context, request Request) 
 		})
 	}
 	return result, true, nil
+}
+
+func hasArtistReleaseIdentityEvidence(request Request) bool {
+	if request.Kind != KindArtist {
+		return false
+	}
+	for _, release := range request.Hints.Releases {
+		for _, identifier := range release.Identifiers {
+			switch identifier.Scheme {
+			case "musicbrainz", "apple", "deezer", "discogs_release", "discogs_master":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func baseIdentifierResult(request Request) Result {

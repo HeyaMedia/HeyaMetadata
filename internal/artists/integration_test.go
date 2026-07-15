@@ -224,6 +224,107 @@ func TestIntegrationIncomingCrossLinkCannotDisputeDirectProviderRoot(t *testing.
 	}
 }
 
+func TestIntegrationForeignProviderRecordIsQuarantinedFromArtistProjection(t *testing.T) {
+	runtime := integrationRuntime(t)
+	ctx := context.Background()
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	service := NewService(runtime)
+	observedAt := time.Now().UTC()
+	ownerName, targetName := "Foreign Owner "+suffix, "Projection Target "+suffix
+	appleID, deezerID := "apple-owner-"+suffix, "deezer-target-"+suffix
+
+	makeRecord := func(provider, value, observationID, name string, at time.Time) artistdomain.NormalizedRecordV1 {
+		return artistdomain.NormalizedRecordV1{
+			ProviderRecord:     artistdomain.ProviderRecord{Provider: provider, Namespace: "artist", Value: value, PrimaryObservationID: observationID, ObservedAt: at, NormalizerVersion: "integration", SchemaVersion: 1},
+			IdentityCandidates: []artistdomain.IdentityCandidate{{Provider: provider, Namespace: "artist", NormalizedValue: value, Confidence: 1, Evidence: "provider_record"}},
+			Names:              []artistdomain.Name{{Value: name, Type: "display", Primary: true}},
+		}
+	}
+	ownerObservation := testObservation(t, runtime, "apple", appleID)
+	ownerRecord := makeRecord("apple", appleID, ownerObservation, ownerName, observedAt)
+	ownerNormalized, err := service.recordNormalized(ctx, ownerRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := service.merge(ctx, []string{ownerNormalized}, []artistdomain.NormalizedRecordV1{ownerRecord}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	targetObservation := testObservation(t, runtime, "deezer", deezerID)
+	targetRecord := makeRecord("deezer", deezerID, targetObservation, targetName, observedAt)
+	targetNormalized, err := service.recordNormalized(ctx, targetRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := service.merge(ctx, []string{targetNormalized}, []artistdomain.NormalizedRecordV1{targetRecord}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	foreignObservation := testObservation(t, runtime, "apple", appleID)
+	foreignRecord := makeRecord("apple", appleID, foreignObservation, ownerName, observedAt.Add(time.Minute))
+	foreignNormalized, err := service.recordNormalized(ctx, foreignRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.DB.Exec(ctx, `UPDATE normalized_records SET entity_id=$1 WHERE id=$2`, target.EntityID, foreignNormalized); err != nil {
+		t.Fatal(err)
+	}
+	wikidataID := "Q" + suffix
+	wikidataObservation := testObservation(t, runtime, "wikidata", wikidataID)
+	wikidataRecord := makeRecord("wikidata", wikidataID, wikidataObservation, targetName, observedAt.Add(time.Minute))
+	wikidataRecord.IdentityCandidates = nil
+	wikidataNormalized, err := service.recordNormalized(ctx, wikidataRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.DB.Exec(ctx, `UPDATE normalized_records SET entity_id=$1 WHERE id=$2`, target.EntityID, wikidataNormalized); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.DB.Exec(ctx, `INSERT INTO external_id_claims(entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at)VALUES($1,'artist','wikidata','entity',$2,'accepted',1,$3,$4,$4)`, target.EntityID, wikidataID, wikidataObservation, observedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	refreshObservation := testObservation(t, runtime, "deezer", deezerID)
+	refreshRecord := makeRecord("deezer", deezerID, refreshObservation, targetName, observedAt.Add(2*time.Minute))
+	refreshNormalized, err := service.recordNormalized(ctx, refreshRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := service.merge(ctx, []string{refreshNormalized}, []artistdomain.NormalizedRecordV1{refreshRecord}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = runtime.DB.Exec(context.Background(), `DELETE FROM normalized_records WHERE id=ANY($1::uuid[])`, []string{foreignNormalized, wikidataNormalized})
+		cleanupArtist(t, runtime, []string{owner.EntityID, target.EntityID}, []string{ownerObservation, targetObservation, foreignObservation, wikidataObservation, refreshObservation})
+	})
+	if refreshed.EntityID != target.EntityID || refreshed.Detail.Display.Name != targetName {
+		t.Fatalf("refreshed foreign projection=%+v", refreshed.Detail.Display)
+	}
+	var attached *string
+	if err := runtime.DB.QueryRow(ctx, `SELECT entity_id::text FROM normalized_records WHERE id=$1`, foreignNormalized).Scan(&attached); err != nil {
+		t.Fatal(err)
+	}
+	if attached != nil {
+		t.Fatalf("foreign normalized record remains attached to %s", *attached)
+	}
+	if err := runtime.DB.QueryRow(ctx, `SELECT entity_id::text FROM normalized_records WHERE id=$1`, wikidataNormalized).Scan(&attached); err != nil {
+		t.Fatal(err)
+	}
+	if attached != nil {
+		t.Fatalf("Wikidata normalized record remains attached to %s", *attached)
+	}
+	var wikidataState string
+	if err := runtime.DB.QueryRow(ctx, `SELECT state FROM external_id_claims WHERE entity_kind='artist' AND provider='wikidata' AND namespace='entity' AND normalized_value=$1`, wikidataID).Scan(&wikidataState); err != nil {
+		t.Fatal(err)
+	}
+	if wikidataState != "superseded" {
+		t.Fatalf("Wikidata artist claim state=%s", wikidataState)
+	}
+}
+
 func TestIntegrationArtistMergeIsIdempotentAndResolvable(t *testing.T) {
 	runtime := integrationRuntime(t)
 	ctx := context.Background()

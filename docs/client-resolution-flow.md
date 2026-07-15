@@ -100,10 +100,14 @@ hints drive fuzzy upstream discovery.
 
 For artists, submit MusicBrainz, Apple/iTunes, Deezer, and any known release
 identifiers together. HeyaMetadata privately ingests each supported artist root
-and follows MusicBrainz release credits. It returns a canonical Heya UUID only
-when that evidence converges; genuine disagreement remains an opaque selection.
-An explicit MusicBrainz relationship may consolidate duplicate storefront roots,
-but a matching artist name alone never does.
+and follows MusicBrainz, Apple, Deezer, and Discogs release credits—even when a
+top-level artist ID is already known. It returns a canonical Heya UUID only when
+that evidence converges; genuine disagreement remains an opaque selection. An
+explicit MusicBrainz relationship may consolidate duplicate storefront roots,
+but a matching artist name alone never does. Provider records whose direct root
+belongs to another artist are quarantined from the canonical projection.
+Wikidata Q-IDs are descriptive only for artists and never participate in
+canonical identity or client control flow.
 
 The generic route supports `movie`, `tv_show`, `anime`, `artist`,
 `release_group`, `recording`, `musical_work`, `book_work`, `manga`,

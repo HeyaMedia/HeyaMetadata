@@ -579,11 +579,13 @@ MusicBrainz is not required to create an artist. A direct Apple/iTunes or
 Deezer artist identifier can establish the canonical Heya artist and its public
 discography. Include known Apple/Deezer album IDs in the matching
 `hints.releases[].identifiers` array; HeyaMetadata validates the fetched release
-credit and uses the ID as catalog evidence. A MusicBrainz release or release
-group ID in the same array is also resolved privately to its credited artist or
-artists. This means a correct release can corroborate an Apple/Deezer artist
-identifier—or expose a stale storefront artist identifier without requiring the
-client to understand either provider.
+credit and uses the ID as catalog evidence. MusicBrainz release/release-group,
+Apple album, Deezer album, and Discogs release/master IDs in the same array are
+also resolved privately to their credited artist or artists. Release identity
+evidence is checked even when the top-level artist ID is already known. This
+means a correct release can corroborate an artist identifier—or expose a stale
+storefront artist identifier without requiring the client to understand either
+provider.
 
 Submit every available artist identifier in one discovery request. HeyaMetadata
 ingests and crosswalks each supported root, returning a canonical `entity_id`
@@ -592,7 +594,15 @@ artists produce opaque, reviewable candidates. An authoritative MusicBrainz
 artist may consolidate duplicate Apple, Deezer, or Discogs roots only when its
 explicit URL relationships link those roots, their primary names agree, and no
 different MusicBrainz artist claim exists. A shared or similar name is never
-sufficient to merge artists.
+sufficient to merge artists. During refresh, a provider record whose direct
+identity belongs to another active Heya artist is quarantined rather than mixed
+into the current artist's names, artwork, popularity, or provenance.
+
+Wikidata Q-IDs are not artist identities. One Wikidata item may intentionally
+list several distinct MusicBrainz stage names or projects. HeyaMetadata retains
+Wikidata descriptions, links, and artwork only when an item label exactly
+matches the primary MusicBrainz artist name; the Q-ID never creates or merges a
+canonical artist claim.
 
 Common credit joins (`feat.`,
 `featuring`, `ft.`, `f/`, `with`/`w/`, `vs.`, `presents`, `meets`, `&`, `and`,

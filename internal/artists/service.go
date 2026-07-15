@@ -194,6 +194,9 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 			normalized, recordErr = fanart.NormalizeMusicArtist(recorded[0].Payload.Body, recorded[0].ID, recorded[0].Payload.ObservedAt)
 		case "wikidata":
 			normalized, recordErr = wikidata.NormalizeArtist(recorded[0].Payload.Body, step.Identifier.Value, recorded[0].ID, recorded[0].Payload.ObservedAt)
+			if recordErr == nil && !wikidataArtistRecordMatches(normalized, preferredName(spine)) {
+				recordErr = fmt.Errorf("Wikidata entity labels do not match the primary MusicBrainz artist name")
+			}
 		}
 		if recordErr != nil {
 			failures[provider] = recordErr
@@ -555,9 +558,45 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	if err := disputeNonAuthoritativeArtistClaims(ctx, tx, entityID, allCandidates); err != nil {
 		return Result{}, err
 	}
-	for _, id := range normalizedIDs {
+	retiredWikidataObservations, err := retireUnsafeWikidataArtistEvidence(ctx, tx, entityID)
+	if err != nil {
+		return Result{}, err
+	}
+	if len(retiredWikidataObservations) > 0 {
+		if _, err := tx.Exec(ctx, `DELETE FROM image_candidates WHERE entity_id=$1 AND (provider='wikidata' OR source_observation_id=ANY($2::uuid[]))`, entityID, retiredWikidataObservations); err != nil {
+			return Result{}, fmt.Errorf("retire Wikidata artist images: %w", err)
+		}
+	} else if _, err := tx.Exec(ctx, `DELETE FROM image_candidates WHERE entity_id=$1 AND provider='wikidata'`, entityID); err != nil {
+		return Result{}, fmt.Errorf("retire Wikidata artist images: %w", err)
+	}
+	mergedSuccessful := make([]artistdomain.NormalizedRecordV1, 0, len(successful))
+	for index, id := range normalizedIDs {
+		foreignOwner, ownerErr := artistProviderRecordForeignOwner(ctx, tx, entityID, successful[index])
+		if ownerErr != nil {
+			return Result{}, ownerErr
+		}
+		if foreignOwner != "" {
+			if _, err := tx.Exec(ctx, `UPDATE normalized_records SET entity_id=NULL WHERE id=$1`, id); err != nil {
+				return Result{}, err
+			}
+			slog.Warn("quarantined foreign artist provider record", "entity_id", entityID, "owner_entity_id", foreignOwner, "provider", successful[index].ProviderRecord.Provider, "provider_id", successful[index].ProviderRecord.Value)
+			continue
+		}
 		if _, err := tx.Exec(ctx, `UPDATE normalized_records SET entity_id=$1 WHERE id=$2`, entityID, id); err != nil {
 			return Result{}, err
+		}
+		mergedSuccessful = append(mergedSuccessful, successful[index])
+	}
+	if len(mergedSuccessful) == 0 {
+		return Result{}, fmt.Errorf("artist merge rejected every provider record as foreign identity evidence")
+	}
+	quarantinedObservationIDs, err := quarantineForeignArtistRecords(ctx, tx, entityID)
+	if err != nil {
+		return Result{}, err
+	}
+	if len(quarantinedObservationIDs) > 0 {
+		if _, err := tx.Exec(ctx, `DELETE FROM image_candidates WHERE entity_id=$1 AND source_observation_id=ANY($2::uuid[])`, entityID, quarantinedObservationIDs); err != nil {
+			return Result{}, fmt.Errorf("retire foreign artist images: %w", err)
 		}
 	}
 	rows, err := tx.Query(ctx, `SELECT DISTINCT ON (provider,provider_namespace,provider_record_id) id,document FROM normalized_records WHERE entity_id=$1 AND entity_kind='artist' ORDER BY provider,provider_namespace,provider_record_id,observed_at DESC,created_at DESC`, entityID)
@@ -632,7 +671,7 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	if err := hydrateArtistRelationIDs(ctx, tx, &projection.Detail); err != nil {
 		return Result{}, err
 	}
-	topTracksChanged, err := replaceTopTracks(ctx, tx, entityID, successful, version)
+	topTracksChanged, err := replaceTopTracks(ctx, tx, entityID, mergedSuccessful, version)
 	if err != nil {
 		return Result{}, err
 	}
@@ -668,7 +707,7 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 			return Result{}, err
 		}
 	}
-	for _, record := range successful {
+	for _, record := range mergedSuccessful {
 		_, err := tx.Exec(ctx, `INSERT INTO provider_refresh_states (entity_id,provider,last_attempt_at,last_success_at,last_observation_id,current_job_id,next_eligible_at) VALUES ($1,$2,now(),now(),$3,$4,$5) ON CONFLICT (entity_id,provider) DO UPDATE SET last_attempt_at=now(),last_success_at=now(),last_observation_id=EXCLUDED.last_observation_id,failure_class=NULL,failure_message=NULL,current_job_id=EXCLUDED.current_job_id,next_eligible_at=EXCLUDED.next_eligible_at`, entityID, record.ProviderRecord.Provider, record.ProviderRecord.PrimaryObservationID, nullableJob(jobID), projection.Detail.Freshness.FreshUntil)
 		if err != nil {
 			return Result{}, err
@@ -682,7 +721,7 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	if topTracksChanged {
 		changedScopes = append(changedScopes, "top_tracks")
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO change_outbox (entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id) VALUES ($1,'artist',$2,$3,$4,$5,$6,$7)`, entityID, slug, changeType, changedScopes, version, successful[0].ProviderRecord.PrimaryObservationID, nullableJob(jobID)); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO change_outbox (entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id) VALUES ($1,'artist',$2,$3,$4,$5,$6,$7)`, entityID, slug, changeType, changedScopes, version, mergedSuccessful[0].ProviderRecord.PrimaryObservationID, nullableJob(jobID)); err != nil {
 		return Result{}, err
 	}
 	for _, retiredID := range retiredEntityIDs {
@@ -690,7 +729,7 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 		if err := tx.QueryRow(ctx, `SELECT slug FROM entities WHERE id=$1`, retiredID).Scan(&retiredSlug); err != nil {
 			return Result{}, err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO change_outbox(entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id)VALUES($1,'artist',$2,'redirected',ARRAY['identity'],$3,$4,$5)`, retiredID, retiredSlug, version, successful[0].ProviderRecord.PrimaryObservationID, nullableJob(jobID)); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO change_outbox(entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id)VALUES($1,'artist',$2,'redirected',ARRAY['identity'],$3,$4,$5)`, retiredID, retiredSlug, version, mergedSuccessful[0].ProviderRecord.PrimaryObservationID, nullableJob(jobID)); err != nil {
 			return Result{}, err
 		}
 	}
@@ -707,6 +746,78 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 		_ = s.runtime.Redis.Publish(context.WithoutCancel(ctx), "heya:metadata:v1:cache-invalidations", retiredID).Err()
 	}
 	return Result{EntityID: entityID, NormalizedID: normalizedIDs[0], ProjectionVersion: version, Detail: projection.Detail}, nil
+}
+
+func retireUnsafeWikidataArtistEvidence(ctx context.Context, tx pgx.Tx, entityID string) ([]string, error) {
+	if _, err := tx.Exec(ctx, `UPDATE external_id_claims SET state='superseded',last_observed_at=now() WHERE entity_kind='artist' AND provider='wikidata' AND entity_id=$1 AND state<>'superseded'`, entityID); err != nil {
+		return nil, fmt.Errorf("retire Wikidata artist identity claims: %w", err)
+	}
+	rows, err := tx.Query(ctx, `UPDATE normalized_records SET entity_id=NULL WHERE entity_id=$1 AND entity_kind='artist' AND provider='wikidata' RETURNING primary_observation_id::text`, entityID)
+	if err != nil {
+		return nil, fmt.Errorf("retire Wikidata artist records: %w", err)
+	}
+	var observationIDs []string
+	for rows.Next() {
+		var observationID string
+		if err := rows.Scan(&observationID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		observationIDs = append(observationIDs, observationID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	return observationIDs, nil
+}
+
+func artistProviderRecordForeignOwner(ctx context.Context, tx pgx.Tx, entityID string, record artistdomain.NormalizedRecordV1) (string, error) {
+	provider := strings.TrimSpace(record.ProviderRecord.Provider)
+	namespace := strings.TrimSpace(record.ProviderRecord.Namespace)
+	value := strings.TrimSpace(record.ProviderRecord.Value)
+	if provider == "" || namespace == "" || value == "" {
+		return "", nil
+	}
+	var ownerID string
+	err := tx.QueryRow(ctx, `SELECT claim.entity_id::text FROM external_id_claims claim JOIN entities owner ON owner.id=claim.entity_id AND owner.kind='artist' AND owner.deleted_at IS NULL WHERE claim.entity_kind='artist' AND claim.provider=$1 AND claim.namespace=$2 AND claim.normalized_value=$3 AND claim.entity_id<>$4 AND claim.state IN ('accepted','disputed','proposed')`, provider, namespace, value, entityID).Scan(&ownerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("check artist provider-record ownership: %w", err)
+	}
+	return ownerID, nil
+}
+
+func quarantineForeignArtistRecords(ctx context.Context, tx pgx.Tx, entityID string) ([]string, error) {
+	rows, err := tx.Query(ctx, `SELECT DISTINCT record.id::text,record.primary_observation_id::text FROM normalized_records record JOIN external_id_claims claim ON claim.entity_kind='artist' AND claim.provider=record.provider AND claim.namespace=record.provider_namespace AND claim.normalized_value=record.provider_record_id AND claim.entity_id<>record.entity_id AND claim.state IN ('accepted','disputed','proposed') JOIN entities owner ON owner.id=claim.entity_id AND owner.kind='artist' AND owner.deleted_at IS NULL WHERE record.entity_id=$1 AND record.entity_kind='artist'`, entityID)
+	if err != nil {
+		return nil, fmt.Errorf("find foreign artist provider records: %w", err)
+	}
+	var recordIDs, observationIDs []string
+	for rows.Next() {
+		var recordID, observationID string
+		if err := rows.Scan(&recordID, &observationID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		recordIDs = append(recordIDs, recordID)
+		observationIDs = append(observationIDs, observationID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if len(recordIDs) == 0 {
+		return nil, nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE normalized_records SET entity_id=NULL WHERE id=ANY($1::uuid[])`, recordIDs); err != nil {
+		return nil, fmt.Errorf("quarantine foreign artist provider records: %w", err)
+	}
+	return observationIDs, nil
 }
 
 func consolidateMusicBrainzArtistRoots(ctx context.Context, tx pgx.Tx, mbid, primaryName string, entityIDs map[string]bool, evidence map[string][]artistdomain.IdentityCandidate) (string, []string, bool, error) {
@@ -864,6 +975,12 @@ func authoritativeArtistCandidates(spine artistdomain.NormalizedRecordV1) []arti
 	result := make([]artistdomain.IdentityCandidate, 0, len(spine.IdentityCandidates))
 	for _, candidate := range spine.IdentityCandidates {
 		if candidate.Confidence < 1 || strings.TrimSpace(candidate.NormalizedValue) == "" {
+			continue
+		}
+		// One Wikidata item may intentionally list several distinct MusicBrainz
+		// stage names or projects. It is descriptive evidence, never a unique
+		// canonical artist root.
+		if candidate.Provider == "wikidata" {
 			continue
 		}
 		if candidate.Provider == "musicbrainz" && candidate.Namespace == "artist" && spine.ProviderRecord.Provider == "musicbrainz" && candidate.NormalizedValue != spine.ProviderRecord.Value {
@@ -1051,6 +1168,20 @@ func artistNames(record artistdomain.NormalizedRecordV1) []string {
 	}
 	return result
 }
+
+func wikidataArtistRecordMatches(record artistdomain.NormalizedRecordV1, primaryName string) bool {
+	want := artistSlug(primaryName)
+	if want == "artist" {
+		return false
+	}
+	for _, name := range record.Names {
+		if artistSlug(name.Value) == want {
+			return true
+		}
+	}
+	return false
+}
+
 func artistSlug(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	value = nonSlug.ReplaceAllString(value, "-")

@@ -47,8 +47,7 @@ func NormalizeArtist(body []byte, expectedID, observationID string, observedAt t
 		return artistdomain.NormalizedRecordV1{}, fmt.Errorf("Wikidata entity %s is missing from response", expectedID)
 	}
 	record := artistdomain.NormalizedRecordV1{
-		ProviderRecord:     artistdomain.ProviderRecord{Provider: "wikidata", Namespace: "entity", Value: expectedID, PrimaryObservationID: observationID, ObservedAt: observedAt, NormalizerVersion: artistdomain.WikidataNormalizerVersion, SchemaVersion: artistdomain.NormalizedSchemaVersion},
-		IdentityCandidates: []artistdomain.IdentityCandidate{{Provider: "wikidata", Namespace: "entity", NormalizedValue: expectedID, Confidence: 1, Evidence: "provider_record"}},
+		ProviderRecord: artistdomain.ProviderRecord{Provider: "wikidata", Namespace: "entity", Value: expectedID, PrimaryObservationID: observationID, ObservedAt: observedAt, NormalizerVersion: artistdomain.WikidataNormalizerVersion, SchemaVersion: artistdomain.NormalizedSchemaVersion},
 	}
 	for language, label := range source.Labels {
 		if value := strings.TrimSpace(label.Value); value != "" {

@@ -71,3 +71,14 @@ func TestISBNNormalization(t *testing.T) {
 		t.Fatalf("got %#v", got)
 	}
 }
+
+func TestArtistReleaseIdentifiersRequireDurableIdentityCheck(t *testing.T) {
+	request := NormalizeRequest(Request{Kind: KindArtist, Hints: Hints{Releases: []ReleaseHint{{Title: "Vault Playlist, Vol. 1", Identifiers: []Identifier{{Scheme: "musicbrainz", Value: "ffd21680-ae04-4e8b-8523-0a5c1001627b"}}}}}})
+	if !hasArtistReleaseIdentityEvidence(request) {
+		t.Fatal("MusicBrainz release identity evidence must bypass the synchronous known-ID shortcut")
+	}
+	request.Kind = KindMovie
+	if hasArtistReleaseIdentityEvidence(request) {
+		t.Fatal("artist release routing must not affect movie discovery")
+	}
+}

@@ -287,6 +287,8 @@ func TestIntegrationFreshArtistProviderRootsMustConverge(t *testing.T) {
 	ctx := context.Background()
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	mbid := "60000000-0000-4000-8000-" + suffix[len(suffix)-12:]
+	conflictingMBID := "61000000-0000-4000-8000-" + suffix[len(suffix)-12:]
+	conflictingReleaseID := "71000000-0000-4000-8000-" + suffix[len(suffix)-12:]
 	appleID := suffix
 	appleNumeric, err := strconv.ParseInt(appleID, 10, 64)
 	if err != nil {
@@ -300,6 +302,15 @@ func TestIntegrationFreshArtistProviderRootsMustConverge(t *testing.T) {
 			_ = json.NewEncoder(response).Encode(map[string]any{
 				"id": mbid, "name": artistName, "sort-name": artistName, "type": "Person", "country": "US",
 				"relations": []any{map[string]any{"target-type": "url", "type": "streaming", "url": map[string]any{"resource": "https://music.apple.com/us/artist/provider-convergence/" + appleID}}},
+			})
+		case request.URL.Path == "/artist/"+conflictingMBID:
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"id": conflictingMBID, "name": "Different Artist " + suffix, "sort-name": "Different Artist " + suffix, "type": "Person", "country": "US", "relations": []any{},
+			})
+		case request.URL.Path == "/release-group/"+conflictingReleaseID:
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"id": conflictingReleaseID, "title": "Contradictory Release", "first-release-date": "2024-01-01", "primary-type": "Album",
+				"artist-credit": []any{map[string]any{"artist": map[string]any{"id": conflictingMBID, "name": "Different Artist " + suffix}}},
 			})
 		case request.URL.Path == "/lookup" && request.URL.Query().Get("id") == appleID:
 			_ = json.NewEncoder(response).Encode(map[string]any{
@@ -357,6 +368,27 @@ func TestIntegrationFreshArtistProviderRootsMustConverge(t *testing.T) {
 		t.Fatalf("result=%+v handled=%v err=%v", result, handled, err)
 	}
 	t.Cleanup(func() { cleanupDiscoveryArtistEntity(runtime, result.EntityID, mbid, appleID) })
+	known, handled, err := NewService(runtime).ResolveKnownIdentifiers(ctx, Request{
+		Kind: KindArtist, Query: artistName,
+		Identifiers: []Identifier{{Scheme: "apple", Value: appleID}},
+		Hints:       Hints{Releases: []ReleaseHint{{Title: "Contradictory release", Year: 2024, Identifiers: []Identifier{{Scheme: "musicbrainz", Value: "70000000-0000-4000-8000-000000000001"}}}}},
+	})
+	if err != nil || handled || known.EntityID != result.EntityID {
+		t.Fatalf("known release evidence shortcut result=%+v handled=%v err=%v", known, handled, err)
+	}
+	conflict, handled, err := NewService(runtime).ResolveFreshIdentifiers(ctx, Request{
+		Kind: KindArtist, Query: artistName,
+		Identifiers: []Identifier{{Scheme: "apple", Value: appleID}},
+		Hints:       Hints{Releases: []ReleaseHint{{Title: "Contradictory Release", Year: 2024, Type: "album", Identifiers: []Identifier{{Scheme: "musicbrainz", Value: conflictingReleaseID}}}}},
+	}, 0, providercredentials.Credentials{})
+	if err != nil || !handled || conflict.EntityID != "" || conflict.Status != "needs_selection" || conflict.Recommendation != "conflicting_identifiers" || len(conflict.Candidates) != 2 {
+		t.Fatalf("release conflict result=%+v handled=%v err=%v", conflict, handled, err)
+	}
+	var conflictingEntityID string
+	if err := runtime.DB.QueryRow(ctx, `SELECT entity_id::text FROM external_id_claims WHERE entity_kind='artist' AND provider='musicbrainz' AND namespace='artist' AND normalized_value=$1 AND state='accepted'`, conflictingMBID).Scan(&conflictingEntityID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cleanupDiscoveryArtistEntity(runtime, conflictingEntityID, conflictingMBID, "") })
 	for _, scheme := range []string{"apple", "musicbrainz"} {
 		if outcomeForScheme(result.IdentifierEvidence, scheme) != map[string]string{"apple": "corroborating", "musicbrainz": "resolved"}[scheme] {
 			t.Fatalf("identifier evidence=%+v", result.IdentifierEvidence)

@@ -214,11 +214,20 @@ Requirements:
   HeyaMetadata privately ingests and crosswalks MusicBrainz, Apple/iTunes,
   Deezer, and supported release evidence; it returns an existing or fresh Heya
   UUID only after those roots converge.
-- MusicBrainz release and release-group identifiers inside structured release
-  hints MAY establish the credited artist as corroborating or conflicting
-  identity evidence. Clients MUST NOT resolve those credits themselves.
+- MusicBrainz release/release-group, Apple/Deezer album, and Discogs
+  release/master identifiers inside structured release hints MAY establish the
+  credited artist as corroborating or conflicting identity evidence. This check
+  MUST still run when a top-level artist identifier is already known. Clients
+  MUST NOT resolve those credits themselves.
 - Conflicting identifiers MUST remain reviewable and return only opaque
   candidate references.
+- A provider record whose direct identity is owned by another canonical artist
+  MUST be quarantined from the current artist projection rather than contributing
+  names, artwork, rankings, or provenance.
+- Wikidata Q-IDs MUST remain descriptive artist evidence rather than canonical
+  identity. A single item may cover multiple MusicBrainz stage names or projects;
+  descriptions/images MAY contribute only when an item label exactly matches the
+  primary MusicBrainz artist name.
 - Ambiguous candidates MUST remain distinguishable. V2 MUST NOT silently merge
   them merely because names are similar.
 - Resolution requests MUST be idempotent under retries and concurrency.

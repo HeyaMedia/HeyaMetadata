@@ -14,6 +14,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/anime"
 	"github.com/HeyaMedia/HeyaMetadata/internal/artists"
 	"github.com/HeyaMedia/HeyaMetadata/internal/books"
+	rgdomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/releasegroup"
 	"github.com/HeyaMedia/HeyaMetadata/internal/episodic"
 	"github.com/HeyaMedia/HeyaMetadata/internal/manga"
 	"github.com/HeyaMedia/HeyaMetadata/internal/movies"
@@ -22,6 +23,9 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/animelists"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/apple"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/deezer"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/discogs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/openlibrary"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tmdb"
@@ -78,12 +82,12 @@ func (s *Service) ResolveFreshIdentifiers(ctx context.Context, request Request, 
 			rootEvidence[key] = append(rootEvidence[key], index)
 		}
 	}
-	// Release identifiers are identity evidence too. In particular, media tags
-	// can contain a correct MusicBrainz release while carrying a stale Apple or
-	// Deezer artist ID. Resolve the credited MusicBrainz artist privately so the
-	// two roots must converge before we return a canonical Heya identity.
+	// Release identifiers are identity evidence too. Media tags can contain a
+	// correct release while carrying a stale artist ID. Resolve MusicBrainz,
+	// Apple, Deezer, and Discogs credits privately so every artist root must
+	// converge before we return a canonical Heya identity.
 	if request.Kind == KindArtist {
-		releaseRoots, releaseErr := s.artistRootsFromReleaseHints(ctx, request.Hints.Releases, jobID)
+		releaseRoots, releaseErr := s.artistRootsFromReleaseHints(ctx, request.Hints.Releases, jobID, credentials)
 		if releaseErr != nil {
 			return Result{}, false, releaseErr
 		}
@@ -222,34 +226,251 @@ func (s *Service) resolveIngestionRootClaim(ctx context.Context, root ingestionR
 	return entityID, err
 }
 
-func (s *Service) artistRootsFromReleaseHints(ctx context.Context, hints []ReleaseHint, jobID int64) ([]ingestionRoot, error) {
+func (s *Service) artistRootsFromReleaseHints(ctx context.Context, hints []ReleaseHint, jobID int64, credentials providercredentials.Credentials) ([]ingestionRoot, error) {
 	if len(hints) == 0 {
 		return nil, nil
 	}
-	base := musicbrainz.New(s.runtime.Config.Providers.MusicBrainz)
-	resolver, err := providercache.New(s.runtime, "musicbrainz-artist-release-routing/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
-	if err != nil {
-		return nil, err
+	var musicBrainzClient *musicbrainz.Client
+	var appleClient *apple.Client
+	var deezerClient *deezer.Client
+	var discogsClient *discogs.Client
+	loadMusicBrainz := func() error {
+		if musicBrainzClient != nil {
+			return nil
+		}
+		base := musicbrainz.New(s.runtime.Config.Providers.MusicBrainz)
+		resolver, err := providercache.New(s.runtime, "musicbrainz-artist-release-routing/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+		if err != nil {
+			return err
+		}
+		musicBrainzClient = musicbrainz.NewCached(s.runtime.Config.Providers.MusicBrainz, resolver)
+		return nil
 	}
-	client := musicbrainz.NewCached(s.runtime.Config.Providers.MusicBrainz, resolver)
+	loadApple := func() error {
+		if appleClient != nil {
+			return nil
+		}
+		base := apple.New(s.runtime.Config.Providers.Apple)
+		resolver, err := providercache.New(s.runtime, "apple-artist-release-routing/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+		if err != nil {
+			return err
+		}
+		appleClient = apple.NewCached(s.runtime.Config.Providers.Apple, resolver, credentials.APIKey("apple"))
+		return nil
+	}
+	loadDeezer := func() error {
+		if deezerClient != nil {
+			return nil
+		}
+		base := deezer.New(s.runtime.Config.Providers.Deezer)
+		resolver, err := providercache.New(s.runtime, "deezer-artist-release-routing/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+		if err != nil {
+			return err
+		}
+		deezerClient = deezer.NewCached(s.runtime.Config.Providers.Deezer, resolver)
+		return nil
+	}
+	loadDiscogs := func() error {
+		if discogsClient != nil {
+			return nil
+		}
+		base := discogs.New(s.runtime.Config.Providers.Discogs)
+		resolver, err := providercache.New(s.runtime, "discogs-artist-release-routing/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+		if err != nil {
+			return err
+		}
+		discogsClient = discogs.NewCached(s.runtime.Config.Providers.Discogs, resolver, credentials.APIKey("discogs"))
+		return nil
+	}
+	type pendingLookup struct {
+		hint       ReleaseHint
+		identifier Identifier
+	}
+	pending := []pendingLookup{}
+	for _, hint := range hints {
+		for _, identifier := range hint.Identifiers {
+			switch identifier.Scheme {
+			case "musicbrainz", "apple", "deezer", "discogs_release", "discogs_master":
+				pending = append(pending, pendingLookup{hint: hint, identifier: identifier})
+			}
+		}
+	}
+	releasePriority := func(scheme string) int {
+		switch scheme {
+		case "musicbrainz":
+			return 0
+		case "apple":
+			return 1
+		case "deezer":
+			return 2
+		default:
+			return 3
+		}
+	}
+	sort.SliceStable(pending, func(i, j int) bool {
+		left, right := releasePriority(pending[i].identifier.Scheme), releasePriority(pending[j].identifier.Scheme)
+		if left != right {
+			return left < right
+		}
+		return pending[i].hint.Title < pending[j].hint.Title
+	})
 	seen := map[string]bool{}
 	result := []ingestionRoot{}
 	lookups := 0
-	for _, hint := range hints {
-		for _, identifier := range hint.Identifiers {
-			if identifier.Scheme != "musicbrainz" || seen[identifier.Value] || lookups >= 12 {
-				continue
-			}
-			seen[identifier.Value] = true
-			lookups++
-			roots, lookupErr := artistRootsFromMusicBrainzRelease(ctx, client, hint, identifier.Value)
-			if lookupErr != nil {
-				return nil, lookupErr
-			}
-			result = append(result, roots...)
+	for _, lookup := range pending {
+		hint, identifier := lookup.hint, lookup.identifier
+		key := identifier.Scheme + "\x00" + identifier.Value
+		if seen[key] || lookups >= 12 {
+			continue
 		}
+		var roots []ingestionRoot
+		var lookupErr error
+		switch identifier.Scheme {
+		case "musicbrainz":
+			lookupErr = loadMusicBrainz()
+			if lookupErr == nil {
+				roots, lookupErr = artistRootsFromMusicBrainzRelease(ctx, musicBrainzClient, hint, identifier.Value)
+			}
+		case "apple":
+			lookupErr = loadApple()
+			if lookupErr == nil {
+				roots, lookupErr = artistRootsFromAppleRelease(ctx, appleClient, hint, identifier.Value)
+			}
+		case "deezer":
+			lookupErr = loadDeezer()
+			if lookupErr == nil {
+				roots, lookupErr = artistRootsFromDeezerRelease(ctx, deezerClient, hint, identifier.Value)
+			}
+		case "discogs_release", "discogs_master":
+			lookupErr = loadDiscogs()
+			if lookupErr == nil {
+				roots, lookupErr = artistRootsFromDiscogsRelease(ctx, discogsClient, hint, identifier)
+			}
+		default:
+			continue
+		}
+		seen[key] = true
+		lookups++
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+		result = append(result, roots...)
 	}
 	return uniqueRoots(result), nil
+}
+
+func artistRootsFromAppleRelease(ctx context.Context, client *apple.Client, hint ReleaseHint, id string) ([]ingestionRoot, error) {
+	payloads, err := client.Collect(ctx, providers.Identifier{Provider: "apple", Namespace: "album", Value: id})
+	if err != nil {
+		return nil, err
+	}
+	if len(payloads) == 0 || payloads[0].StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if payloads[0].StatusCode != http.StatusOK {
+		return nil, &providers.StatusError{Provider: "apple", StatusCode: payloads[0].StatusCode}
+	}
+	var envelope struct {
+		ResultCount int `json:"resultCount"`
+	}
+	if err := json.Unmarshal(payloads[0].Body, &envelope); err == nil && envelope.ResultCount == 0 {
+		return nil, nil
+	}
+	record, err := apple.NormalizeAlbum(payloads[0].Body, id, "", time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	return artistRootsFromNormalizedRelease(hint, record), nil
+}
+
+func artistRootsFromDeezerRelease(ctx context.Context, client *deezer.Client, hint ReleaseHint, id string) ([]ingestionRoot, error) {
+	payloads, err := client.Collect(ctx, providers.Identifier{Provider: "deezer", Namespace: "album", Value: id})
+	if err != nil {
+		return nil, err
+	}
+	if len(payloads) == 0 || payloads[0].StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if payloads[0].StatusCode != http.StatusOK {
+		return nil, &providers.StatusError{Provider: "deezer", StatusCode: payloads[0].StatusCode}
+	}
+	var envelope struct {
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(payloads[0].Body, &envelope); err == nil && envelope.Error != nil {
+		if envelope.Error.Code == 800 || strings.Contains(strings.ToLower(envelope.Error.Message), "not found") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("Deezer album lookup: %s", envelope.Error.Message)
+	}
+	record, err := deezer.NormalizeAlbum(payloads[0].Body, "", time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	return artistRootsFromNormalizedRelease(hint, record), nil
+}
+
+func artistRootsFromDiscogsRelease(ctx context.Context, client *discogs.Client, hint ReleaseHint, identifier Identifier) ([]ingestionRoot, error) {
+	namespace := strings.TrimPrefix(identifier.Scheme, "discogs_")
+	payloads, err := client.Collect(ctx, providers.Identifier{Provider: "discogs", Namespace: namespace, Value: identifier.Value})
+	if err != nil {
+		return nil, err
+	}
+	if len(payloads) == 0 || payloads[0].StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if payloads[0].StatusCode != http.StatusOK {
+		return nil, &providers.StatusError{Provider: "discogs", StatusCode: payloads[0].StatusCode}
+	}
+	var record rgdomain.NormalizedRecordV1
+	if namespace == "master" {
+		record, err = discogs.NormalizeMaster(payloads[0].Body, "", time.Now().UTC())
+	} else {
+		record, err = discogs.NormalizeRelease(payloads[0].Body, "", time.Now().UTC())
+	}
+	if err != nil {
+		return nil, err
+	}
+	return artistRootsFromNormalizedRelease(hint, record), nil
+}
+
+func artistRootsFromNormalizedRelease(hint ReleaseHint, record rgdomain.NormalizedRecordV1) []ingestionRoot {
+	title := ""
+	for _, value := range record.Titles {
+		if title == "" || value.Primary {
+			title = value.Value
+		}
+		if value.Primary {
+			break
+		}
+	}
+	date := ""
+	if len(record.Dates) > 0 {
+		date = record.Dates[0].Value
+	}
+	primaryType := record.Classification.PrimaryType
+	// iTunes labels every collection wrapper as an album, and Discogs does not
+	// expose a dependable album/single/EP classification on these resources.
+	// Exact title and date still make their explicit IDs strong evidence.
+	if record.ProviderRecord.Provider == "apple" || record.ProviderRecord.Provider == "discogs" {
+		primaryType = ""
+	}
+	if !releaseHintGroupMatches(hint, hint.Title, false, title, date, primaryType) {
+		return nil
+	}
+	result := []ingestionRoot{}
+	for _, credit := range record.ArtistCredits {
+		provider := strings.ToLower(strings.TrimSpace(credit.ArtistProvider))
+		value := strings.TrimSpace(credit.ArtistID)
+		if value == "" || (provider != "apple" && provider != "deezer" && provider != "discogs") {
+			continue
+		}
+		result = append(result, ingestionRoot{Kind: KindArtist, Provider: provider, Namespace: "artist", Value: value})
+	}
+	return uniqueRoots(result)
 }
 
 func artistRootsFromMusicBrainzRelease(ctx context.Context, client *musicbrainz.Client, hint ReleaseHint, mbid string) ([]ingestionRoot, error) {
