@@ -22,6 +22,28 @@ func TestMergeCombinesCrossAuthorityEpisodeNumbers(t *testing.T) {
 	}
 }
 
+func TestMergePreservesTVDBYearSeasonAsEpisodeAlias(t *testing.T) {
+	tmdb := NormalizedRecord{Provider: "tmdb", Episodes: []Episode{{
+		ProviderID: "tmdb-episode", AirDate: "2014-01-04", Titles: []Title{{Value: "Star Wars Special"}},
+		Numbers: []EpisodeNumber{{Scheme: "aired", Season: 13, Number: 1, Provider: "tmdb"}, {Scheme: "tmdb", Season: 13, Number: 1, Provider: "tmdb"}},
+	}}}
+	tvdb := NormalizedRecord{Provider: "tvdb", Episodes: []Episode{{
+		ProviderID: "tvdb-episode", AirDate: "2014-01-04", Titles: []Title{{Value: "Star Wars Special"}},
+		Numbers: []EpisodeNumber{{Scheme: "aired", Season: 2014, Number: 1, Provider: "tvdb"}, {Scheme: "tvdb", Season: 2014, Number: 1, Provider: "tvdb"}},
+	}}}
+
+	merged := Merge([]NormalizedRecord{tmdb, tvdb})
+	if len(merged.Episodes) != 1 {
+		t.Fatalf("episodes: %+v", merged.Episodes)
+	}
+	for _, number := range merged.Episodes[0].Numbers {
+		if number.Scheme == "tvdb" && number.Provider == "tvdb" && number.Season == 2014 && number.Number == 1 {
+			return
+		}
+	}
+	t.Fatalf("TVDB S2014E01 alias was lost: %+v", merged.Episodes[0].Numbers)
+}
+
 func TestMergeNeverCollapsesDistinctEpisodesFromOneRecord(t *testing.T) {
 	record := NormalizedRecord{Provider: "anidb", Episodes: []Episode{
 		{ProviderID: "1", AirDate: "2020-01-01", Titles: []Title{{Value: "Recap"}}, Numbers: []EpisodeNumber{{Scheme: "aired", Number: 1}}},

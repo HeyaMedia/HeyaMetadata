@@ -72,6 +72,30 @@ func TestNormalizeTVDBSeriesRetainsSpecialsAbsoluteNumbersAndChildArtwork(t *tes
 	}
 }
 
+func TestNormalizeTVDBSeriesRetainsYearNumberedSeason(t *testing.T) {
+	payload := providers.Payload{ObservationID: "obs", ObservedAt: time.Unix(1, 0), StatusCode: http.StatusOK, Body: []byte(`{"data":{
+		"id":73388,"name":"MythBusters","originalLanguage":"eng",
+		"seasons":[{"id":2014,"number":2014,"name":"2014","type":{"name":"Aired Order"}}],
+		"episodes":[{"id":5000001,"name":"Star Wars Special","seasonNumber":2014,"number":1,"aired":"2014-01-04"}]
+	}}`)}
+	record, err := NormalizeTVDBSeries(payload, "tv_show", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record.Seasons) != 1 || record.Seasons[0].Number != 2014 {
+		t.Fatalf("seasons: %+v", record.Seasons)
+	}
+	if len(record.Episodes) != 1 {
+		t.Fatalf("episodes: %+v", record.Episodes)
+	}
+	for _, number := range record.Episodes[0].Numbers {
+		if number.Scheme == "tvdb" && number.Provider == "tvdb" && number.Season == 2014 && number.Number == 1 {
+			return
+		}
+	}
+	t.Fatalf("TVDB S2014E01 alias missing: %+v", record.Episodes[0].Numbers)
+}
+
 func TestNormalizeTVDBSeriesAddsEverySeasonArtworkClass(t *testing.T) {
 	series := providers.Payload{ObservationID: "series", ObservedAt: time.Unix(1, 0), StatusCode: http.StatusOK, Body: []byte(`{"data":{"id":121361,"name":"Game of Thrones","seasons":[{"id":473271,"number":2,"name":"Season 2","image":"/primary.jpg","type":{"id":1,"name":"Aired Order"}},{"id":1713613,"number":2,"name":"DVD Season 2","type":{"id":2,"name":"DVD Order"}}]}}`)}
 	season := providers.Payload{ObservationID: "season", ObservedAt: time.Unix(2, 0), StatusCode: http.StatusOK, Body: []byte(`{"data":{"id":473271,"number":2,"artwork":[{"id":1,"type":7,"image":"/poster.jpg","language":"eng","width":680,"height":1000,"score":10},{"id":2,"type":8,"image":"/background.jpg","width":1920,"height":1080},{"id":3,"type":6,"image":"/banner.jpg","width":758,"height":140},{"id":4,"type":10,"image":"/icon.png","width":1024,"height":1024}]}}`)}

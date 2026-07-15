@@ -109,6 +109,13 @@ func (s *Service) AcceptReconciliation(ctx context.Context, leftID, rightID, sur
 		return ReconciliationDecision{}, err
 	}
 	defer tx.Rollback(ctx)
+	// Person merges can touch hundreds of the same movie and episodic credit
+	// documents. Serializing only the merge transaction prevents overlapping
+	// reconciliations from deadlocking while their provider fetches remain
+	// fully concurrent.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('heya:person-reconciliation',0))`); err != nil {
+		return ReconciliationDecision{}, fmt.Errorf("lock person reconciliation: %w", err)
+	}
 	candidate, err := lockCandidate(ctx, tx, leftID, rightID)
 	if err != nil {
 		return ReconciliationDecision{}, err
