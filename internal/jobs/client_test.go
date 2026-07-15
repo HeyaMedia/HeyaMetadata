@@ -49,3 +49,11 @@ func TestArtistCatalogAllowsPagedDetailEvidence(t *testing.T) {
 		t.Fatalf("artist catalog timeout: %s", got)
 	}
 }
+
+func TestPersonReconciliationAllowsFullBatch(t *testing.T) {
+	t.Parallel()
+	worker := &PersonReconciliationSchedulerWorker{}
+	if got := worker.Timeout(nil); got != 15*time.Minute {
+		t.Fatalf("person reconciliation timeout: %s", got)
+	}
+}

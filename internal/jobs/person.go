@@ -122,6 +122,15 @@ func NewPersonReconciliationSchedulerWorker(runtime *platform.Runtime) *PersonRe
 	return &PersonReconciliationSchedulerWorker{service: people.NewService(runtime), runtime: runtime}
 }
 
+// ReconciliationRoots deliberately evaluates a bounded but substantial batch.
+// River's one-minute default is too short once production has tens of
+// thousands of cross-provider people, even though each individual query is
+// bounded. Give one batch enough time to finish and durably enqueue its
+// provider enrichment without making the job unbounded.
+func (w *PersonReconciliationSchedulerWorker) Timeout(*river.Job[PersonReconciliationSchedulerArgs]) time.Duration {
+	return 15 * time.Minute
+}
+
 func (w *PersonReconciliationSchedulerWorker) Work(ctx context.Context, _ *river.Job[PersonReconciliationSchedulerArgs]) error {
 	roots, err := w.service.ReconciliationRoots(ctx, 250)
 	if err != nil {
