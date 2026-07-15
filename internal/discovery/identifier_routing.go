@@ -22,12 +22,14 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/animelists"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/openlibrary"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tmdb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvmaze"
 	"github.com/HeyaMedia/HeyaMetadata/internal/recordings"
 	"github.com/HeyaMedia/HeyaMetadata/internal/releasegroups"
 	"github.com/HeyaMedia/HeyaMetadata/internal/tvshows"
+	"github.com/jackc/pgx/v5"
 )
 
 type ingestionRoot struct {
@@ -76,6 +78,19 @@ func (s *Service) ResolveFreshIdentifiers(ctx context.Context, request Request, 
 			rootEvidence[key] = append(rootEvidence[key], index)
 		}
 	}
+	// Release identifiers are identity evidence too. In particular, media tags
+	// can contain a correct MusicBrainz release while carrying a stale Apple or
+	// Deezer artist ID. Resolve the credited MusicBrainz artist privately so the
+	// two roots must converge before we return a canonical Heya identity.
+	if request.Kind == KindArtist {
+		releaseRoots, releaseErr := s.artistRootsFromReleaseHints(ctx, request.Hints.Releases, jobID)
+		if releaseErr != nil {
+			return Result{}, false, releaseErr
+		}
+		for _, root := range releaseRoots {
+			roots[root.key()] = root
+		}
+	}
 	if len(roots) == 0 {
 		// Exact identifier evidence outranks fuzzy title discovery. If any
 		// identifier already established a canonical entity, return it even when
@@ -88,70 +103,38 @@ func (s *Service) ResolveFreshIdentifiers(ctx context.Context, request Request, 
 		}
 		return result, true, nil
 	}
-	if len(roots) > 1 {
-		result.EntityID = ""
-		result.Status = "needs_selection"
-		result.Recommendation = "conflicting_identifiers"
-		if knownEntityID != "" {
-			for index := range result.IdentifierEvidence {
-				if result.IdentifierEvidence[index].Outcome == "resolved" || result.IdentifierEvidence[index].Outcome == "corroborating" {
-					result.IdentifierEvidence[index].Outcome = "conflict"
-					result.IdentifierEvidence[index].Detail = "identifier resolves to a different canonical Heya entity"
-				}
-			}
-			display, err := s.canonicalCandidateDisplay(ctx, knownEntityID)
-			if err != nil {
-				return Result{}, false, err
-			}
-			result.Candidates = append(result.Candidates, canonicalConflictCandidate(request.Kind, knownEntityID, display))
-		}
-		keys := make([]string, 0, len(roots))
-		for key, indexes := range rootEvidence {
-			keys = append(keys, key)
-			for _, index := range indexes {
-				result.IdentifierEvidence[index].Outcome = "conflict"
-				result.IdentifierEvidence[index].Detail = "provided identifiers map to different upstream identities"
-			}
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			root := roots[key]
-			result.Candidates = append(result.Candidates, Candidate{
-				Confidence: 1, Match: "conflict",
-				Display:    Display{Title: request.Query, Name: request.Query, Year: request.Hints.Year},
-				Evidence:   []Evidence{{Field: "identifiers", Outcome: "conflict", Weight: 1, Detail: "provided identifiers disagree"}},
-				Resolution: Resolution{Kind: root.Kind, Provider: root.Provider, Namespace: root.Namespace, Value: root.Value},
-			})
-		}
-		for index := range result.Candidates {
-			result.Candidates[index].Rank = index + 1
-		}
-		return result, true, nil
+	orderedRoots := sortedIngestionRoots(roots)
+	entityIDs := map[string]bool{}
+	rootEntities := map[string]string{}
+	if knownEntityID != "" {
+		entityIDs[knownEntityID] = true
 	}
-	var root ingestionRoot
-	for _, value := range roots {
-		root = value
-	}
-	for _, indexes := range rootEvidence {
-		for _, index := range indexes[1:] {
-			result.IdentifierEvidence[index].Outcome = "corroborating"
+	for _, root := range orderedRoots {
+		entityID, claimErr := s.resolveIngestionRootClaim(ctx, root)
+		if errors.Is(claimErr, pgx.ErrNoRows) {
+			entityID, claimErr = s.ingestRoot(ctx, root, jobID, credentials)
 		}
-	}
-	entityID, err := s.ingestRoot(ctx, root, jobID, credentials)
-	if err != nil {
-		var status *providers.StatusError
-		if errors.As(err, &status) && status.StatusCode == http.StatusNotFound {
-			for _, indexes := range rootEvidence {
-				for _, index := range indexes {
+		if claimErr != nil {
+			var status *providers.StatusError
+			if errors.As(claimErr, &status) && status.StatusCode == http.StatusNotFound {
+				for _, index := range rootEvidence[root.key()] {
 					result.IdentifierEvidence[index].Outcome = "unused"
 					result.IdentifierEvidence[index].Detail = "upstream identity was not found"
 				}
+				continue
 			}
-			return result, true, nil
+			return Result{}, false, claimErr
 		}
-		return Result{}, false, err
+		if entityID == "" {
+			continue
+		}
+		rootEntities[root.key()] = entityID
+		entityIDs[entityID] = true
 	}
-	if knownEntityID != "" && entityID != knownEntityID {
+	if len(entityIDs) == 0 {
+		return result, true, nil
+	}
+	if len(entityIDs) > 1 {
 		result.EntityID = ""
 		result.Status = "needs_selection"
 		result.Recommendation = "conflicting_identifiers"
@@ -161,9 +144,12 @@ func (s *Service) ResolveFreshIdentifiers(ctx context.Context, request Request, 
 				result.IdentifierEvidence[index].Detail = "identifier resolves to a different canonical Heya entity"
 			}
 		}
-		entityIDs := []string{knownEntityID, entityID}
-		sort.Strings(entityIDs)
-		for _, candidateEntityID := range entityIDs {
+		candidateEntityIDs := make([]string, 0, len(entityIDs))
+		for candidateEntityID := range entityIDs {
+			candidateEntityIDs = append(candidateEntityIDs, candidateEntityID)
+		}
+		sort.Strings(candidateEntityIDs)
+		for _, candidateEntityID := range candidateEntityIDs {
 			display, displayErr := s.canonicalCandidateDisplay(ctx, candidateEntityID)
 			if displayErr != nil {
 				return Result{}, false, displayErr
@@ -176,19 +162,149 @@ func (s *Service) ResolveFreshIdentifiers(ctx context.Context, request Request, 
 		result.ObservedAt = time.Now().UTC()
 		return result, true, nil
 	}
-	result.EntityID = entityID
-	result.Recommendation = "identified"
-	if knownEntityID != "" {
-		result.Recommendation = "corroborated_identity"
-		for _, indexes := range rootEvidence {
-			for _, index := range indexes {
+	entityID := ""
+	for candidateEntityID := range entityIDs {
+		entityID = candidateEntityID
+	}
+	hasResolvedEvidence := knownEntityID != ""
+	for _, root := range orderedRoots {
+		if rootEntities[root.key()] == "" {
+			continue
+		}
+		for _, index := range rootEvidence[root.key()] {
+			if hasResolvedEvidence {
 				result.IdentifierEvidence[index].Outcome = "corroborating"
 				result.IdentifierEvidence[index].Detail = "identifier independently converged on the same canonical Heya entity"
 			}
+			hasResolvedEvidence = true
 		}
+	}
+	result.EntityID = entityID
+	result.Recommendation = "identified"
+	if knownEntityID != "" || len(rootEntities) > 1 {
+		result.Recommendation = "corroborated_identity"
 	}
 	result.ObservedAt = time.Now().UTC()
 	return result, true, nil
+}
+
+func sortedIngestionRoots(values map[string]ingestionRoot) []ingestionRoot {
+	result := make([]ingestionRoot, 0, len(values))
+	for _, value := range values {
+		result = append(result, value)
+	}
+	priority := func(root ingestionRoot) int {
+		if root.Kind == KindArtist {
+			switch root.Provider {
+			case "musicbrainz":
+				return 0
+			case "apple":
+				return 1
+			case "deezer":
+				return 2
+			}
+		}
+		return 10
+	}
+	sort.Slice(result, func(i, j int) bool {
+		left, right := priority(result[i]), priority(result[j])
+		if left != right {
+			return left < right
+		}
+		return result[i].key() < result[j].key()
+	})
+	return result
+}
+
+func (s *Service) resolveIngestionRootClaim(ctx context.Context, root ingestionRoot) (string, error) {
+	var entityID string
+	err := s.runtime.DB.QueryRow(ctx, `SELECT claim.entity_id::text FROM external_id_claims claim JOIN entities entity ON entity.id=claim.entity_id AND entity.kind=$1 AND entity.deleted_at IS NULL WHERE claim.entity_kind=$1 AND claim.provider=$2 AND claim.namespace=$3 AND claim.normalized_value=$4 AND claim.state='accepted'`, root.Kind, root.Provider, root.Namespace, root.Value).Scan(&entityID)
+	return entityID, err
+}
+
+func (s *Service) artistRootsFromReleaseHints(ctx context.Context, hints []ReleaseHint, jobID int64) ([]ingestionRoot, error) {
+	if len(hints) == 0 {
+		return nil, nil
+	}
+	base := musicbrainz.New(s.runtime.Config.Providers.MusicBrainz)
+	resolver, err := providercache.New(s.runtime, "musicbrainz-artist-release-routing/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+	if err != nil {
+		return nil, err
+	}
+	client := musicbrainz.NewCached(s.runtime.Config.Providers.MusicBrainz, resolver)
+	seen := map[string]bool{}
+	result := []ingestionRoot{}
+	lookups := 0
+	for _, hint := range hints {
+		for _, identifier := range hint.Identifiers {
+			if identifier.Scheme != "musicbrainz" || seen[identifier.Value] || lookups >= 12 {
+				continue
+			}
+			seen[identifier.Value] = true
+			lookups++
+			roots, lookupErr := artistRootsFromMusicBrainzRelease(ctx, client, hint, identifier.Value)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+			result = append(result, roots...)
+		}
+	}
+	return uniqueRoots(result), nil
+}
+
+func artistRootsFromMusicBrainzRelease(ctx context.Context, client *musicbrainz.Client, hint ReleaseHint, mbid string) ([]ingestionRoot, error) {
+	type creditEnvelope struct {
+		Title            string `json:"title"`
+		Date             string `json:"date"`
+		FirstReleaseDate string `json:"first-release-date"`
+		PrimaryType      string `json:"primary-type"`
+		ReleaseGroup     *struct {
+			PrimaryType string `json:"primary-type"`
+		} `json:"release-group"`
+		ArtistCredit []struct {
+			Artist struct {
+				ID string `json:"id"`
+			} `json:"artist"`
+		} `json:"artist-credit"`
+	}
+	for _, namespace := range []string{"release_group", "release"} {
+		payloads, err := client.Collect(ctx, providers.Identifier{Provider: "musicbrainz", Namespace: namespace, Value: mbid})
+		if err != nil {
+			return nil, err
+		}
+		if len(payloads) == 0 {
+			continue
+		}
+		payload := payloads[0]
+		if payload.StatusCode == http.StatusNotFound {
+			continue
+		}
+		if payload.StatusCode != http.StatusOK {
+			return nil, &providers.StatusError{Provider: "musicbrainz", StatusCode: payload.StatusCode}
+		}
+		var source creditEnvelope
+		if err := json.Unmarshal(payload.Body, &source); err != nil {
+			return nil, fmt.Errorf("decode MusicBrainz %s artist routing evidence: %w", namespace, err)
+		}
+		date, primaryType := source.FirstReleaseDate, source.PrimaryType
+		if namespace == "release" {
+			date = source.Date
+			if source.ReleaseGroup != nil {
+				primaryType = source.ReleaseGroup.PrimaryType
+			}
+		}
+		if !releaseHintGroupMatches(hint, hint.Title, false, source.Title, date, primaryType) {
+			return nil, nil
+		}
+		roots := []ingestionRoot{}
+		for _, credit := range source.ArtistCredit {
+			if value := strings.ToLower(strings.TrimSpace(credit.Artist.ID)); value != "" {
+				roots = append(roots, ingestionRoot{Kind: KindArtist, Provider: "musicbrainz", Namespace: "artist", Value: value})
+			}
+		}
+		return uniqueRoots(roots), nil
+	}
+	return nil, nil
 }
 
 func canonicalConflictCandidate(kind, entityID string, display Display) Candidate {

@@ -280,6 +280,121 @@ func TestIntegrationFreshTVIdentifierRoutesAndMixedEvidence(t *testing.T) {
 	}
 }
 
+func TestIntegrationFreshArtistProviderRootsMustConverge(t *testing.T) {
+	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
+		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local platform stack")
+	}
+	ctx := context.Background()
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	mbid := "60000000-0000-4000-8000-" + suffix[len(suffix)-12:]
+	appleID := suffix
+	appleNumeric, err := strconv.ParseInt(appleID, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artistName := "Provider Convergence " + suffix
+	providerServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.URL.Path == "/artist/"+mbid:
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"id": mbid, "name": artistName, "sort-name": artistName, "type": "Person", "country": "US",
+				"relations": []any{map[string]any{"target-type": "url", "type": "streaming", "url": map[string]any{"resource": "https://music.apple.com/us/artist/provider-convergence/" + appleID}}},
+			})
+		case request.URL.Path == "/lookup" && request.URL.Query().Get("id") == appleID:
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"resultCount": 3,
+				"results": []any{
+					map[string]any{"wrapperType": "artist", "artistType": "Artist", "artistName": artistName, "artistId": appleNumeric, "artistLinkUrl": "https://music.apple.com/us/artist/provider-convergence/" + appleID, "primaryGenreName": "Pop", "primaryGenreId": 14},
+					map[string]any{"wrapperType": "collection", "collectionType": "Album", "collectionId": 700000001, "collectionName": "Convergence One", "artistId": appleNumeric, "artistName": artistName, "releaseDate": "2020-01-01T00:00:00Z", "trackCount": 10},
+					map[string]any{"wrapperType": "collection", "collectionType": "Album", "collectionId": 700000002, "collectionName": "Convergence Two", "artistId": appleNumeric, "artistName": artistName, "releaseDate": "2021-01-01T00:00:00Z", "trackCount": 11},
+				},
+			})
+		default:
+			response.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(response).Encode(map[string]any{"error": "fixture route not found", "path": request.URL.Path})
+		}
+	}))
+	t.Cleanup(providerServer.Close)
+	blobServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.Method {
+		case http.MethodPut:
+			response.WriteHeader(http.StatusOK)
+		case http.MethodDelete:
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			response.WriteHeader(http.StatusNotFound)
+			_, _ = response.Write([]byte(`<Error><Code>NoSuchKey</Code></Error>`))
+		}
+	}))
+	t.Cleanup(blobServer.Close)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.S3.Endpoint = blobServer.URL
+	cfg.S3.Bucket = "fixture"
+	cfg.S3.Prefix = "artist-convergence"
+	cfg.S3.AccessKeyID = "fixture-access"
+	cfg.S3.SecretAccessKey = "fixture-secret"
+	cfg.Providers.MusicBrainz.BaseURL = providerServer.URL
+	cfg.Providers.MusicBrainz.RequestsPerSecond = 1000
+	cfg.Providers.MusicBrainz.UserAgent = "HeyaMetadata/integration"
+	cfg.Providers.Apple.BaseURL = providerServer.URL
+	cfg.Providers.Apple.RequestsPerSecond = 1000
+	runtime, err := platform.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+
+	result, handled, err := NewService(runtime).ResolveFreshIdentifiers(ctx, Request{
+		Kind: KindArtist, Query: artistName,
+		Identifiers: []Identifier{{Scheme: "apple", Value: appleID}, {Scheme: "musicbrainz", Value: mbid}},
+	}, 0, providercredentials.Credentials{})
+	if err != nil || !handled || result.EntityID == "" || result.Status != "completed" || result.Recommendation != "corroborated_identity" || len(result.Candidates) != 0 {
+		t.Fatalf("result=%+v handled=%v err=%v", result, handled, err)
+	}
+	t.Cleanup(func() { cleanupDiscoveryArtistEntity(runtime, result.EntityID, mbid, appleID) })
+	for _, scheme := range []string{"apple", "musicbrainz"} {
+		if outcomeForScheme(result.IdentifierEvidence, scheme) != map[string]string{"apple": "corroborating", "musicbrainz": "resolved"}[scheme] {
+			t.Fatalf("identifier evidence=%+v", result.IdentifierEvidence)
+		}
+	}
+	var claims int
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM external_id_claims WHERE entity_id=$1 AND entity_kind='artist' AND state='accepted' AND ((provider='musicbrainz' AND normalized_value=$2) OR (provider='apple' AND normalized_value=$3))`, result.EntityID, mbid, appleID).Scan(&claims); err != nil || claims != 2 {
+		t.Fatalf("accepted claims=%d err=%v", claims, err)
+	}
+}
+
+func cleanupDiscoveryArtistEntity(runtime *platform.Runtime, entityID, mbid, appleID string) {
+	ctx := context.Background()
+	for _, statement := range []string{
+		`DELETE FROM change_log WHERE entity_id=$1`,
+		`DELETE FROM change_outbox WHERE entity_id=$1`,
+		`DELETE FROM provider_refresh_states WHERE entity_id=$1`,
+		`DELETE FROM artist_top_tracks WHERE artist_entity_id=$1`,
+		`DELETE FROM artist_top_track_snapshots WHERE artist_entity_id=$1`,
+		`DELETE FROM artist_catalog_promotions WHERE artist_entity_id=$1`,
+		`DELETE FROM entity_relations WHERE source_entity_id=$1 OR target_entity_id=$1`,
+		`DELETE FROM api_document_provenance WHERE entity_id=$1`,
+		`DELETE FROM api_documents WHERE entity_id=$1`,
+		`DELETE FROM search_names WHERE entity_id=$1`,
+		`DELETE FROM search_entities WHERE entity_id=$1`,
+		`DELETE FROM image_candidates WHERE entity_id=$1`,
+		`DELETE FROM canonical_artists WHERE entity_id=$1`,
+		`DELETE FROM normalized_records WHERE entity_id=$1`,
+		`DELETE FROM external_id_claims WHERE entity_id=$1`,
+		`DELETE FROM entity_access_stats WHERE entity_id=$1`,
+		`DELETE FROM entity_slugs WHERE entity_id=$1`,
+		`DELETE FROM entities WHERE id=$1`,
+	} {
+		_, _ = runtime.DB.Exec(ctx, statement, entityID)
+	}
+	_, _ = runtime.DB.Exec(ctx, `DELETE FROM provider_observations WHERE (provider='musicbrainz' AND provider_record_id=$1) OR (provider='apple' AND provider_record_id=$2)`, mbid, appleID)
+}
+
 func tvIdentifierFixtureHandler(fixtures []tvIdentifierFixture) http.Handler {
 	byTMDB := map[string]tvIdentifierFixture{}
 	byIMDb := map[string]tvIdentifierFixture{}

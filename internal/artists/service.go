@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -421,6 +422,8 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	}
 	defer tx.Rollback(ctx)
 	entityIDs := map[string]bool{}
+	entityEvidence := map[string][]artistdomain.IdentityCandidate{}
+	retiredEntityIDs := []string{}
 	primary := successful[0]
 	spineMusicBrainzID := ""
 	if primary.ProviderRecord.Provider == "musicbrainz" && primary.ProviderRecord.Namespace == "artist" {
@@ -440,6 +443,7 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 			}
 			if compatible {
 				entityIDs[id] = true
+				entityEvidence[id] = append(entityEvidence[id], candidate)
 			}
 		} else if err != pgx.ErrNoRows {
 			return Result{}, err
@@ -463,6 +467,16 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 		}
 		if compatible {
 			entityIDs[preferredEntityID] = true
+		}
+	}
+	if len(entityIDs) > 1 && spineMusicBrainzID != "" {
+		survivorID, retiredIDs, consolidated, consolidateErr := consolidateMusicBrainzArtistRoots(ctx, tx, spineMusicBrainzID, preferredName(primary), entityIDs, entityEvidence)
+		if consolidateErr != nil {
+			return Result{}, consolidateErr
+		}
+		if consolidated {
+			entityIDs = map[string]bool{survivorID: true}
+			retiredEntityIDs = append(retiredEntityIDs, retiredIDs...)
 		}
 	}
 	if len(entityIDs) > 1 {
@@ -517,11 +531,22 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 		default:
 			// A secondary provider identifier attached to a different MB artist
 			// is ambiguous evidence, not permission to merge the two artists.
-			// Keep the exact MusicBrainz root strict; quarantine other collisions.
+			// Keep the exact MusicBrainz root strict. A directly observed provider
+			// root also keeps ownership; an incompatible incoming cross-link must
+			// not invalidate the good entity that already collected it.
 			if candidate.Provider == "musicbrainz" && candidate.Namespace == "artist" {
 				return Result{}, fmt.Errorf("MusicBrainz artist %s belongs to another canonical artist", candidate.NormalizedValue)
 			}
-			_, err = tx.Exec(ctx, `UPDATE external_id_claims SET state='disputed',last_observed_at=$1 WHERE entity_kind='artist' AND provider=$2 AND namespace=$3 AND normalized_value=$4`, source.ObservedAt, candidate.Provider, candidate.Namespace, candidate.NormalizedValue)
+			var directlyObserved bool
+			if directlyObservedErr := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM normalized_records WHERE entity_id=$1 AND entity_kind='artist' AND provider=$2 AND provider_namespace=$3 AND provider_record_id=$4)`, claimedEntityID, candidate.Provider, candidate.Namespace, candidate.NormalizedValue).Scan(&directlyObserved); directlyObservedErr != nil {
+				return Result{}, directlyObservedErr
+			}
+			if directlyObserved {
+				claims, _ := json.Marshal([]artistdomain.IdentityCandidate{candidate})
+				_, err = tx.Exec(ctx, `INSERT INTO external_id_conflicts(entity_kind,claims,normalized_record_id)VALUES('artist',$1,$2)`, claims, normalizedIDs[0])
+			} else {
+				_, err = tx.Exec(ctx, `UPDATE external_id_claims SET state='disputed',last_observed_at=$1 WHERE entity_kind='artist' AND provider=$2 AND namespace=$3 AND normalized_value=$4`, source.ObservedAt, candidate.Provider, candidate.Namespace, candidate.NormalizedValue)
+			}
 		}
 		if err != nil {
 			return Result{}, err
@@ -660,6 +685,15 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	if _, err := tx.Exec(ctx, `INSERT INTO change_outbox (entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id) VALUES ($1,'artist',$2,$3,$4,$5,$6,$7)`, entityID, slug, changeType, changedScopes, version, successful[0].ProviderRecord.PrimaryObservationID, nullableJob(jobID)); err != nil {
 		return Result{}, err
 	}
+	for _, retiredID := range retiredEntityIDs {
+		var retiredSlug string
+		if err := tx.QueryRow(ctx, `SELECT slug FROM entities WHERE id=$1`, retiredID).Scan(&retiredSlug); err != nil {
+			return Result{}, err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO change_outbox(entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id)VALUES($1,'artist',$2,'redirected',ARRAY['identity'],$3,$4,$5)`, retiredID, retiredSlug, version, successful[0].ProviderRecord.PrimaryObservationID, nullableJob(jobID)); err != nil {
+			return Result{}, err
+		}
+	}
 	if jobID > 0 {
 		if _, err := tx.Exec(ctx, `UPDATE artist_ingestion_runs SET entity_id=$2,state='completed',completed_at=now(),error=NULL WHERE river_job_id=$1`, jobID, entityID); err != nil {
 			return Result{}, err
@@ -668,7 +702,152 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 	if err := tx.Commit(ctx); err != nil {
 		return Result{}, err
 	}
+	for _, retiredID := range retiredEntityIDs {
+		_ = s.runtime.Redis.Del(context.WithoutCancel(ctx), "heya:metadata:v1:api:entity:"+retiredID+":detail").Err()
+		_ = s.runtime.Redis.Publish(context.WithoutCancel(ctx), "heya:metadata:v1:cache-invalidations", retiredID).Err()
+	}
 	return Result{EntityID: entityID, NormalizedID: normalizedIDs[0], ProjectionVersion: version, Detail: projection.Detail}, nil
+}
+
+func consolidateMusicBrainzArtistRoots(ctx context.Context, tx pgx.Tx, mbid, primaryName string, entityIDs map[string]bool, evidence map[string][]artistdomain.IdentityCandidate) (string, []string, bool, error) {
+	ids := make([]string, 0, len(entityIDs))
+	for entityID := range entityIDs {
+		ids = append(ids, entityID)
+	}
+	sort.Strings(ids)
+	if len(ids) < 2 {
+		return "", nil, false, nil
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('heya:artist-identity-consolidation',0))`); err != nil {
+		return "", nil, false, fmt.Errorf("lock artist identity consolidation: %w", err)
+	}
+	for _, entityID := range ids {
+		var displayName string
+		var conflictingMusicBrainz bool
+		if err := tx.QueryRow(ctx, `SELECT search.display_title,EXISTS(SELECT 1 FROM external_id_claims claim WHERE claim.entity_id=$1 AND claim.entity_kind='artist' AND claim.provider='musicbrainz' AND claim.namespace='artist' AND claim.state='accepted' AND claim.normalized_value<>$2) FROM search_entities search JOIN entities entity ON entity.id=search.entity_id AND entity.kind='artist' AND entity.deleted_at IS NULL WHERE search.entity_id=$1 FOR UPDATE OF entity`, entityID, mbid).Scan(&displayName, &conflictingMusicBrainz); errors.Is(err, pgx.ErrNoRows) {
+			return "", nil, false, nil
+		} else if err != nil {
+			return "", nil, false, fmt.Errorf("validate MusicBrainz artist consolidation candidate %s: %w", entityID, err)
+		}
+		if conflictingMusicBrainz || artistSlug(displayName) != artistSlug(primaryName) {
+			return "", nil, false, nil
+		}
+		trusted := false
+		for _, candidate := range evidence[entityID] {
+			if candidate.Provider == "musicbrainz" && candidate.Namespace == "artist" && candidate.NormalizedValue == mbid {
+				trusted = true
+			}
+			if candidate.Evidence == "musicbrainz_url_relationship" && (candidate.Provider == "apple" || candidate.Provider == "deezer" || candidate.Provider == "discogs") {
+				trusted = true
+			}
+		}
+		if !trusted {
+			return "", nil, false, nil
+		}
+	}
+	var survivorID string
+	if err := tx.QueryRow(ctx, `SELECT entity.id::text FROM entities entity LEFT JOIN entity_access_stats access ON access.entity_id=entity.id WHERE entity.id=ANY($1::uuid[]) ORDER BY EXISTS(SELECT 1 FROM external_id_claims claim WHERE claim.entity_id=entity.id AND claim.entity_kind='artist' AND claim.provider='musicbrainz' AND claim.namespace='artist' AND claim.normalized_value=$2 AND claim.state='accepted') DESC,COALESCE(access.decayed_score,0) DESC,COALESCE(access.total_fetches,0) DESC,(SELECT count(*) FROM external_id_claims claim WHERE claim.entity_id=entity.id AND claim.entity_kind='artist' AND claim.state='accepted') DESC,entity.created_at,entity.id LIMIT 1`, ids, mbid).Scan(&survivorID); err != nil {
+		return "", nil, false, fmt.Errorf("choose MusicBrainz artist consolidation survivor: %w", err)
+	}
+	retiredIDs := make([]string, 0, len(ids)-1)
+	for _, entityID := range ids {
+		if entityID != survivorID {
+			retiredIDs = append(retiredIDs, entityID)
+		}
+	}
+	snapshot, _ := json.Marshal(map[string]any{"musicbrainz_id": mbid, "artist_name": primaryName, "survivor_entity_id": survivorID, "retired_entity_ids": retiredIDs, "evidence": evidence})
+	subjectIDs := append([]string{survivorID}, retiredIDs...)
+	var auditID string
+	if err := tx.QueryRow(ctx, `INSERT INTO moderation_audit_log(entity_kind,action,actor,reason,subject_ids,payload)VALUES('artist','artist_identity_consolidate','system:artist-merger','one MusicBrainz artist explicitly links the provider identities on every canonical root',$1::uuid[],$2)RETURNING id::text`, subjectIDs, snapshot).Scan(&auditID); err != nil {
+		return "", nil, false, fmt.Errorf("audit MusicBrainz artist consolidation: %w", err)
+	}
+	for _, retiredID := range retiredIDs {
+		if err := absorbArtistEntity(ctx, tx, survivorID, retiredID, auditID); err != nil {
+			return "", nil, false, err
+		}
+	}
+	return survivorID, retiredIDs, true, nil
+}
+
+func absorbArtistEntity(ctx context.Context, tx pgx.Tx, survivorID, retiredID, auditID string) error {
+	if _, err := tx.Exec(ctx, `UPDATE image_candidates survivor SET source_url=CASE WHEN retired.created_at>survivor.created_at THEN retired.source_url ELSE survivor.source_url END,language=COALESCE(survivor.language,retired.language),country=COALESCE(survivor.country,retired.country),width=GREATEST(survivor.width,retired.width),height=GREATEST(survivor.height,retired.height),provider_score=GREATEST(survivor.provider_score,retired.provider_score),source_observation_id=CASE WHEN retired.created_at>survivor.created_at THEN retired.source_observation_id ELSE survivor.source_observation_id END FROM image_candidates retired WHERE survivor.entity_id=$1 AND retired.entity_id=$2 AND survivor.provider=retired.provider AND survivor.provider_image_id=retired.provider_image_id AND survivor.class=retired.class`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("merge duplicate artist images: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM image_candidates retired USING image_candidates survivor WHERE retired.entity_id=$2 AND survivor.entity_id=$1 AND survivor.provider=retired.provider AND survivor.provider_image_id=retired.provider_image_id AND survivor.class=retired.class`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("remove duplicate artist images: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE image_candidates SET entity_id=$1 WHERE entity_id=$2`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("move artist images: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE entity_relations survivor SET target_entity_id=COALESCE(survivor.target_entity_id,retired.target_entity_id),position=COALESCE(survivor.position,retired.position),metadata=CASE WHEN retired.last_observed_at>survivor.last_observed_at THEN retired.metadata ELSE survivor.metadata END,state=CASE WHEN survivor.state='accepted' OR retired.state='accepted' THEN 'accepted' ELSE survivor.state END,source_observation_id=CASE WHEN retired.last_observed_at>survivor.last_observed_at THEN retired.source_observation_id ELSE survivor.source_observation_id END,first_observed_at=LEAST(survivor.first_observed_at,retired.first_observed_at),last_observed_at=GREATEST(survivor.last_observed_at,retired.last_observed_at) FROM entity_relations retired WHERE survivor.source_entity_id=$1 AND retired.source_entity_id=$2 AND survivor.relation_type=retired.relation_type AND survivor.provider=retired.provider AND survivor.namespace=retired.namespace AND survivor.provider_value=retired.provider_value`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("merge duplicate artist relations: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM entity_relations retired USING entity_relations survivor WHERE retired.source_entity_id=$2 AND survivor.source_entity_id=$1 AND survivor.relation_type=retired.relation_type AND survivor.provider=retired.provider AND survivor.namespace=retired.namespace AND survivor.provider_value=retired.provider_value`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("remove duplicate artist relations: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE entity_relations SET source_entity_id=$1 WHERE source_entity_id=$2`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("move artist source relations: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE entity_relations SET target_entity_id=$1 WHERE target_entity_id=$2`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("move artist target relations: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO artist_catalog_promotions(artist_entity_id,release_group_entity_id,state,promoted_at,updated_at)SELECT $1,release_group_entity_id,state,promoted_at,updated_at FROM artist_catalog_promotions WHERE artist_entity_id=$2 ON CONFLICT(artist_entity_id,release_group_entity_id)DO UPDATE SET state=CASE WHEN artist_catalog_promotions.state='active' OR EXCLUDED.state='active' THEN 'active' ELSE artist_catalog_promotions.state END,updated_at=GREATEST(artist_catalog_promotions.updated_at,EXCLUDED.updated_at)`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("merge artist catalog promotions: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM artist_catalog_promotions WHERE artist_entity_id=$1`, retiredID); err != nil {
+		return fmt.Errorf("retire artist catalog promotions: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO artist_top_tracks(artist_entity_id,provider,rank,title,provider_track_id,recording_mbid,playcount,listeners,url,source_observation_id,observed_at,projection_version)SELECT $1,provider,rank,title,provider_track_id,recording_mbid,playcount,listeners,url,source_observation_id,observed_at,projection_version FROM artist_top_tracks WHERE artist_entity_id=$2 ON CONFLICT(artist_entity_id,provider,rank)DO UPDATE SET title=CASE WHEN EXCLUDED.observed_at>artist_top_tracks.observed_at THEN EXCLUDED.title ELSE artist_top_tracks.title END,provider_track_id=CASE WHEN EXCLUDED.observed_at>artist_top_tracks.observed_at THEN EXCLUDED.provider_track_id ELSE artist_top_tracks.provider_track_id END,recording_mbid=CASE WHEN EXCLUDED.observed_at>artist_top_tracks.observed_at THEN EXCLUDED.recording_mbid ELSE artist_top_tracks.recording_mbid END,playcount=CASE WHEN EXCLUDED.observed_at>artist_top_tracks.observed_at THEN EXCLUDED.playcount ELSE artist_top_tracks.playcount END,listeners=CASE WHEN EXCLUDED.observed_at>artist_top_tracks.observed_at THEN EXCLUDED.listeners ELSE artist_top_tracks.listeners END,url=CASE WHEN EXCLUDED.observed_at>artist_top_tracks.observed_at THEN EXCLUDED.url ELSE artist_top_tracks.url END,source_observation_id=CASE WHEN EXCLUDED.observed_at>artist_top_tracks.observed_at THEN EXCLUDED.source_observation_id ELSE artist_top_tracks.source_observation_id END,observed_at=GREATEST(artist_top_tracks.observed_at,EXCLUDED.observed_at),projection_version=GREATEST(artist_top_tracks.projection_version,EXCLUDED.projection_version)`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("merge artist top tracks: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM artist_top_tracks WHERE artist_entity_id=$1`, retiredID); err != nil {
+		return fmt.Errorf("retire artist top tracks: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO artist_top_track_snapshots(artist_entity_id,provider,item_count,reported_total,source_observation_id,observed_at,projection_version)SELECT $1,provider,item_count,reported_total,source_observation_id,observed_at,projection_version FROM artist_top_track_snapshots WHERE artist_entity_id=$2 ON CONFLICT(artist_entity_id,provider)DO UPDATE SET item_count=CASE WHEN EXCLUDED.observed_at>artist_top_track_snapshots.observed_at THEN EXCLUDED.item_count ELSE artist_top_track_snapshots.item_count END,reported_total=CASE WHEN EXCLUDED.observed_at>artist_top_track_snapshots.observed_at THEN EXCLUDED.reported_total ELSE artist_top_track_snapshots.reported_total END,source_observation_id=CASE WHEN EXCLUDED.observed_at>artist_top_track_snapshots.observed_at THEN EXCLUDED.source_observation_id ELSE artist_top_track_snapshots.source_observation_id END,observed_at=GREATEST(artist_top_track_snapshots.observed_at,EXCLUDED.observed_at),projection_version=GREATEST(artist_top_track_snapshots.projection_version,EXCLUDED.projection_version)`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("merge artist top-track snapshots: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM artist_top_track_snapshots WHERE artist_entity_id=$1`, retiredID); err != nil {
+		return fmt.Errorf("retire artist top-track snapshots: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO provider_refresh_states(entity_id,provider,last_attempt_at,last_success_at,last_observation_id,failure_class,failure_message,current_job_id,next_eligible_at)SELECT $1,provider,last_attempt_at,last_success_at,last_observation_id,failure_class,failure_message,current_job_id,next_eligible_at FROM provider_refresh_states WHERE entity_id=$2 ON CONFLICT(entity_id,provider)DO UPDATE SET last_attempt_at=GREATEST(provider_refresh_states.last_attempt_at,EXCLUDED.last_attempt_at),last_success_at=GREATEST(provider_refresh_states.last_success_at,EXCLUDED.last_success_at),last_observation_id=CASE WHEN EXCLUDED.last_success_at>provider_refresh_states.last_success_at THEN EXCLUDED.last_observation_id ELSE provider_refresh_states.last_observation_id END,failure_class=CASE WHEN EXCLUDED.last_success_at>provider_refresh_states.last_success_at THEN EXCLUDED.failure_class ELSE provider_refresh_states.failure_class END,failure_message=CASE WHEN EXCLUDED.last_success_at>provider_refresh_states.last_success_at THEN EXCLUDED.failure_message ELSE provider_refresh_states.failure_message END,current_job_id=COALESCE(EXCLUDED.current_job_id,provider_refresh_states.current_job_id),next_eligible_at=GREATEST(provider_refresh_states.next_eligible_at,EXCLUDED.next_eligible_at)`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("merge artist refresh state: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM provider_refresh_states WHERE entity_id=$1`, retiredID); err != nil {
+		return fmt.Errorf("retire artist refresh state: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO entity_access_stats(entity_id,total_fetches,decayed_score,last_accessed_at,score_updated_at,updated_at)SELECT $1,total_fetches,decayed_score,last_accessed_at,score_updated_at,now() FROM entity_access_stats WHERE entity_id=$2 ON CONFLICT(entity_id)DO UPDATE SET total_fetches=entity_access_stats.total_fetches+EXCLUDED.total_fetches,decayed_score=entity_access_stats.decayed_score+EXCLUDED.decayed_score,last_accessed_at=GREATEST(entity_access_stats.last_accessed_at,EXCLUDED.last_accessed_at),score_updated_at=GREATEST(entity_access_stats.score_updated_at,EXCLUDED.score_updated_at),updated_at=now()`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("merge artist access state: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM entity_access_stats WHERE entity_id=$1`, retiredID); err != nil {
+		return fmt.Errorf("retire artist access state: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE external_id_claims SET entity_id=$1,last_observed_at=GREATEST(last_observed_at,now()) WHERE entity_id=$2 AND entity_kind='artist'`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("move artist identity evidence: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE normalized_records SET entity_id=$1 WHERE entity_id=$2 AND entity_kind='artist'`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("move normalized artist evidence: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE artist_ingestion_runs SET entity_id=$1 WHERE entity_id=$2`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("move artist ingestion history: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE artist_catalog_sync_runs SET artist_entity_id=$1 WHERE artist_entity_id=$2`, survivorID, retiredID); err != nil {
+		return fmt.Errorf("move artist catalog history: %w", err)
+	}
+	for _, query := range []string{`DELETE FROM api_document_provenance WHERE entity_id=$1`, `DELETE FROM api_documents WHERE entity_id=$1`, `DELETE FROM search_names WHERE entity_id=$1`, `DELETE FROM search_entities WHERE entity_id=$1`, `DELETE FROM canonical_artists WHERE entity_id=$1`} {
+		if _, err := tx.Exec(ctx, query, retiredID); err != nil {
+			return fmt.Errorf("retire duplicate artist serving state: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE entity_slugs SET active=false WHERE entity_id=$1`, retiredID); err != nil {
+		return fmt.Errorf("retire duplicate artist serving state: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE entities SET deleted_at=now(),updated_at=now() WHERE id=$1`, retiredID); err != nil {
+		return fmt.Errorf("retire duplicate artist: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO entity_redirects(retired_entity_id,survivor_entity_id,entity_kind,audit_log_id)VALUES($1,$2,'artist',$3)`, retiredID, survivorID, auditID); err != nil {
+		return fmt.Errorf("redirect duplicate artist: %w", err)
+	}
+	return nil
 }
 
 func artistIdentitySource(records []artistdomain.NormalizedRecordV1, candidate artistdomain.IdentityCandidate) artistdomain.ProviderRecord {

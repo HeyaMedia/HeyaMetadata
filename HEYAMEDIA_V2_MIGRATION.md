@@ -579,7 +579,22 @@ MusicBrainz is not required to create an artist. A direct Apple/iTunes or
 Deezer artist identifier can establish the canonical Heya artist and its public
 discography. Include known Apple/Deezer album IDs in the matching
 `hints.releases[].identifiers` array; HeyaMetadata validates the fetched release
-credit and uses the ID as catalog evidence. Common credit joins (`feat.`,
+credit and uses the ID as catalog evidence. A MusicBrainz release or release
+group ID in the same array is also resolved privately to its credited artist or
+artists. This means a correct release can corroborate an Apple/Deezer artist
+identifier—or expose a stale storefront artist identifier without requiring the
+client to understand either provider.
+
+Submit every available artist identifier in one discovery request. HeyaMetadata
+ingests and crosswalks each supported root, returning a canonical `entity_id`
+only when the roots converge on one Heya artist. Roots that resolve to different
+artists produce opaque, reviewable candidates. An authoritative MusicBrainz
+artist may consolidate duplicate Apple, Deezer, or Discogs roots only when its
+explicit URL relationships link those roots, their primary names agree, and no
+different MusicBrainz artist claim exists. A shared or similar name is never
+sufficient to merge artists.
+
+Common credit joins (`feat.`,
 `featuring`, `ft.`, `f/`, `with`/`w/`, `vs.`, `presents`, `meets`, `&`, `and`,
 `x`, `×`, `/`, `;`, and spaced `:`) are parsed only after literal artist
 resolution fails and never merge artists by name.

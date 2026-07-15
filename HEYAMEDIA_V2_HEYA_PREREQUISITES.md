@@ -210,6 +210,13 @@ Requirements:
 - Discovery MUST accept arbitrary `{scheme,value}` identifier evidence, work
   without a title when an identifier is sufficient, and deduplicate requests
   independently of identifier ordering.
+- All available identifiers for one artist MUST be submitted together.
+  HeyaMetadata privately ingests and crosswalks MusicBrainz, Apple/iTunes,
+  Deezer, and supported release evidence; it returns an existing or fresh Heya
+  UUID only after those roots converge.
+- MusicBrainz release and release-group identifiers inside structured release
+  hints MAY establish the credited artist as corroborating or conflicting
+  identity evidence. Clients MUST NOT resolve those credits themselves.
 - Conflicting identifiers MUST remain reviewable and return only opaque
   candidate references.
 - Ambiguous candidates MUST remain distinguishable. V2 MUST NOT silently merge

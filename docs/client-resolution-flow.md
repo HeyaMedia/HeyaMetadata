@@ -98,6 +98,13 @@ single existing Heya UUID; disagreement returns opaque reviewable candidates.
 Only when identifier evidence cannot establish an identity may the query and
 hints drive fuzzy upstream discovery.
 
+For artists, submit MusicBrainz, Apple/iTunes, Deezer, and any known release
+identifiers together. HeyaMetadata privately ingests each supported artist root
+and follows MusicBrainz release credits. It returns a canonical Heya UUID only
+when that evidence converges; genuine disagreement remains an opaque selection.
+An explicit MusicBrainz relationship may consolidate duplicate storefront roots,
+but a matching artist name alone never does.
+
 The generic route supports `movie`, `tv_show`, `anime`, `artist`,
 `release_group`, `recording`, `musical_work`, `book_work`, `manga`,
 `manga_volume`, and `comic_volume`. Dedicated TV, anime, manga, manga-volume,

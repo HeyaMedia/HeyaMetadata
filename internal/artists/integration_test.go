@@ -48,6 +48,18 @@ func testObservation(t *testing.T, runtime *platform.Runtime, provider, value st
 func cleanupArtist(t *testing.T, runtime *platform.Runtime, entityIDs []string, observationIDs []string) {
 	t.Helper()
 	ctx := context.Background()
+	var auditIDs []string
+	rows, _ := runtime.DB.Query(ctx, `SELECT DISTINCT audit_log_id::text FROM entity_redirects WHERE retired_entity_id=ANY($1::uuid[]) OR survivor_entity_id=ANY($1::uuid[])`, entityIDs)
+	if rows != nil {
+		for rows.Next() {
+			var id string
+			if rows.Scan(&id) == nil {
+				auditIDs = append(auditIDs, id)
+			}
+		}
+		rows.Close()
+	}
+	_, _ = runtime.DB.Exec(ctx, `DELETE FROM entity_redirects WHERE retired_entity_id=ANY($1::uuid[]) OR survivor_entity_id=ANY($1::uuid[])`, entityIDs)
 	for _, id := range entityIDs {
 		_, _ = runtime.DB.Exec(ctx, `DELETE FROM change_log WHERE entity_id=$1`, id)
 		_, _ = runtime.DB.Exec(ctx, `DELETE FROM change_outbox WHERE entity_id=$1`, id)
@@ -65,8 +77,150 @@ func cleanupArtist(t *testing.T, runtime *platform.Runtime, entityIDs []string, 
 		_, _ = runtime.DB.Exec(ctx, `DELETE FROM entities WHERE id=$1`, id)
 		_ = runtime.Redis.Del(ctx, "heya:metadata:v1:api:entity:"+id+":detail").Err()
 	}
+	if len(auditIDs) > 0 {
+		_, _ = runtime.DB.Exec(ctx, `DELETE FROM moderation_audit_log WHERE id=ANY($1::uuid[])`, auditIDs)
+	}
 	for _, id := range observationIDs {
 		_, _ = runtime.DB.Exec(ctx, `DELETE FROM provider_observations WHERE id=$1`, id)
+	}
+}
+
+func TestIntegrationMusicBrainzConsolidatesExplicitStorefrontRoots(t *testing.T) {
+	runtime := integrationRuntime(t)
+	ctx := context.Background()
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	observedAt := time.Now().UTC()
+	service := NewService(runtime)
+	name := "Convergent Artist " + suffix
+	deezerIDs := []string{"left-" + suffix, "right-" + suffix}
+	entityIDs := []string{}
+	observationIDs := []string{}
+
+	for _, providerID := range deezerIDs {
+		observation := testObservation(t, runtime, "deezer", providerID)
+		observationIDs = append(observationIDs, observation)
+		record := artistdomain.NormalizedRecordV1{
+			ProviderRecord:     artistdomain.ProviderRecord{Provider: "deezer", Namespace: "artist", Value: providerID, PrimaryObservationID: observation, ObservedAt: observedAt, NormalizerVersion: "integration", SchemaVersion: 1},
+			IdentityCandidates: []artistdomain.IdentityCandidate{{Provider: "deezer", Namespace: "artist", NormalizedValue: providerID, Confidence: 1, Evidence: "provider_record"}},
+			Names:              []artistdomain.Name{{Value: name, Type: "display", Primary: true}},
+		}
+		normalizedID, err := service.recordNormalized(ctx, record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := service.merge(ctx, []string{normalizedID}, []artistdomain.NormalizedRecordV1{record}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entityIDs = append(entityIDs, result.EntityID)
+	}
+	if entityIDs[0] == entityIDs[1] {
+		t.Fatal("independent storefront roots merged before authoritative evidence arrived")
+	}
+	t.Cleanup(func() { cleanupArtist(t, runtime, entityIDs, observationIDs) })
+
+	mbid := "50000000-0000-4000-8000-" + suffix[len(suffix)-12:]
+	mbObservation := testObservation(t, runtime, "musicbrainz", mbid)
+	observationIDs = append(observationIDs, mbObservation)
+	spine := artistdomain.NormalizedRecordV1{
+		ProviderRecord: artistdomain.ProviderRecord{Provider: "musicbrainz", Namespace: "artist", Value: mbid, PrimaryObservationID: mbObservation, ObservedAt: observedAt.Add(time.Minute), NormalizerVersion: "integration", SchemaVersion: 1},
+		IdentityCandidates: []artistdomain.IdentityCandidate{
+			{Provider: "musicbrainz", Namespace: "artist", NormalizedValue: mbid, Confidence: 1, Evidence: "provider_record"},
+			{Provider: "deezer", Namespace: "artist", NormalizedValue: deezerIDs[0], Confidence: 1, Evidence: "musicbrainz_url_relationship"},
+			{Provider: "deezer", Namespace: "artist", NormalizedValue: deezerIDs[1], Confidence: 1, Evidence: "musicbrainz_url_relationship"},
+		},
+		Names: []artistdomain.Name{{Value: name, Type: "display", Primary: true}},
+	}
+	spineID, err := service.recordNormalized(ctx, spine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := service.merge(ctx, []string{spineID}, []artistdomain.NormalizedRecordV1{spine}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.EntityID != entityIDs[0] {
+		t.Fatalf("survivor=%s want oldest root %s", merged.EntityID, entityIDs[0])
+	}
+	for _, identity := range append([]string{mbid}, deezerIDs...) {
+		provider := "deezer"
+		if identity == mbid {
+			provider = "musicbrainz"
+		}
+		var resolved string
+		if err := runtime.DB.QueryRow(ctx, `SELECT entity_id::text FROM external_id_claims WHERE entity_kind='artist' AND provider=$1 AND namespace='artist' AND normalized_value=$2 AND state='accepted'`, provider, identity).Scan(&resolved); err != nil || resolved != merged.EntityID {
+			t.Fatalf("%s:%s resolved=%q err=%v", provider, identity, resolved, err)
+		}
+	}
+	var redirect string
+	if err := runtime.DB.QueryRow(ctx, `SELECT survivor_entity_id::text FROM entity_redirects WHERE retired_entity_id=$1`, entityIDs[1]).Scan(&redirect); err != nil || redirect != merged.EntityID {
+		t.Fatalf("redirect=%q err=%v", redirect, err)
+	}
+	var active int
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM entities WHERE id=ANY($1::uuid[]) AND deleted_at IS NULL`, entityIDs).Scan(&active); err != nil || active != 1 {
+		t.Fatalf("active roots=%d err=%v", active, err)
+	}
+}
+
+func TestIntegrationIncomingCrossLinkCannotDisputeDirectProviderRoot(t *testing.T) {
+	runtime := integrationRuntime(t)
+	ctx := context.Background()
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	observedAt := time.Now().UTC()
+	service := NewService(runtime)
+	appleID, originalDeezerID, incomingDeezerID := "apple-"+suffix, "deezer-original-"+suffix, "deezer-incoming-"+suffix
+	appleObservation := testObservation(t, runtime, "apple", appleID)
+	apple := artistdomain.NormalizedRecordV1{
+		ProviderRecord:     artistdomain.ProviderRecord{Provider: "apple", Namespace: "artist", Value: appleID, PrimaryObservationID: appleObservation, ObservedAt: observedAt, NormalizerVersion: "integration", SchemaVersion: 1},
+		IdentityCandidates: []artistdomain.IdentityCandidate{{Provider: "apple", Namespace: "artist", NormalizedValue: appleID, Confidence: 1, Evidence: "provider_record"}},
+		Names:              []artistdomain.Name{{Value: "Direct Root " + suffix, Type: "display", Primary: true}},
+	}
+	appleNormalizedID, err := service.recordNormalized(ctx, apple)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := service.merge(ctx, []string{appleNormalizedID}, []artistdomain.NormalizedRecordV1{apple}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.DB.Exec(ctx, `INSERT INTO external_id_claims(entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at)VALUES($1,'artist','deezer','artist',$2,'accepted',1,$3,$4,$4)`, owner.EntityID, originalDeezerID, appleObservation, observedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	incomingObservation := testObservation(t, runtime, "deezer", incomingDeezerID)
+	incoming := artistdomain.NormalizedRecordV1{
+		ProviderRecord: artistdomain.ProviderRecord{Provider: "deezer", Namespace: "artist", Value: incomingDeezerID, PrimaryObservationID: incomingObservation, ObservedAt: observedAt.Add(time.Minute), NormalizerVersion: "integration", SchemaVersion: 1},
+		IdentityCandidates: []artistdomain.IdentityCandidate{
+			{Provider: "deezer", Namespace: "artist", NormalizedValue: incomingDeezerID, Confidence: 1, Evidence: "provider_record"},
+			{Provider: "apple", Namespace: "artist", NormalizedValue: appleID, Confidence: 1, Evidence: "unique_catalog_overlap"},
+		},
+		Names: []artistdomain.Name{{Value: "Incoming Root " + suffix, Type: "display", Primary: true}},
+	}
+	incomingNormalizedID, err := service.recordNormalized(ctx, incoming)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := service.merge(ctx, []string{incomingNormalizedID}, []artistdomain.NormalizedRecordV1{incoming}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = runtime.DB.Exec(context.Background(), `DELETE FROM external_id_conflicts WHERE normalized_record_id=$1`, incomingNormalizedID)
+		cleanupArtist(t, runtime, []string{owner.EntityID, other.EntityID}, []string{appleObservation, incomingObservation})
+	})
+	if other.EntityID == owner.EntityID {
+		t.Fatal("incompatible same-provider roots merged through a secondary cross-link")
+	}
+	var claimOwner, claimState string
+	if err := runtime.DB.QueryRow(ctx, `SELECT entity_id::text,state FROM external_id_claims WHERE entity_kind='artist' AND provider='apple' AND namespace='artist' AND normalized_value=$1`, appleID).Scan(&claimOwner, &claimState); err != nil {
+		t.Fatal(err)
+	}
+	if claimOwner != owner.EntityID || claimState != "accepted" {
+		t.Fatalf("direct Apple root moved or disputed: owner=%s state=%s", claimOwner, claimState)
+	}
+	var conflicts int
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM external_id_conflicts WHERE entity_kind='artist' AND normalized_record_id=$1 AND state='open'`, incomingNormalizedID).Scan(&conflicts); err != nil || conflicts != 1 {
+		t.Fatalf("conflicts=%d err=%v", conflicts, err)
 	}
 }
 
