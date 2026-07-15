@@ -73,16 +73,20 @@ func NewClient(runtime *platform.Runtime, maxWorkers int, work bool) (*river.Cli
 		},
 	}
 	if work {
-		config.Queues = map[string]river.QueueConfig{
-			river.QueueDefault: {MaxWorkers: maxWorkers},
-			BackgroundQueue:    {MaxWorkers: 1},
-			CatalogQueue:       {MaxWorkers: 2},
-			ImageQueue:         {MaxWorkers: 2},
-		}
+		config.Queues = queueConfig(maxWorkers, runtime.Config.Worker.ImageMaxWorkers)
 	}
 	client, err := river.NewClient(riverpgxv5.New(runtime.DB), config)
 	if err != nil {
 		return nil, fmt.Errorf("create River client: %w", err)
 	}
 	return client, nil
+}
+
+func queueConfig(maxWorkers, imageMaxWorkers int) map[string]river.QueueConfig {
+	return map[string]river.QueueConfig{
+		river.QueueDefault: {MaxWorkers: maxWorkers},
+		BackgroundQueue:    {MaxWorkers: 1},
+		CatalogQueue:       {MaxWorkers: 2},
+		ImageQueue:         {MaxWorkers: imageMaxWorkers},
+	}
 }

@@ -53,7 +53,8 @@ type S3Config struct {
 }
 
 type WorkerConfig struct {
-	MaxWorkers int
+	MaxWorkers      int
+	ImageMaxWorkers int
 }
 
 type ChromaprintConfig struct {
@@ -240,6 +241,13 @@ func Load() (Config, error) {
 	if maxWorkers < 1 || maxWorkers > 1000 {
 		return Config{}, fmt.Errorf("HEYA_METADATA_WORKER_MAX_WORKERS must be between 1 and 1000")
 	}
+	imageMaxWorkers, err := envInt("HEYA_METADATA_IMAGE_MAX_WORKERS", 12)
+	if err != nil {
+		return Config{}, err
+	}
+	if imageMaxWorkers < 1 || imageMaxWorkers > 100 {
+		return Config{}, fmt.Errorf("HEYA_METADATA_IMAGE_MAX_WORKERS must be between 1 and 100")
+	}
 	musicBrainzRate, err := envFloat("HEYA_METADATA_MUSICBRAINZ_REQUESTS_PER_SECOND", 1)
 	if err != nil {
 		return Config{}, err
@@ -331,7 +339,10 @@ func Load() (Config, error) {
 			PathStyle:        pathStyle,
 			AutoCreateBucket: autoCreateBucket,
 		},
-		Worker:  WorkerConfig{MaxWorkers: maxWorkers},
+		Worker: WorkerConfig{
+			MaxWorkers:      maxWorkers,
+			ImageMaxWorkers: imageMaxWorkers,
+		},
 		Captcha: CaptchaConfig{Secret: env("HEYA_METADATA_CAPTCHA_SECRET", "")},
 		Connectivity: ConnectivityConfig{
 			TrustedProxyCIDRs: envList(

@@ -39,11 +39,14 @@ type Asset struct {
 }
 
 func NewService(runtime *platform.Runtime) *Service {
-	return &Service{runtime: runtime, client: safeHTTPClient()}
+	return &Service{runtime: runtime, client: safeHTTPClient(runtime.Config.Worker.ImageMaxWorkers)}
 }
 
-func safeHTTPClient() *http.Client {
-	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ForceAttemptHTTP2: true, MaxIdleConns: 20, MaxIdleConnsPerHost: 4, IdleConnTimeout: 30 * time.Second}}
+func safeHTTPClient(imageMaxWorkers int) *http.Client {
+	if imageMaxWorkers < 1 {
+		imageMaxWorkers = 1
+	}
+	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ForceAttemptHTTP2: true, MaxIdleConns: imageMaxWorkers * 2, MaxIdleConnsPerHost: imageMaxWorkers, IdleConnTimeout: 30 * time.Second}}
 }
 
 func (s *Service) Materialize(ctx context.Context, id string) (asset Asset, returnErr error) {

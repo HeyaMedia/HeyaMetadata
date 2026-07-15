@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestConfigValidateAcceptsDevelopmentDefaults(t *testing.T) {
 	t.Parallel()
@@ -87,6 +90,34 @@ func TestConfigValidateRejectsInvalidMusicBrainzPolicy(t *testing.T) {
 				t.Fatal("expected validation error")
 			}
 		})
+	}
+}
+
+func TestImageWorkerConcurrencyDefaultsAndOverrides(t *testing.T) {
+	t.Setenv("HEYA_METADATA_IMAGE_MAX_WORKERS", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Worker.ImageMaxWorkers; got != 12 {
+		t.Fatalf("default image workers: %d", got)
+	}
+
+	t.Setenv("HEYA_METADATA_IMAGE_MAX_WORKERS", "17")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Worker.ImageMaxWorkers; got != 17 {
+		t.Fatalf("configured image workers: %d", got)
+	}
+}
+
+func TestImageWorkerConcurrencyRejectsUnsafeValues(t *testing.T) {
+	t.Setenv("HEYA_METADATA_IMAGE_MAX_WORKERS", "101")
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "HEYA_METADATA_IMAGE_MAX_WORKERS") {
+		t.Fatalf("expected image worker validation error, got %v", err)
 	}
 }
 

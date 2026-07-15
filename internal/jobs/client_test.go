@@ -42,6 +42,17 @@ func TestPriorityBandsReserveCapacityForInteractiveWork(t *testing.T) {
 	}
 }
 
+func TestImageQueueHasIndependentConcurrency(t *testing.T) {
+	t.Parallel()
+	queues := queueConfig(8, 12)
+	if got := queues[river.QueueDefault].MaxWorkers; got != 8 {
+		t.Fatalf("default queue workers: %d", got)
+	}
+	if got := queues[ImageQueue].MaxWorkers; got != 12 {
+		t.Fatalf("image queue workers: %d", got)
+	}
+}
+
 func TestArtistCatalogAllowsPagedDetailEvidence(t *testing.T) {
 	t.Parallel()
 	worker := &ArtistCatalogSyncWorker{}
