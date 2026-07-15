@@ -114,6 +114,12 @@ so when the artist later gains a MusicBrainz ID. Unclaimed same-name storefront
 pages must overlap an anchored catalog uniquely, so two search results cannot
 make each other appear trustworthy merely because their names match.
 
+When authoritative evidence links more than one Apple or Deezer artist ID to
+the canonical artist, every direct root is fetched. Their catalogs are joined
+and deduplicated by provider release identity. This preserves releases stranded
+on a legacy or territorial storefront page without interpreting the duplicate
+artist IDs as an identity conflict.
+
 Direct Apple and Deezer roots, and supplemental pages with anchored overlap and
 a plausible catalog size, may contribute digital-only releases that have not
 reached MusicBrainz yet. Exact release identifiers supplied as discovery

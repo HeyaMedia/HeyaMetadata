@@ -20,7 +20,7 @@ func TestDirectStorefrontRootRemainsAuthoritativeBesideMusicBrainz(t *testing.T)
 			{Provider: "apple", Namespace: "album", ID: "fresh", Title: "Fresh Single", Date: "2026", Kind: "single", Metadata: map[string]any{}},
 		}},
 	}
-	directRoots := map[string]string{"apple": "apple-root"}
+	directRoots := providerCatalogRoots{"apple": {"apple-root"}}
 	selected := selectProviderIdentities(sets, []string{"Artist"}, directRoots)
 	selected, dropped := gateSelectedStorefronts(selected, directRoots)
 	if dropped != 0 || len(selected["apple"]) != 2 {
@@ -30,6 +30,34 @@ func TestDirectStorefrontRootRemainsAuthoritativeBesideMusicBrainz(t *testing.T)
 		if value.Metadata["catalog_identity_gate"] != "canonical_artist_provider_root" {
 			t.Fatalf("Apple source lacks direct-root gate: %#v", value.Metadata)
 		}
+	}
+}
+
+func TestMultipleDirectStorefrontRootsFanOutAndDeduplicate(t *testing.T) {
+	t.Parallel()
+	shared := candidate{Provider: "deezer", Namespace: "album", ID: "shared", Title: "Shared Album", Date: "2024", Kind: "album", Metadata: map[string]any{}}
+	sets := map[string]map[string][]candidate{
+		"musicbrainz": {"mb": {{Provider: "musicbrainz", Namespace: "release_group", ID: "mb-release", Title: "Old Album", Date: "2020", Kind: "album"}}},
+		"deezer": {
+			"legacy-root":  {shared, {Provider: "deezer", Namespace: "album", ID: "legacy", Title: "Legacy Single", Date: "2018", Kind: "single", Metadata: map[string]any{}}},
+			"current-root": {shared, {Provider: "deezer", Namespace: "album", ID: "current", Title: "Current Single", Date: "2026", Kind: "single", Metadata: map[string]any{}}},
+		},
+	}
+	directRoots := providerCatalogRoots{"deezer": {"legacy-root", "current-root"}}
+	selected := selectProviderIdentities(sets, []string{"Artist"}, directRoots)
+	selected, dropped := gateSelectedStorefronts(selected, directRoots)
+	if dropped != 0 || len(selected["deezer"]) != 3 {
+		t.Fatalf("multiple direct Deezer roots were not joined: dropped=%d selected=%#v", dropped, selected["deezer"])
+	}
+	seen := map[string]int{}
+	for _, value := range selected["deezer"] {
+		seen[value.ID]++
+		if value.Metadata["catalog_identity_gate"] != "canonical_artist_provider_root" {
+			t.Fatalf("Deezer source lacks direct-root gate: %#v", value.Metadata)
+		}
+	}
+	if seen["shared"] != 1 || seen["legacy"] != 1 || seen["current"] != 1 {
+		t.Fatalf("joined root catalog was not deduplicated: %#v", seen)
 	}
 }
 

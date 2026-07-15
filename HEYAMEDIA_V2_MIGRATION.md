@@ -575,6 +575,11 @@ caller must not append provider album arrays itself. HeyaMetadata performs
 romanization-aware deduplication, track/date evidence reconciliation, and
 promotion to canonical release groups.
 
+One canonical artist may have several explicitly corroborated Apple or Deezer
+artist IDs. HeyaMetadata privately fetches every such direct storefront root
+and deduplicates their release records; Heya must neither select one provider
+ID nor discard the others.
+
 MusicBrainz is not required to create an artist. A direct Apple/iTunes or
 Deezer artist identifier can establish the canonical Heya artist and its public
 discography. Include known Apple/Deezer album IDs in the matching

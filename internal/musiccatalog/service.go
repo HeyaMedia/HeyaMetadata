@@ -27,7 +27,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/textmatch"
 )
 
-const SyncVersion = "mixed-artist-catalog/v19"
+const SyncVersion = "mixed-artist-catalog/v20"
 
 // MusicBrainz uses this synthetic artist for compilation credits. Its browse
 // catalog is effectively unbounded and is not a meaningful artist discography.
@@ -659,18 +659,20 @@ func collectLastFM(ctx context.Context, runtime *platform.Runtime, mbid string, 
 	return map[string][]candidate{mbid: out}, nil
 }
 
-func selectProviderIdentities(sets map[string]map[string][]candidate, aliases []string, directRoots map[string]string) map[string][]candidate {
+type providerCatalogRoots map[string][]string
+
+func selectProviderIdentities(sets map[string]map[string][]candidate, aliases []string, directRoots providerCatalogRoots) map[string][]candidate {
 	selected := map[string][]candidate{"musicbrainz": firstSet(sets["musicbrainz"])}
 	anchors := selected["musicbrainz"]
 	anchorProvider := "musicbrainz"
 	if len(anchors) == 0 {
 		anchorProvider = ""
 		for _, provider := range []string{"apple", "deezer"} {
-			rootID := directRoots[provider]
-			if rootID == "" || len(sets[provider][rootID]) == 0 {
+			rootCandidates := candidatesForCatalogRoots(sets[provider], directRoots[provider])
+			if len(rootCandidates) == 0 {
 				continue
 			}
-			selected[provider] = sets[provider][rootID]
+			selected[provider] = rootCandidates
 			anchors = selected[provider]
 			anchorProvider = provider
 			break
@@ -689,8 +691,8 @@ func selectProviderIdentities(sets map[string]map[string][]candidate, aliases []
 		if len(choices) == 0 {
 			continue
 		}
-		if rootID := directRoots[p]; rootID != "" && len(choices[rootID]) > 0 {
-			selected[p] = choices[rootID]
+		if rootCandidates := candidatesForCatalogRoots(choices, directRoots[p]); len(rootCandidates) > 0 {
+			selected[p] = rootCandidates
 			continue
 		}
 		best, bestScore, tied := "", 0, false
@@ -711,6 +713,31 @@ func selectProviderIdentities(sets map[string]map[string][]candidate, aliases []
 	}
 	return selected
 }
+
+// candidatesForCatalogRoots joins every independently normalized provider
+// root. One artist may legitimately have several storefront IDs (territorial
+// or legacy pages), and an album can occur on more than one of those pages.
+// Keep one candidate per provider record so the catalog fans out without
+// multiplying the same release evidence.
+func candidatesForCatalogRoots(choices map[string][]candidate, roots []string) []candidate {
+	result := []candidate{}
+	seen := map[string]bool{}
+	for _, root := range roots {
+		for _, value := range choices[root] {
+			key := strings.Join([]string{value.Provider, value.Namespace, value.ID}, "\x00")
+			if value.ID == "" {
+				key = strings.Join([]string{value.Provider, value.Namespace, value.Title, value.Date, value.Kind}, "\x00")
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
 func firstSet(values map[string][]candidate) []candidate {
 	for _, v := range values {
 		return v
@@ -750,13 +777,13 @@ func overlap(a, b []candidate) int {
 // page with meaningful MusicBrainz overlap is kept whole so genuinely digital-
 // only releases survive. A wildly larger page is reduced to independently
 // anchored releases; the exact provider response remains retained evidence.
-func gateSelectedStorefronts(selected map[string][]candidate, directRoots map[string]string) (map[string][]candidate, int) {
+func gateSelectedStorefronts(selected map[string][]candidate, directRoots providerCatalogRoots) (map[string][]candidate, int) {
 	anchors := selected["musicbrainz"]
 	anchorProvider := "musicbrainz"
 	if len(anchors) == 0 {
 		anchorProvider = ""
 		for _, provider := range []string{"apple", "deezer"} {
-			if directRoots[provider] != "" && len(selected[provider]) > 0 {
+			if len(directRoots[provider]) > 0 && len(selected[provider]) > 0 {
 				anchors = selected[provider]
 				anchorProvider = provider
 				for index := range selected[provider] {
@@ -771,7 +798,7 @@ func gateSelectedStorefronts(selected map[string][]candidate, directRoots map[st
 	}
 	dropped := 0
 	for _, provider := range []string{"apple", "deezer"} {
-		if directRoots[provider] != "" && len(selected[provider]) > 0 {
+		if len(directRoots[provider]) > 0 && len(selected[provider]) > 0 {
 			for index := range selected[provider] {
 				if selected[provider][index].Metadata == nil {
 					selected[provider][index].Metadata = map[string]any{}
@@ -1080,7 +1107,7 @@ func identityGatedStorefrontCluster(group cluster) bool {
 	return false
 }
 
-func directArtistCatalogRoots(ctx context.Context, runtime *platform.Runtime, artistEntityID string) (map[string]string, error) {
+func directArtistCatalogRoots(ctx context.Context, runtime *platform.Runtime, artistEntityID string) (providerCatalogRoots, error) {
 	rows, err := runtime.DB.Query(ctx, `
 		SELECT DISTINCT record.provider,record.provider_record_id
 		FROM normalized_records record
@@ -1095,16 +1122,13 @@ func directArtistCatalogRoots(ctx context.Context, runtime *platform.Runtime, ar
 		return nil, err
 	}
 	defer rows.Close()
-	result := map[string]string{}
+	result := providerCatalogRoots{}
 	for rows.Next() {
 		var provider, value string
 		if err := rows.Scan(&provider, &value); err != nil {
 			return nil, err
 		}
-		if result[provider] != "" && result[provider] != value {
-			return nil, fmt.Errorf("artist %s has multiple direct %s roots", artistEntityID, provider)
-		}
-		result[provider] = value
+		result[provider] = appendUnique(result[provider], value)
 	}
 	return result, rows.Err()
 }
