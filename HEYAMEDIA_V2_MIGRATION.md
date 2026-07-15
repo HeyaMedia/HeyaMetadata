@@ -745,7 +745,7 @@ Read image bytes through HeyaMetadata:
 ```http
 GET /api/v2/images/{image-id}
 GET /api/v2/images/{image-id}/variants/webp/640
-GET /api/v2/images/{image-id}/variants/avif/640
+GET /api/v2/images/{image-id}/variants/webp/1280
 ```
 
 The first request may return `202 application/json` with a materialization job

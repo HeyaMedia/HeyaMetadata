@@ -19,7 +19,7 @@ type imageInput struct {
 }
 type imageVariantInput struct {
 	ID     string `path:"id" format:"uuid"`
-	Format string `path:"format" enum:"webp,avif"`
+	Format string `path:"format" enum:"webp"`
 	Width  int    `path:"width" minimum:"64" maximum:"3840"`
 }
 type entityImagesInput struct {
@@ -66,7 +66,7 @@ func registerImages(api huma.API, runtime *platform.Runtime) {
 			"202": acceptedJSONResponse("#/components/schemas/JobResource"),
 		}
 	}
-	huma.Register(api, huma.Operation{OperationID: "image-original", Method: http.MethodGet, Path: "/api/v2/images/{id}", Summary: "Read or queue a canonical image original", Tags: []string{"Images"}, DefaultStatus: http.StatusOK, Responses: imageResponses("image/jpeg", "image/png", "image/webp", "image/avif", "image/gif")}, func(ctx context.Context, input *imageInput) (*imageOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "image-original", Method: http.MethodGet, Path: "/api/v2/images/{id}", Summary: "Read or queue a canonical image original", Tags: []string{"Images"}, DefaultStatus: http.StatusOK, Responses: imageResponses("image/jpeg", "image/png", "image/webp", "image/gif")}, func(ctx context.Context, input *imageInput) (*imageOutput, error) {
 		if service == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
@@ -85,13 +85,13 @@ func registerImages(api huma.API, runtime *platform.Runtime) {
 			return nil, insertErr
 		}
 		payload, _ := json.Marshal(jobResource{ID: inserted.Job.ID, Kind: jobs.ImageMaterializeKind, State: string(inserted.Job.State)})
-		return &imageOutput{Status: http.StatusAccepted, ContentType: "application/json", CacheControl: "no-store", RetryAfter: "2", Body: payload}, nil
+		return &imageOutput{Status: http.StatusAccepted, ContentType: "application/json", CacheControl: "no-store", RetryAfter: "1", Body: payload}, nil
 	})
-	huma.Register(api, huma.Operation{OperationID: "image-variant", Method: http.MethodGet, Path: "/api/v2/images/{id}/variants/{format}/{width}", Summary: "Read or queue an optimized image variant", Tags: []string{"Images"}, DefaultStatus: http.StatusOK, Responses: imageResponses("image/webp", "image/avif")}, func(ctx context.Context, input *imageVariantInput) (*imageOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "image-variant", Method: http.MethodGet, Path: "/api/v2/images/{id}/variants/{format}/{width}", Summary: "Read or queue an optimized image variant", Tags: []string{"Images"}, DefaultStatus: http.StatusOK, Responses: imageResponses("image/webp")}, func(ctx context.Context, input *imageVariantInput) (*imageOutput, error) {
 		if service == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
-		asset, body, err := service.ReadVariant(ctx, input.ID, input.Format, input.Width)
+		asset, body, err := service.ReadVariant(ctx, input.ID, input.Width)
 		if err == nil {
 			return readyImageOutput(asset, body), nil
 		}
@@ -101,12 +101,12 @@ func registerImages(api huma.API, runtime *platform.Runtime) {
 		if !errors.Is(err, images.ErrNotReady) {
 			return nil, err
 		}
-		inserted, insertErr := client.Insert(ctx, jobs.ImageMaterializeArgs{ImageID: input.ID}, nil)
+		inserted, insertErr := client.Insert(ctx, jobs.ImageVariantArgs{ImageID: input.ID, Width: images.CanonicalVariantWidth(input.Width)}, nil)
 		if insertErr != nil {
 			return nil, insertErr
 		}
-		payload, _ := json.Marshal(jobResource{ID: inserted.Job.ID, Kind: jobs.ImageMaterializeKind, State: string(inserted.Job.State)})
-		return &imageOutput{Status: http.StatusAccepted, ContentType: "application/json", CacheControl: "no-store", RetryAfter: "2", Body: payload}, nil
+		payload, _ := json.Marshal(jobResource{ID: inserted.Job.ID, Kind: jobs.ImageVariantKind, State: string(inserted.Job.State)})
+		return &imageOutput{Status: http.StatusAccepted, ContentType: "application/json", CacheControl: "no-store", RetryAfter: "1", Body: payload}, nil
 	})
 	huma.Register(api, huma.Operation{OperationID: "entity-images", Method: http.MethodGet, Path: "/api/v2/entities/{id}/images", Summary: "Select language-aware artwork for an entity", Description: "Ranks artwork within each class by requested language, neutral fallback, country, provider score, and dimensions. The selected candidate for every returned class is also exposed in selections so clients do not need to reproduce ranking rules.", Tags: []string{"Entities", "Images"}}, func(ctx context.Context, input *entityImagesInput) (*entityImagesOutput, error) {
 		if service == nil {

@@ -2,12 +2,10 @@ package images
 
 import (
 	"bytes"
-	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"net/url"
-	"os"
 	"testing"
 )
 
@@ -42,26 +40,16 @@ func TestSupportedImageTypes(t *testing.T) {
 	}
 }
 
-func TestVariantWidthsAreClassAwareAndNeverUpscale(t *testing.T) {
+func TestCanonicalVariantWidthsBoundDurableDerivatives(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		class       string
-		sourceWidth int
-		want        string
-	}{
-		{"poster", 3000, "[256 512 1024]"},
-		{"backdrop", 1500, "[480 960 1500]"},
-		{"cover", 400, "[256 400]"},
-		{"profile", 120, "[120]"},
-	}
-	for _, test := range tests {
-		if got := fmt.Sprint(variantWidths(test.class, test.sourceWidth)); got != test.want {
-			t.Errorf("%s/%d: got %s want %s", test.class, test.sourceWidth, got, test.want)
+	for requested, want := range map[int]int{64: 320, 320: 320, 321: 640, 640: 640, 1200: 1280, 1280: 1280, 3840: 3840} {
+		if got := CanonicalVariantWidth(requested); got != want {
+			t.Errorf("requested %d: got %d want %d", requested, got, want)
 		}
 	}
 }
 
-func TestBuildVariantsProducesBothServingFormats(t *testing.T) {
+func TestBuildVariantProducesRequestedServingFormatAndWidth(t *testing.T) {
 	t.Parallel()
 	source := image.NewNRGBA(image.Rect(0, 0, 96, 144))
 	for y := range 144 {
@@ -73,41 +61,29 @@ func TestBuildVariantsProducesBothServingFormats(t *testing.T) {
 	if err := png.Encode(&original, source); err != nil {
 		t.Fatal(err)
 	}
-	width, height, variants, err := buildVariants(original.Bytes(), "poster")
+	width, height, err := inspectImage(original.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if width != 96 || height != 144 || len(variants) != 2 {
-		t.Fatalf("dimensions/variants: %dx%d, %d", width, height, len(variants))
+	if width != 96 || height != 144 {
+		t.Fatalf("dimensions: %dx%d", width, height)
 	}
-	if variants[0].Format != "webp" || variants[1].Format != "avif" {
-		t.Fatalf("formats: %s, %s", variants[0].Format, variants[1].Format)
-	}
-	for _, variant := range variants {
-		if variant.Width != 96 || variant.Height != 144 || len(variant.Body) == 0 || variant.Checksum == "" {
-			t.Fatalf("invalid %s variant: %+v", variant.Format, variant)
-		}
-	}
-}
-
-func TestUsableProcessOutputReplacesClosedDescriptor(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "closed-output")
+	variant, err := buildVariant(original.Bytes(), 64)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
+	if variant.Format != "webp" || variant.MediaType != "image/webp" {
+		t.Fatalf("format: %+v", variant)
+	}
+	if variant.Width != 64 || variant.Height != 96 || len(variant.Body) == 0 || variant.Checksum == "" {
+		t.Fatalf("invalid WebP variant: %+v", variant)
 	}
 
-	output := usableProcessOutput(file)
-	if output == nil {
-		t.Fatal("expected a usable output descriptor")
+	variant, err = buildVariant(original.Bytes(), 640)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if output == file {
-		t.Fatal("closed descriptor was not replaced")
-	}
-	t.Cleanup(func() { _ = output.Close() })
-	if _, err := output.Stat(); err != nil {
-		t.Fatalf("replacement descriptor is not usable: %v", err)
+	if variant.Width != 96 || variant.Height != 144 || len(variant.Body) == 0 || variant.Checksum == "" {
+		t.Fatalf("variant was upscaled: %+v", variant)
 	}
 }

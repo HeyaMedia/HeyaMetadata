@@ -50,39 +50,39 @@ func safeHTTPClient(imageMaxWorkers int) *http.Client {
 }
 
 func (s *Service) Materialize(ctx context.Context, id string) (asset Asset, returnErr error) {
-	var provider, sourceURL, class, state string
+	asset, _, err := s.ensureOriginal(ctx, id)
+	return asset, err
+}
+
+// ensureOriginal makes the upstream bytes durable and exposes the original as
+// soon as that succeeds. Derived variants are deliberately not part of this
+// transaction: a client asking for one WebP must not wait for every size that
+// might be useful later.
+func (s *Service) ensureOriginal(ctx context.Context, id string) (asset Asset, body []byte, returnErr error) {
+	var provider, sourceURL string
 	err := s.runtime.DB.QueryRow(ctx, `
 		UPDATE image_candidates candidate
 		SET materialization_state='working',materialization_error=NULL,materialization_attempted_at=now()
 		WHERE candidate.id=$1
-		  AND (
-			candidate.materialization_state IN ('pending','failed')
-			OR (
-				candidate.materialization_state='ready'
-				AND NOT EXISTS (
-					SELECT 1 FROM image_variants variant
-					WHERE variant.image_id=candidate.id AND variant.transform_version=$2
-				)
-			)
-		  )
-		RETURNING provider,source_url,class,materialization_state`, id, TransformVersion).Scan(&provider, &sourceURL, &class, &state)
+		  AND candidate.materialization_state IN ('pending','failed')
+		RETURNING provider,source_url`, id).Scan(&provider, &sourceURL)
 	if err == pgx.ErrNoRows {
-		var existing Asset
-		var existingState string
-		readErr := s.runtime.DB.QueryRow(ctx, `SELECT id,COALESCE(object_key,''),COALESCE(media_type,''),COALESCE(blob_checksum,''),COALESCE(byte_size,0),COALESCE(materialized_width,0),COALESCE(materialized_height,0),materialization_state FROM image_candidates WHERE id=$1`, id).Scan(&existing.ID, &existing.ObjectKey, &existing.MediaType, &existing.Checksum, &existing.ByteSize, &existing.Width, &existing.Height, &existingState)
+		var state string
+		readErr := s.runtime.DB.QueryRow(ctx, `SELECT materialization_state FROM image_candidates WHERE id=$1`, id).Scan(&state)
 		if readErr == pgx.ErrNoRows {
-			return Asset{}, ErrNotFound
+			return Asset{}, nil, ErrNotFound
 		}
 		if readErr != nil {
-			return Asset{}, readErr
+			return Asset{}, nil, readErr
 		}
-		if existingState == "ready" {
-			return existing, nil
+		if state == "ready" {
+			existing, existingBody, readErr := s.Read(ctx, id)
+			return existing, existingBody, readErr
 		}
-		return Asset{}, ErrInProgress
+		return Asset{}, nil, ErrInProgress
 	}
 	if err != nil {
-		return Asset{}, fmt.Errorf("claim image candidate: %w", err)
+		return Asset{}, nil, fmt.Errorf("claim image candidate: %w", err)
 	}
 	defer func() {
 		if returnErr != nil {
@@ -91,19 +91,19 @@ func (s *Service) Materialize(ctx context.Context, id string) (asset Asset, retu
 	}()
 	parsed, err := url.Parse(sourceURL)
 	if err != nil {
-		return Asset{}, fmt.Errorf("parse image source: %w", err)
+		return Asset{}, nil, fmt.Errorf("parse image source: %w", err)
 	}
 	if err := validateSourceURL(parsed, s.allowHTTP); err != nil {
-		return Asset{}, err
+		return Asset{}, nil, err
 	}
 	if !providerHostAllowed(provider, parsed.Hostname()) {
-		return Asset{}, fmt.Errorf("image host %q is not allowed for provider %s", parsed.Hostname(), provider)
+		return Asset{}, nil, fmt.Errorf("image host %q is not allowed for provider %s", parsed.Hostname(), provider)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
-		return Asset{}, err
+		return Asset{}, nil, err
 	}
-	request.Header.Set("Accept", "image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.8")
+	request.Header.Set("Accept", "image/webp,image/png,image/jpeg,image/gif;q=0.8")
 	request.Header.Set("User-Agent", s.runtime.Config.Providers.MusicBrainz.UserAgent)
 	client := *s.client
 	client.CheckRedirect = func(request *http.Request, _ []*http.Request) error {
@@ -117,76 +117,97 @@ func (s *Service) Materialize(ctx context.Context, id string) (asset Asset, retu
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return Asset{}, fmt.Errorf("fetch image: %w", err)
+		return Asset{}, nil, fmt.Errorf("fetch image: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return Asset{}, fmt.Errorf("image source returned HTTP %d", response.StatusCode)
+		return Asset{}, nil, fmt.Errorf("image source returned HTTP %d", response.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, MaxOriginalBytes+1))
+	body, err = io.ReadAll(io.LimitReader(response.Body, MaxOriginalBytes+1))
 	if err != nil {
-		return Asset{}, fmt.Errorf("read image: %w", err)
+		return Asset{}, nil, fmt.Errorf("read image: %w", err)
 	}
 	if int64(len(body)) > MaxOriginalBytes {
-		return Asset{}, fmt.Errorf("image exceeds %d byte limit", MaxOriginalBytes)
+		return Asset{}, nil, fmt.Errorf("image exceeds %d byte limit", MaxOriginalBytes)
 	}
 	mediaType := normalizedImageType(http.DetectContentType(body))
 	if mediaType == "" {
-		return Asset{}, fmt.Errorf("source is not a supported image")
+		return Asset{}, nil, fmt.Errorf("source is not a supported image")
 	}
 	if declared := strings.ToLower(strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0])); declared != "" && !strings.HasPrefix(declared, "image/") {
-		return Asset{}, fmt.Errorf("source declared non-image content type %s", declared)
+		return Asset{}, nil, fmt.Errorf("source declared non-image content type %s", declared)
+	}
+	sourceWidth, sourceHeight, err := inspectImage(body)
+	if err != nil {
+		return Asset{}, nil, err
 	}
 	digest := sha256.Sum256(body)
 	checksum := hex.EncodeToString(digest[:])
 	objectKey, err := s.runtime.Blobs.ContentKeyUnder("images/original", checksum, imageSuffix(mediaType))
 	if err != nil {
-		return Asset{}, err
+		return Asset{}, nil, err
 	}
 	if err := registerObject(ctx, s.runtime, objectKey, mediaType, int64(len(body))); err != nil {
-		return Asset{}, err
+		return Asset{}, nil, err
 	}
 	if err := s.runtime.Blobs.PutImmutable(ctx, objectKey, body, mediaType, ""); err != nil {
-		return Asset{}, err
-	}
-	sourceWidth, sourceHeight, variants, err := buildVariants(body, class)
-	if err != nil {
-		return Asset{}, err
-	}
-	for index := range variants {
-		variant := &variants[index]
-		variant.ObjectKey, err = s.runtime.Blobs.ContentKeyUnder("images/derived/"+TransformVersion+"/"+variant.Format, variant.Checksum, "."+variant.Format)
-		if err != nil {
-			return Asset{}, err
-		}
-		if err := registerObject(ctx, s.runtime, variant.ObjectKey, variant.MediaType, variant.ByteSize); err != nil {
-			return Asset{}, err
-		}
-		if err := s.runtime.Blobs.PutImmutable(ctx, variant.ObjectKey, variant.Body, variant.MediaType, ""); err != nil {
-			return Asset{}, err
-		}
+		return Asset{}, nil, err
 	}
 	asset = Asset{ID: id, ObjectKey: objectKey, MediaType: mediaType, Checksum: checksum, ByteSize: int64(len(body)), Width: sourceWidth, Height: sourceHeight}
-	tx, err := s.runtime.DB.Begin(ctx)
+	if _, err := s.runtime.DB.Exec(ctx, `UPDATE image_candidates SET materialization_state='ready',blob_checksum=$2,object_key=$3,media_type=$4,byte_size=$5,materialization_error=NULL,materialized_at=now(),last_accessed_at=now(),materialized_width=$6,materialized_height=$7,evicted_at=NULL WHERE id=$1`, id, checksum, objectKey, mediaType, len(body), sourceWidth, sourceHeight); err != nil {
+		return Asset{}, nil, fmt.Errorf("finish image materialization: %w", err)
+	}
+	return asset, body, nil
+}
+
+func (s *Service) MaterializeVariant(ctx context.Context, id string, requestedWidth int) (Asset, error) {
+	if requestedWidth < 1 || requestedWidth > 3840 {
+		return Asset{}, fmt.Errorf("image variant width must be between 1 and 3840")
+	}
+	requestedWidth = CanonicalVariantWidth(requestedWidth)
+	if existing, _, err := s.ReadVariant(ctx, id, requestedWidth); err == nil {
+		return existing, nil
+	} else if errors.Is(err, ErrNotFound) {
+		return Asset{}, err
+	} else if !errors.Is(err, ErrNotReady) {
+		return Asset{}, err
+	}
+	original, body, err := s.ensureOriginal(ctx, id)
 	if err != nil {
 		return Asset{}, err
 	}
-	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `DELETE FROM image_variants WHERE image_id=$1`, id); err != nil {
-		return Asset{}, fmt.Errorf("replace image variants: %w", err)
+	if existing, _, err := s.ReadVariant(ctx, id, requestedWidth); err == nil {
+		return existing, nil
+	} else if errors.Is(err, ErrNotFound) {
+		return Asset{}, err
+	} else if !errors.Is(err, ErrNotReady) {
+		return Asset{}, err
 	}
-	for _, variant := range variants {
-		if _, err := tx.Exec(ctx, `INSERT INTO image_variants(image_id,transform_version,format,width,height,checksum,object_key,media_type,byte_size) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, id, TransformVersion, variant.Format, variant.Width, variant.Height, variant.Checksum, variant.ObjectKey, variant.MediaType, variant.ByteSize); err != nil {
-			return Asset{}, fmt.Errorf("record image variant: %w", err)
-		}
+	variant, err := buildVariant(body, min(requestedWidth, original.Width))
+	if err != nil {
+		return Asset{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE image_candidates SET materialization_state='ready',blob_checksum=$2,object_key=$3,media_type=$4,byte_size=$5,materialization_error=NULL,materialized_at=now(),last_accessed_at=now(),materialized_width=$6,materialized_height=$7,evicted_at=NULL WHERE id=$1`, id, checksum, objectKey, mediaType, len(body), sourceWidth, sourceHeight); err != nil {
-		return Asset{}, fmt.Errorf("finish image materialization: %w", err)
+	variant.ObjectKey, err = s.runtime.Blobs.ContentKeyUnder("images/derived/"+TransformVersion+"/"+variant.Format, variant.Checksum, "."+variant.Format)
+	if err != nil {
+		return Asset{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return Asset{}, fmt.Errorf("commit image materialization: %w", err)
+	if err := registerObject(ctx, s.runtime, variant.ObjectKey, variant.MediaType, variant.ByteSize); err != nil {
+		return Asset{}, err
 	}
-	return asset, nil
+	if err := s.runtime.Blobs.PutImmutable(ctx, variant.ObjectKey, variant.Body, variant.MediaType, ""); err != nil {
+		return Asset{}, err
+	}
+	if _, err := s.runtime.DB.Exec(ctx, `
+		INSERT INTO image_variants(image_id,transform_version,format,width,height,checksum,object_key,media_type,byte_size)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		ON CONFLICT(image_id,transform_version,format,width) DO UPDATE SET
+			height=EXCLUDED.height,checksum=EXCLUDED.checksum,object_key=EXCLUDED.object_key,
+			media_type=EXCLUDED.media_type,byte_size=EXCLUDED.byte_size`,
+		id, TransformVersion, variant.Format, variant.Width, variant.Height, variant.Checksum, variant.ObjectKey, variant.MediaType, variant.ByteSize); err != nil {
+		return Asset{}, fmt.Errorf("record image variant: %w", err)
+	}
+	trackAccess(ctx, s.runtime, id)
+	return Asset{ID: id, ObjectKey: variant.ObjectKey, MediaType: variant.MediaType, Checksum: variant.Checksum, ByteSize: variant.ByteSize, Width: variant.Width, Height: variant.Height}, nil
 }
 
 func (s *Service) Read(ctx context.Context, id string) (Asset, []byte, error) {
@@ -214,21 +235,17 @@ func (s *Service) Read(ctx context.Context, id string) (Asset, []byte, error) {
 	return asset, body, nil
 }
 
-func (s *Service) ReadVariant(ctx context.Context, id, format string, requestedWidth int) (Asset, []byte, error) {
-	if format != "webp" && format != "avif" {
-		return Asset{}, nil, ErrNotFound
-	}
+func (s *Service) ReadVariant(ctx context.Context, id string, requestedWidth int) (Asset, []byte, error) {
+	requestedWidth = CanonicalVariantWidth(requestedWidth)
 	var asset Asset
-	var candidateState string
 	err := s.runtime.DB.QueryRow(ctx, `
-		SELECT v.image_id,v.object_key,v.media_type,v.checksum,v.byte_size,v.width,v.height,c.materialization_state
+		SELECT v.image_id,v.object_key,v.media_type,v.checksum,v.byte_size,v.width,v.height
 		FROM image_candidates c
-		JOIN LATERAL (
-			SELECT * FROM image_variants
-			WHERE image_id=c.id AND transform_version=$3 AND format=$2
-			ORDER BY ABS(width-$4),width LIMIT 1
-		) v ON true
-		WHERE c.id=$1`, id, format, TransformVersion, requestedWidth).Scan(&asset.ID, &asset.ObjectKey, &asset.MediaType, &asset.Checksum, &asset.ByteSize, &asset.Width, &asset.Height, &candidateState)
+		JOIN image_variants v ON v.image_id=c.id
+			AND v.transform_version=$3
+			AND v.format=$2
+			AND v.width=LEAST($4,c.materialized_width)
+		WHERE c.id=$1 AND c.materialization_state='ready'`, id, VariantFormat, TransformVersion, requestedWidth).Scan(&asset.ID, &asset.ObjectKey, &asset.MediaType, &asset.Checksum, &asset.ByteSize, &asset.Width, &asset.Height)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var exists bool
 		if checkErr := s.runtime.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM image_candidates WHERE id=$1)`, id).Scan(&exists); checkErr != nil {
@@ -242,14 +259,10 @@ func (s *Service) ReadVariant(ctx context.Context, id, format string, requestedW
 	if err != nil {
 		return Asset{}, nil, err
 	}
-	if candidateState != "ready" {
-		return Asset{}, nil, ErrNotReady
-	}
 	body, err := s.runtime.Blobs.Get(ctx, asset.ObjectKey)
 	if err != nil {
 		if errors.Is(err, blobstore.ErrNotFound) {
-			_, _ = s.runtime.DB.Exec(context.WithoutCancel(ctx), `DELETE FROM image_variants WHERE image_id=$1`, id)
-			_, _ = s.runtime.DB.Exec(context.WithoutCancel(ctx), `UPDATE image_candidates SET materialization_state='pending' WHERE id=$1`, id)
+			_, _ = s.runtime.DB.Exec(context.WithoutCancel(ctx), `DELETE FROM image_variants WHERE image_id=$1 AND transform_version=$2 AND format=$3 AND width=$4`, id, TransformVersion, VariantFormat, asset.Width)
 			return Asset{}, nil, ErrNotReady
 		}
 		return Asset{}, nil, err
@@ -340,11 +353,9 @@ func normalizedImageType(value string) string {
 		return "image/gif"
 	case "image/webp":
 		return "image/webp"
-	case "image/avif":
-		return "image/avif"
 	}
 	return ""
 }
 func imageSuffix(mediaType string) string {
-	return map[string]string{"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp", "image/avif": ".avif"}[mediaType]
+	return map[string]string{"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}[mediaType]
 }

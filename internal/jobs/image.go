@@ -13,6 +13,7 @@ import (
 
 const (
 	ImageMaterializeKind = "image_materialize_v1"
+	ImageVariantKind     = "image_variant_v1"
 	ImageMaintenanceKind = "image_maintenance_v1"
 	ImageQueue           = "images"
 )
@@ -23,6 +24,16 @@ type ImageMaterializeArgs struct {
 
 func (ImageMaterializeArgs) Kind() string { return ImageMaterializeKind }
 func (ImageMaterializeArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: ImageQueue, MaxAttempts: 4, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
+}
+
+type ImageVariantArgs struct {
+	ImageID string `json:"image_id" river:"unique"`
+	Width   int    `json:"width" river:"unique"`
+}
+
+func (ImageVariantArgs) Kind() string { return ImageVariantKind }
+func (ImageVariantArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: ImageQueue, MaxAttempts: 4, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
 }
 
@@ -74,6 +85,29 @@ func (w *ImageMaterializeWorker) Work(ctx context.Context, job *river.Job[ImageM
 	}
 	if err != nil {
 		return fmt.Errorf("materialize image %s: %w", job.Args.ImageID, err)
+	}
+	return nil
+}
+
+type ImageVariantWorker struct {
+	river.WorkerDefaults[ImageVariantArgs]
+	service *images.Service
+}
+
+func NewImageVariantWorker(runtime *platform.Runtime) *ImageVariantWorker {
+	return &ImageVariantWorker{service: images.NewService(runtime)}
+}
+
+func (w *ImageVariantWorker) Work(ctx context.Context, job *river.Job[ImageVariantArgs]) error {
+	_, err := w.service.MaterializeVariant(ctx, job.Args.ImageID, job.Args.Width)
+	if errors.Is(err, images.ErrNotFound) {
+		return river.JobCancel(err)
+	}
+	if errors.Is(err, images.ErrInProgress) {
+		return river.JobSnooze(100 * time.Millisecond)
+	}
+	if err != nil {
+		return fmt.Errorf("materialize WebP/%d image variant %s: %w", job.Args.Width, job.Args.ImageID, err)
 	}
 	return nil
 }

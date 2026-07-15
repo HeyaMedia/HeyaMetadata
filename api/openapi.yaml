@@ -4345,11 +4345,6 @@ paths:
       responses:
         "200":
           content:
-            image/avif:
-              schema:
-                format: binary
-                type: string
-                x-contentMediaType: application/octet-stream
             image/gif:
               schema:
                 format: binary
@@ -4422,7 +4417,6 @@ paths:
           schema:
             enum:
               - webp
-              - avif
             type: string
         - in: path
           name: width
@@ -4435,11 +4429,6 @@ paths:
       responses:
         "200":
           content:
-            image/avif:
-              schema:
-                format: binary
-                type: string
-                x-contentMediaType: application/octet-stream
             image/webp:
               schema:
                 format: binary

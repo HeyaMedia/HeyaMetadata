@@ -40,6 +40,9 @@ func TestPriorityBandsReserveCapacityForInteractiveWork(t *testing.T) {
 	if opts := (ImageMaterializeArgs{ImageID: "id"}).InsertOpts(); opts.Queue != ImageQueue || opts.Priority != PriorityInteractive {
 		t.Fatalf("image queue/priority: %s/%d", opts.Queue, opts.Priority)
 	}
+	if opts := (ImageVariantArgs{ImageID: "id", Width: 640}).InsertOpts(); opts.Queue != ImageQueue || opts.Priority != PriorityInteractive {
+		t.Fatalf("image variant queue/priority: %s/%d", opts.Queue, opts.Priority)
+	}
 }
 
 func TestImageQueueHasIndependentConcurrency(t *testing.T) {

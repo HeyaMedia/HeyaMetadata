@@ -5,7 +5,6 @@ go 1.26.4
 require (
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/danielgtaylor/huma/v2 v2.38.0
-	github.com/gen2brain/avif v0.6.0
 	github.com/gen2brain/webp v0.6.4
 	github.com/getkin/kin-openapi v0.135.0
 	github.com/gojp/kana v0.1.0
@@ -65,7 +64,6 @@ require (
 	github.com/speakeasy-api/openapi v1.19.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
-	github.com/tetratelabs/wazero v1.12.0 // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

@@ -20,6 +20,7 @@ func Workers(runtime *platform.Runtime) *river.Workers {
 	river.AddWorker(workers, NewArtistCatalogSyncWorker(runtime))
 	river.AddWorker(workers, NewArtistCatalogSchedulerWorker(runtime))
 	river.AddWorker(workers, NewImageMaterializeWorker(runtime))
+	river.AddWorker(workers, NewImageVariantWorker(runtime))
 	river.AddWorker(workers, NewImageMaintenanceWorker(runtime))
 	river.AddWorker(workers, NewReleaseGroupIngestWorker(runtime))
 	river.AddWorker(workers, NewReleaseIngestWorker(runtime))

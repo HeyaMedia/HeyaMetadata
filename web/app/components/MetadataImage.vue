@@ -55,7 +55,7 @@ async function loadImage(id?: string) {
       return
     }
     if (response.status !== 202) break
-    await sleep(Math.min(750 + attempt * 250, 2500))
+    await sleep(Math.min(250 + attempt * 150, 1500))
   }
   if (current === generation) state.value = 'missing'
 }

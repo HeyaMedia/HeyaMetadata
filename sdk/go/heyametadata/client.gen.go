@@ -377,15 +377,12 @@ func (e EntityCreditsParamsCreditType) Valid() bool {
 
 // Defines values for ImageVariantParamsFormat.
 const (
-	Avif ImageVariantParamsFormat = "avif"
 	Webp ImageVariantParamsFormat = "webp"
 )
 
 // Valid indicates whether the value is a known member of the ImageVariantParamsFormat enum.
 func (e ImageVariantParamsFormat) Valid() bool {
 	switch e {
-	case Avif:
-		return true
 	case Webp:
 		return true
 	default:
