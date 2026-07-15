@@ -58,8 +58,15 @@ func InsertPersonEnrich(ctx context.Context, runtime *platform.Runtime, client *
 
 type PersonEnrichWorker struct {
 	river.WorkerDefaults[PersonEnrichArgs]
-	service *people.Service
+	service personEnrichmentService
 	runtime *platform.Runtime
+}
+
+type personEnrichmentService interface {
+	CanonicalID(context.Context, string) (string, error)
+	EnrichTMDB(context.Context, string, string, int64, providercredentials.Credentials) error
+	EnrichTVMaze(context.Context, string, string, int64) error
+	EnrichTVDB(context.Context, string, string, int64, providercredentials.Credentials) error
 }
 
 func NewPersonEnrichWorker(runtime *platform.Runtime) *PersonEnrichWorker {
@@ -71,19 +78,32 @@ func (w *PersonEnrichWorker) Work(ctx context.Context, job *river.Job[PersonEnri
 	if err != nil {
 		return river.JobCancel(err)
 	}
+	entityID := job.Args.EntityID
 	var enrichmentErrors []error
 	if job.Args.TMDBID != "" {
-		if enrichErr := w.service.EnrichTMDB(ctx, job.Args.EntityID, job.Args.TMDBID, job.ID, credentials); enrichErr != nil {
+		entityID, err = w.enrichCanonical(ctx, entityID, func(canonicalID string) error {
+			return w.service.EnrichTMDB(ctx, canonicalID, job.Args.TMDBID, job.ID, credentials)
+		})
+		if err != nil {
+			enrichErr := fmt.Errorf("tmdb person %s: %w", job.Args.TMDBID, err)
 			enrichmentErrors = append(enrichmentErrors, enrichErr)
 		}
 	}
 	if job.Args.TVMazeID != "" {
-		if enrichErr := w.service.EnrichTVMaze(ctx, job.Args.EntityID, job.Args.TVMazeID, job.ID); enrichErr != nil {
+		entityID, err = w.enrichCanonical(ctx, entityID, func(canonicalID string) error {
+			return w.service.EnrichTVMaze(ctx, canonicalID, job.Args.TVMazeID, job.ID)
+		})
+		if err != nil {
+			enrichErr := fmt.Errorf("tvmaze person %s: %w", job.Args.TVMazeID, err)
 			enrichmentErrors = append(enrichmentErrors, enrichErr)
 		}
 	}
 	if job.Args.TVDBID != "" {
-		if enrichErr := w.service.EnrichTVDB(ctx, job.Args.EntityID, job.Args.TVDBID, job.ID, credentials); enrichErr != nil {
+		entityID, err = w.enrichCanonical(ctx, entityID, func(canonicalID string) error {
+			return w.service.EnrichTVDB(ctx, canonicalID, job.Args.TVDBID, job.ID, credentials)
+		})
+		if err != nil {
+			enrichErr := fmt.Errorf("tvdb person %s: %w", job.Args.TVDBID, err)
 			enrichmentErrors = append(enrichmentErrors, enrichErr)
 		}
 	}
@@ -102,7 +122,25 @@ func (w *PersonEnrichWorker) Work(ctx context.Context, job *river.Job[PersonEnri
 			return river.JobSnooze(5 * time.Minute)
 		}
 	}
-	return fmt.Errorf("enrich canonical person %s: %w", job.Args.EntityID, err)
+	return fmt.Errorf("enrich canonical person %s: %w", entityID, err)
+}
+
+// enrichCanonical follows person redirects before an enrichment step. If the
+// step itself proves and commits a merge concurrently, retry it once against
+// the promoted UUID; provider response caching keeps that retry inexpensive.
+func (w *PersonEnrichWorker) enrichCanonical(ctx context.Context, entityID string, enrich func(string) error) (string, error) {
+	canonicalID, err := w.service.CanonicalID(ctx, entityID)
+	if err != nil {
+		return entityID, err
+	}
+	if err := enrich(canonicalID); err != nil {
+		promotedID, promotionErr := w.service.CanonicalID(ctx, canonicalID)
+		if promotionErr != nil || promotedID == canonicalID {
+			return canonicalID, err
+		}
+		return promotedID, enrich(promotedID)
+	}
+	return canonicalID, nil
 }
 
 type PersonReconciliationSchedulerArgs struct{}
