@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 )
+
+var musicBrainzIdentifierPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 type claimTarget struct {
 	EntityKind string
@@ -35,6 +39,12 @@ func (s *Service) ResolveKnownIdentifiers(ctx context.Context, request Request) 
 		if !supported {
 			evidence.Outcome = "unsupported"
 			evidence.Detail = "identifier scheme is not mapped for this media kind"
+			result.IdentifierEvidence = append(result.IdentifierEvidence, evidence)
+			continue
+		}
+		if !ValidIdentifierValue(identifier) {
+			evidence.Outcome = "unused"
+			evidence.Detail = "identifier value is invalid for scheme"
 			result.IdentifierEvidence = append(result.IdentifierEvidence, evidence)
 			continue
 		}
@@ -101,6 +111,9 @@ func hasArtistReleaseIdentityEvidence(request Request) bool {
 	}
 	for _, release := range request.Hints.Releases {
 		for _, identifier := range release.Identifiers {
+			if !ValidIdentifierValue(identifier) {
+				continue
+			}
 			switch identifier.Scheme {
 			case "musicbrainz", "apple", "deezer", "discogs_release", "discogs_master":
 				return true
@@ -108,6 +121,26 @@ func hasArtistReleaseIdentityEvidence(request Request) bool {
 		}
 	}
 	return false
+}
+
+// ValidIdentifierValue performs the cheap, scheme-specific validation needed
+// before caller evidence can reach a provider client, cache key, or typed
+// identity column. Unknown schemes remain syntactically valid so they can be
+// reported as unsupported by the media-kind routing layer.
+func ValidIdentifierValue(identifier Identifier) bool {
+	value := strings.TrimSpace(identifier.Value)
+	if value == "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(identifier.Scheme)) {
+	case "musicbrainz":
+		return musicBrainzIdentifierPattern.MatchString(strings.ToLower(value))
+	case "apple", "deezer", "discogs", "discogs_release", "discogs_master":
+		number, err := strconv.ParseInt(value, 10, 64)
+		return err == nil && number > 0
+	default:
+		return true
+	}
 }
 
 func baseIdentifierResult(request Request) Result {

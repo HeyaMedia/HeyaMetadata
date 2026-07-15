@@ -21,6 +21,30 @@ func TestArtistCatalogReleaseEvidenceKeepsSupportedExactReleaseIDs(t *testing.T)
 	}
 }
 
+func TestArtistCatalogReleaseEvidenceDropsInvalidProviderIDs(t *testing.T) {
+	t.Parallel()
+	request := discovery.NormalizeRequest(discovery.Request{Kind: discovery.KindArtist, Hints: discovery.Hints{Releases: []discovery.ReleaseHint{
+		{Title: "Synthetic", Identifiers: []discovery.Identifier{
+			{Scheme: "apple", Value: "not-an-id"},
+			{Scheme: "deezer", Value: "0"},
+			{Scheme: "discogs_release", Value: "-1"},
+		}},
+	}}})
+	if got := ArtistCatalogReleaseEvidence(request); len(got) != 0 {
+		t.Fatalf("invalid release evidence escaped validation: %#v", got)
+	}
+}
+
+func TestProviderFanoutWorkersHaveExplicitTimeouts(t *testing.T) {
+	t.Parallel()
+	if got := (&DiscoverySearchWorker{}).Timeout(nil); got != 10*time.Minute {
+		t.Fatalf("discovery timeout: %s", got)
+	}
+	if got := (&ArtistIngestWorker{}).Timeout(nil); got != 5*time.Minute {
+		t.Fatalf("artist timeout: %s", got)
+	}
+}
+
 func TestDiscoveryRunFailsOnlyOnTerminalWorkerError(t *testing.T) {
 	t.Parallel()
 	job := &river.Job[DiscoverySearchArgs]{JobRow: &rivertype.JobRow{Attempt: 1, MaxAttempts: 4}}

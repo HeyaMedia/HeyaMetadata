@@ -64,7 +64,7 @@ func (s *Service) ResolveFreshIdentifiers(ctx context.Context, request Request, 
 		// ResolveKnownIdentifiers has already classified every identifier. Only
 		// fresh supported evidence needs an upstream crosswalk; re-routing a known
 		// identifier can needlessly ingest a second copy of the same entity.
-		if result.IdentifierEvidence[index].Outcome != "unused" {
+		if result.IdentifierEvidence[index].Outcome != "unused" || !ValidIdentifierValue(identifier) {
 			continue
 		}
 		values, err := s.rootsForIdentifier(ctx, request.Kind, identifier, jobID, credentials)
@@ -289,6 +289,9 @@ func (s *Service) artistRootsFromReleaseHints(ctx context.Context, hints []Relea
 	pending := []pendingLookup{}
 	for _, hint := range hints {
 		for _, identifier := range hint.Identifiers {
+			if !ValidIdentifierValue(identifier) {
+				continue
+			}
 			switch identifier.Scheme {
 			case "musicbrainz", "apple", "deezer", "discogs_release", "discogs_master":
 				pending = append(pending, pendingLookup{hint: hint, identifier: identifier})
@@ -568,6 +571,9 @@ func (s *Service) rootsForIdentifier(ctx context.Context, kind string, identifie
 }
 
 func directIngestionRoot(kind string, identifier Identifier) (ingestionRoot, bool) {
+	if !ValidIdentifierValue(identifier) {
+		return ingestionRoot{}, false
+	}
 	root := ingestionRoot{Kind: kind, Value: identifier.Value}
 	switch {
 	case kind == KindMovie && identifier.Scheme == "tmdb":

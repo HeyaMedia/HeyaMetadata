@@ -203,7 +203,11 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int6
 		sort.Strings(keys)
 		for _, key := range keys {
 			spine.Warnings = append(spine.Warnings, key+": "+failures[key].Error())
-			slog.Warn("supplemental release group provider failed", "provider", key, "mbid", mbid, "error", failures[key])
+			if providers.HasHTTPStatus(failures[key], http.StatusNotFound) {
+				slog.Debug("supplemental release group provider has no matching record", "provider", key, "mbid", mbid)
+			} else {
+				slog.Warn("supplemental release group provider failed", "provider", key, "mbid", mbid, "error", failures[key])
+			}
 		}
 		records[0] = spine
 	}

@@ -1,6 +1,11 @@
 package discovery
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
+)
 
 func TestIdentifierNormalizationIsOrderIndependent(t *testing.T) {
 	left := Request{
@@ -80,5 +85,47 @@ func TestArtistReleaseIdentifiersRequireDurableIdentityCheck(t *testing.T) {
 	request.Kind = KindMovie
 	if hasArtistReleaseIdentityEvidence(request) {
 		t.Fatal("artist release routing must not affect movie discovery")
+	}
+}
+
+func TestInvalidMusicBrainzIdentifiersRemainUnusedEvidence(t *testing.T) {
+	t.Parallel()
+	service := &Service{}
+	request := Request{Kind: KindArtist, Identifiers: []Identifier{
+		{Scheme: "musicbrainz", Value: "digital media"},
+		{Scheme: "musicbrainz", Value: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaa8910786"},
+	}}
+	result, handled, err := service.ResolveFreshIdentifiers(context.Background(), request, 0, providercredentials.Credentials{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled || result.EntityID != "" || len(result.IdentifierEvidence) != 2 {
+		t.Fatalf("result=%+v handled=%v", result, handled)
+	}
+	for _, evidence := range result.IdentifierEvidence {
+		if evidence.Outcome != "unused" || evidence.Detail != "identifier value is invalid for scheme" {
+			t.Fatalf("invalid identifier escaped validation: %+v", evidence)
+		}
+	}
+	if root, ok := directIngestionRoot(KindReleaseGroup, Identifier{Scheme: "musicbrainz", Value: "bbbbbbbb-bbbb-bbbb-bbbb-bbb301168317"}); ok {
+		t.Fatalf("synthetic release-group ID became an ingestion root: %+v", root)
+	}
+}
+
+func TestInvalidArtistReleaseIdentifiersDoNotTriggerProviderRouting(t *testing.T) {
+	t.Parallel()
+	request := NormalizeRequest(Request{Kind: KindArtist, Hints: Hints{Releases: []ReleaseHint{{
+		Title: "Synthetic release",
+		Identifiers: []Identifier{
+			{Scheme: "musicbrainz", Value: "bbbbbbbb-bbbb-bbbb-bbbb-bbb301168317"},
+			{Scheme: "apple", Value: "not-an-id"},
+		},
+	}}}})
+	if hasArtistReleaseIdentityEvidence(request) {
+		t.Fatal("invalid release identifiers forced durable provider routing")
+	}
+	roots, err := (&Service{}).artistRootsFromReleaseHints(context.Background(), request.Hints.Releases, 0, providercredentials.Credentials{})
+	if err != nil || len(roots) != 0 {
+		t.Fatalf("roots=%+v err=%v", roots, err)
 	}
 }

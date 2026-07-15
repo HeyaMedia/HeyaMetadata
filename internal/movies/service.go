@@ -236,17 +236,17 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 	if omdbFailure != nil {
 		tmdbNormalized.PartialFailure = true
 		tmdbNormalized.Warnings = append(tmdbNormalized.Warnings, "omdb: "+omdbFailure.Error())
-		slog.Warn("supplemental movie provider failed", "provider", "omdb", "tmdb_id", tmdbID, "error", omdbFailure)
+		logSupplementalMovieFailure("omdb", tmdbID, omdbFailure)
 	}
 	if tvdbFailure != nil {
 		tmdbNormalized.PartialFailure = true
 		tmdbNormalized.Warnings = append(tmdbNormalized.Warnings, "tvdb: "+tvdbFailure.Error())
-		slog.Warn("supplemental movie provider failed", "provider", "tvdb", "tmdb_id", tmdbID, "error", tvdbFailure)
+		logSupplementalMovieFailure("tvdb", tmdbID, tvdbFailure)
 	}
 	if fanartFailure != nil {
 		tmdbNormalized.PartialFailure = true
 		tmdbNormalized.Warnings = append(tmdbNormalized.Warnings, "fanart: "+fanartFailure.Error())
-		slog.Warn("supplemental movie provider failed", "provider", "fanart", "tmdb_id", tmdbID, "error", fanartFailure)
+		logSupplementalMovieFailure("fanart", tmdbID, fanartFailure)
 	}
 
 	normalizedID, err := s.recordNormalized(ctx, tmdbNormalized)
@@ -284,6 +284,14 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 		return Result{}, err
 	}
 	return result, nil
+}
+
+func logSupplementalMovieFailure(provider string, tmdbID int64, err error) {
+	if providers.HasHTTPStatus(err, http.StatusNotFound) {
+		slog.Debug("supplemental movie provider has no matching record", "provider", provider, "tmdb_id", tmdbID)
+		return
+	}
+	slog.Warn("supplemental movie provider failed", "provider", provider, "tmdb_id", tmdbID, "error", err)
 }
 
 func (s *Service) recordPayloads(ctx context.Context, payloads []providers.Payload, normalizerVersion string, capability providers.Capability, riverJobID int64) ([]ingest.RecordedObservation, error) {

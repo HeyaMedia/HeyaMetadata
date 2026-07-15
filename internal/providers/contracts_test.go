@@ -1,10 +1,22 @@
 package providers
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
 )
+
+func TestHasHTTPStatusRecognizesWrappedProviderFailures(t *testing.T) {
+	t.Parallel()
+	err := fmt.Errorf("collect supplement: %w", &StatusError{Provider: "fanart", StatusCode: http.StatusNotFound})
+	if !HasHTTPStatus(err, http.StatusNotFound) {
+		t.Fatal("wrapped provider status was not recognized")
+	}
+	if HasHTTPStatus(err, http.StatusTooManyRequests) {
+		t.Fatal("provider status matched the wrong code")
+	}
+}
 
 func TestRequestFingerprintSeparatesProviders(t *testing.T) {
 	t.Parallel()

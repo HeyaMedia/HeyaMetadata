@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/discovery"
 	"github.com/HeyaMedia/HeyaMetadata/internal/musiccatalog"
@@ -52,6 +53,9 @@ type DiscoverySearchWorker struct {
 
 func NewDiscoverySearchWorker(runtime *platform.Runtime) *DiscoverySearchWorker {
 	return &DiscoverySearchWorker{runtime: runtime, service: discovery.NewService(runtime)}
+}
+func (w *DiscoverySearchWorker) Timeout(*river.Job[DiscoverySearchArgs]) time.Duration {
+	return 10 * time.Minute
 }
 func (w *DiscoverySearchWorker) Work(ctx context.Context, job *river.Job[DiscoverySearchArgs]) (returnErr error) {
 	credentials, err := providercredentials.Load(ctx, w.runtime.Redis, job.Args.CredentialRef)
@@ -146,6 +150,9 @@ func ArtistCatalogReleaseEvidence(request discovery.Request) []musiccatalog.Rele
 	result := []musiccatalog.ReleaseEvidence{}
 	for _, release := range request.Hints.Releases {
 		for _, identifier := range release.Identifiers {
+			if !discovery.ValidIdentifierValue(identifier) {
+				continue
+			}
 			value := musiccatalog.ReleaseEvidence{Provider: identifier.Scheme, Namespace: "album", ID: identifier.Value}
 			switch identifier.Scheme {
 			case "apple", "deezer":

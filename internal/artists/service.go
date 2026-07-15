@@ -187,7 +187,11 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 				if topErr != nil {
 					normalized.PartialFailure = true
 					normalized.Warnings = append(normalized.Warnings, "lastfm.top_tracks: "+topErr.Error())
-					slog.Warn("artist top tracks provider failed", "provider", "lastfm", "mbid", mbid, "error", topErr)
+					if providers.HasHTTPStatus(topErr, http.StatusNotFound) {
+						slog.Debug("artist top tracks provider has no matching record", "provider", "lastfm", "mbid", mbid)
+					} else {
+						slog.Warn("artist top tracks provider failed", "provider", "lastfm", "mbid", mbid, "error", topErr)
+					}
 				}
 			}
 		case "fanart":
@@ -218,7 +222,11 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 		sort.Strings(keys)
 		for _, key := range keys {
 			spine.Warnings = append(spine.Warnings, key+": "+failures[key].Error())
-			slog.Warn("supplemental artist provider failed", "provider", key, "mbid", mbid, "error", failures[key])
+			if providers.HasHTTPStatus(failures[key], http.StatusNotFound) {
+				slog.Debug("supplemental artist provider has no matching record", "provider", key, "mbid", mbid)
+			} else {
+				slog.Warn("supplemental artist provider failed", "provider", key, "mbid", mbid, "error", failures[key])
+			}
 		}
 		records[0] = spine
 	}

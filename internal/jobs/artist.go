@@ -55,6 +55,9 @@ type ArtistIngestWorker struct {
 func NewArtistIngestWorker(runtime *platform.Runtime) *ArtistIngestWorker {
 	return &ArtistIngestWorker{service: artists.NewService(runtime), runtime: runtime}
 }
+func (w *ArtistIngestWorker) Timeout(*river.Job[ArtistIngestArgs]) time.Duration {
+	return 5 * time.Minute
+}
 func (w *ArtistIngestWorker) Work(ctx context.Context, job *river.Job[ArtistIngestArgs]) error {
 	credentials, err := providercredentials.Load(ctx, w.runtime.Redis, job.Args.CredentialRef)
 	if err != nil {

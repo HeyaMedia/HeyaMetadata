@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -18,6 +19,13 @@ type StatusError struct {
 
 func (e *StatusError) Error() string {
 	return fmt.Sprintf("%s returned HTTP %d", e.Provider, e.StatusCode)
+}
+
+// HasHTTPStatus lets orchestration layers distinguish an expected missing
+// supplemental record from an upstream failure without parsing error text.
+func HasHTTPStatus(err error, status int) bool {
+	var statusErr *StatusError
+	return errors.As(err, &statusErr) && statusErr.StatusCode == status
 }
 
 type Scope string
