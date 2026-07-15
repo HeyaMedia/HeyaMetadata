@@ -65,6 +65,15 @@ func TestConfigValidateRejectsInvalidConnectivityProxyCIDR(t *testing.T) {
 	}
 }
 
+func TestConfigValidateRejectsInsecureConnectivityIPEchoURL(t *testing.T) {
+	t.Parallel()
+	config := validConfig()
+	config.Connectivity.PublicIPEchoURL = "http://api.ipify.org"
+	if err := config.Validate(); err == nil {
+		t.Fatal("expected insecure public IP echo URL to be rejected")
+	}
+}
+
 func TestConfigValidateRejectsInvalidMusicBrainzPolicy(t *testing.T) {
 	t.Parallel()
 	for name, mutate := range map[string]func(*Config){
@@ -116,5 +125,8 @@ func validConfig() Config {
 			MyAnimeList: MyAnimeListConfig{BaseURL: "https://api.myanimelist.net/v2", RequestsPerSecond: 2},
 		},
 		Chromaprint: ChromaprintConfig{MaxPerRelease: 100},
+		Connectivity: ConnectivityConfig{
+			PublicIPEchoURL: "https://api.ipify.org",
+		},
 	}
 }

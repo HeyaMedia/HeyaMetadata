@@ -94,11 +94,15 @@ type connectivityProbeRunner interface {
 	Probe(context.Context, netip.Addr, int, string) connectivity.Result
 }
 
-func registerConnectivity(api huma.API, runtime *platform.Runtime, resolver *connectivity.ClientIPResolver) {
-	registerConnectivityService(api, resolver, connectivity.NewLimiter(runtimeRedis(runtime)), connectivity.NewProber())
+type connectivityPublicIPMatcher interface {
+	Matches(netip.Addr) bool
 }
 
-func registerConnectivityService(api huma.API, resolver *connectivity.ClientIPResolver, limiter *connectivity.Limiter, prober connectivityProbeRunner) {
+func registerConnectivity(api huma.API, runtime *platform.Runtime, resolver *connectivity.ClientIPResolver, publicIPs connectivityPublicIPMatcher) {
+	registerConnectivityService(api, resolver, connectivity.NewLimiter(runtimeRedis(runtime)), connectivity.NewProber(), publicIPs)
+}
+
+func registerConnectivityService(api huma.API, resolver *connectivity.ClientIPResolver, limiter *connectivity.Limiter, prober connectivityProbeRunner, publicIPs connectivityPublicIPMatcher) {
 	registerConnectivitySchemas(api)
 	huma.Register(api, huma.Operation{
 		OperationID:   "connectivity-ip",
@@ -137,7 +141,7 @@ func registerConnectivityService(api huma.API, resolver *connectivity.ClientIPRe
 		Method:           http.MethodPost,
 		Path:             "/v1/check",
 		Summary:          "Probe a Heya server from the public internet",
-		Description:      "TLS-dials the caller's own public source IP and requested port, then verifies a short-lived challenge at /api/connectivity/probe. The request can never select another target address.",
+		Description:      "TLS-dials the caller's own public source IP and requested port, then verifies a short-lived challenge at /api/connectivity/probe. A caller sharing this service's public egress IP receives same_network without a misleading hairpin probe. The request can never select another target address.",
 		Tags:             []string{"Connectivity"},
 		DefaultStatus:    http.StatusOK,
 		SkipValidateBody: true,
@@ -164,6 +168,17 @@ func registerConnectivityService(api huma.API, resolver *connectivity.ClientIPRe
 		if !allowed {
 			return connectivityRateLimitedOutput(retry), nil
 		}
+		if publicIPs != nil && publicIPs.Matches(address) {
+			result := connectivity.Result{
+				ObservedIP: address.String(),
+				Error: &connectivity.ProbeError{
+					Code:   "same_network",
+					Detail: "the check service shares a public IP with the target — cannot probe from outside",
+				},
+			}
+			logConnectivityResult(ctx, address, input.Body.Port, result)
+			return &connectivityCheckOutput{Status: http.StatusOK, Body: connectivityJSON(result)}, nil
+		}
 		release, acquired, retry, err := limiter.Acquire(ctx, address.String(), connectivityLockTTL)
 		if err != nil {
 			return nil, huma.Error503ServiceUnavailable("connectivity concurrency limiter is unavailable", err)
@@ -178,18 +193,22 @@ func registerConnectivityService(api huma.API, resolver *connectivity.ClientIPRe
 		}()
 
 		result := prober.Probe(ctx, address, input.Body.Port, input.Body.Challenge)
-		outcome := "ok"
-		if result.Error != nil {
-			outcome = result.Error.Code
-		}
-		slog.InfoContext(ctx, "connectivity check",
-			"ip", address.String(),
-			"port", input.Body.Port,
-			"outcome", outcome,
-			"latency_ms", result.LatencyMS,
-		)
+		logConnectivityResult(ctx, address, input.Body.Port, result)
 		return &connectivityCheckOutput{Status: http.StatusOK, Body: connectivityJSON(result)}, nil
 	})
+}
+
+func logConnectivityResult(ctx context.Context, address netip.Addr, port int, result connectivity.Result) {
+	outcome := "ok"
+	if result.Error != nil {
+		outcome = result.Error.Code
+	}
+	slog.InfoContext(ctx, "connectivity check",
+		"ip", address.String(),
+		"port", port,
+		"outcome", outcome,
+		"latency_ms", result.LatencyMS,
+	)
 }
 
 func registerConnectivitySchemas(api huma.API) {

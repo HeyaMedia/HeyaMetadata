@@ -3,7 +3,6 @@ package people
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -15,7 +14,6 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tmdb"
-	"github.com/jackc/pgx/v5"
 )
 
 const tmdbPersonNormalizerVersion = "tmdb-person/v1"
@@ -159,21 +157,8 @@ func (s *Service) persistTMDB(ctx context.Context, entityID string, payload prov
 			claims = append(claims, claim)
 		}
 	}
-	for _, claim := range claims {
-		var owner string
-		err := tx.QueryRow(ctx, `SELECT entity_id::text FROM external_id_claims WHERE entity_kind='person' AND provider=$1 AND namespace=$2 AND normalized_value=$3 AND state='accepted'`, claim.Provider, claim.Namespace, claim.Value).Scan(&owner)
-		if err == nil && owner != entityID {
-			conflictBody, _ := json.Marshal([]map[string]string{{"entity_id": owner, "provider": claim.Provider, "namespace": claim.Namespace, "value": claim.Value}, {"entity_id": entityID, "provider": claim.Provider, "namespace": claim.Namespace, "value": claim.Value}})
-			_, _ = tx.Exec(ctx, `INSERT INTO external_id_conflicts(entity_kind,claims,normalized_record_id)SELECT 'person',$1,$2 WHERE NOT EXISTS(SELECT 1 FROM external_id_conflicts WHERE entity_kind='person' AND state='open' AND claims=$1)`, conflictBody, normalizedID)
-			continue
-		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		_, err = tx.Exec(ctx, `INSERT INTO external_id_claims(entity_id,entity_kind,provider,namespace,normalized_value,state,confidence,source_observation_id,first_observed_at,last_observed_at)VALUES($1,'person',$2,$3,$4,'accepted',1,$5,$6,$6)ON CONFLICT(entity_kind,provider,namespace,normalized_value)DO UPDATE SET last_observed_at=EXCLUDED.last_observed_at,source_observation_id=EXCLUDED.source_observation_id WHERE external_id_claims.entity_id=EXCLUDED.entity_id`, entityID, claim.Provider, claim.Namespace, claim.Value, payload.ObservationID, payload.ObservedAt)
-		if err != nil {
-			return err
-		}
+	if err := persistPersonExternalEvidence(ctx, tx, entityID, "tmdb", payload.ObservationID, normalizedID, payload.ObservedAt, claims); err != nil {
+		return err
 	}
 
 	gender := ""

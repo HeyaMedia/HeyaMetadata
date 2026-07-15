@@ -37,6 +37,26 @@ func TestIntegrationAcceptReconciliationMovesIdentityAndLeavesRedirect(t *testin
 	if _, err := runtime.DB.Exec(ctx, `INSERT INTO person_provider_credits(person_entity_id,provider,provider_target_id,media_kind,title,credit_type,observed_at)VALUES($1,'integration_a','1','movie','Left Film','cast',now()),($2,'integration_b','2','tv_show','Right Show','crew',now())`, survivorID, retiredID); err != nil {
 		t.Fatal(err)
 	}
+	var showID string
+	showSlug := "integration-credit-show-" + suffix
+	if err := runtime.DB.QueryRow(ctx, `INSERT INTO entities(kind,slug,canonical_version)VALUES('tv_show',$1,1)RETURNING id::text`, showSlug).Scan(&showID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cleanupModerationCreditEntity(runtime, showID) })
+	setupStatements := []string{
+		`INSERT INTO entity_slugs(entity_id,kind,slug)VALUES($1::uuid,'tv_show',$2::text)`,
+		`INSERT INTO search_entities(entity_id,kind,slug,display_title,summary,projection_version)VALUES($1::uuid,'tv_show',$2::text,'Integration Credit Show',jsonb_build_object('schema_version',1,'projection_version',1,'id',$1::text,'kind','tv_show','slug',$2::text,'display',jsonb_build_object('title','Integration Credit Show')),1)`,
+		`INSERT INTO canonical_tv_shows(entity_id,merge_version,source_fingerprint,document)VALUES($1::uuid,'integration','integration',jsonb_build_object('schema_version',1,'projection_version',1,'id',$1::text,'kind','tv_show','slug',$2::text,'display',jsonb_build_object('title','Integration Credit Show'),'data',jsonb_build_object('credits','[]'::jsonb)))`,
+		`INSERT INTO api_documents(entity_id,document_kind,schema_version,projection_version,document,fresh_until)VALUES($1::uuid,'detail',1,1,jsonb_build_object('schema_version',1,'projection_version',1,'id',$1::text,'kind','tv_show','slug',$2::text,'display',jsonb_build_object('title','Integration Credit Show'),'data',jsonb_build_object('credits','[]'::jsonb)),now()+interval '1 day'),($1::uuid,'summary',1,1,jsonb_build_object('schema_version',1,'projection_version',1,'id',$1::text,'kind','tv_show','slug',$2::text,'display',jsonb_build_object('title','Integration Credit Show')),now()+interval '1 day')`,
+	}
+	for _, statement := range setupStatements {
+		if _, err := runtime.DB.Exec(ctx, statement, showID, showSlug); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := runtime.DB.Exec(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,character_name,credit_order,projection_version)VALUES($1,'integration_a',$2,'Integration Person','cast','Self - Host',0,1),($1,'integration_b',$2,'Integration Person','cast','Integration Person',0,1)`, showID, suffix); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := runtime.DB.Exec(ctx, `INSERT INTO person_reconciliation_candidates(left_person_id,right_person_id,score,reasons)VALUES(LEAST($1::uuid,$2::uuid),GREATEST($1::uuid,$2::uuid),.95,'["integration"]')`, survivorID, retiredID); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +76,7 @@ func TestIntegrationAcceptReconciliationMovesIdentityAndLeavesRedirect(t *testin
 	if err != nil || resolved != survivorID {
 		t.Fatalf("redirect resolved=%s err=%v", resolved, err)
 	}
-	var claims, credits, redirects, audits int
+	var claims, credits, redirects, audits, projectedCredits, documentCredits, dependentChanges int
 	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM external_id_claims WHERE entity_id=$1 AND provider IN('integration_a','integration_b')`, survivorID).Scan(&claims); err != nil {
 		t.Fatal(err)
 	}
@@ -69,8 +89,24 @@ func TestIntegrationAcceptReconciliationMovesIdentityAndLeavesRedirect(t *testin
 	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM moderation_audit_log WHERE id=$1 AND action='person_reconciliation_accept'`, decision.AuditLogID).Scan(&audits); err != nil {
 		t.Fatal(err)
 	}
-	if claims != 2 || credits != 2 || redirects != 1 || audits != 1 {
-		t.Fatalf("claims=%d credits=%d redirects=%d audits=%d", claims, credits, redirects, audits)
+	var entityVersion, apiVersion, searchVersion int64
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(*),min(person_entity_id::text),max(projection_version) FROM entity_credit_projections WHERE entity_id=$1`, showID).Scan(&projectedCredits, &resolved, &apiVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.DB.QueryRow(ctx, `SELECT jsonb_array_length(document#>'{data,credits}'),projection_version FROM api_documents WHERE entity_id=$1 AND document_kind='detail'`, showID).Scan(&documentCredits, &apiVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.DB.QueryRow(ctx, `SELECT canonical_version FROM entities WHERE id=$1`, showID).Scan(&entityVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.DB.QueryRow(ctx, `SELECT projection_version FROM search_entities WHERE entity_id=$1`, showID).Scan(&searchVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM change_outbox WHERE entity_id=$1 AND changed_scopes@>ARRAY['credits']::text[]`, showID).Scan(&dependentChanges); err != nil {
+		t.Fatal(err)
+	}
+	if claims != 2 || credits != 2 || redirects != 1 || audits != 1 || projectedCredits != 1 || documentCredits != 1 || resolved != survivorID || entityVersion <= 1 || apiVersion != entityVersion || searchVersion != entityVersion || dependentChanges != 1 {
+		t.Fatalf("claims=%d credits=%d redirects=%d audits=%d projected=%d document=%d resolved=%s versions=%d/%d/%d changes=%d", claims, credits, redirects, audits, projectedCredits, documentCredits, resolved, entityVersion, apiVersion, searchVersion, dependentChanges)
 	}
 }
 
@@ -121,6 +157,60 @@ func TestIntegrationRejectReconciliationPreservesBothPeople(t *testing.T) {
 	}
 }
 
+func TestIntegrationReconcileAutomaticallyAcceptsIndependentExternalIDEvidence(t *testing.T) {
+	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
+		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local platform stack")
+	}
+	ctx := context.Background()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := platform.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	name := "Integration Verified Person " + suffix
+	var tmdbID, tvdbID string
+	if err := runtime.DB.QueryRow(ctx, `SELECT heya_ensure_canonical_person('tmdb',$1,$2,NULL)::text`, suffix, name).Scan(&tmdbID); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.DB.QueryRow(ctx, `SELECT heya_ensure_canonical_person('tvdb',$1,$2,NULL)::text`, suffix, name).Scan(&tvdbID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cleanupModerationPeople(runtime, tmdbID, tvdbID) })
+	if _, err := runtime.DB.Exec(ctx, `INSERT INTO person_identity_evidence(person_entity_id,provider,namespace,normalized_value,source_provider)VALUES($1,'imdb','name',$3,'tmdb'),($2,'imdb','name',$3,'tvdb')`, tmdbID, tvdbID, "nm"+suffix); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(runtime)
+	if _, err := service.ReconciliationRoots(ctx, 1); err != nil {
+		t.Fatalf("select scheduled reconciliation roots: %v", err)
+	}
+	if err := service.Reconcile(ctx, tvdbID); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := service.CanonicalID(ctx, tvdbID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != tmdbID {
+		t.Fatalf("resolved ID = %s, want TMDB-root survivor %s", resolved, tmdbID)
+	}
+	var accepted, audits int
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM person_reconciliation_candidates WHERE left_person_id=LEAST($1::uuid,$2::uuid) AND right_person_id=GREATEST($1::uuid,$2::uuid) AND state='accepted' AND decided_by='system:person-reconciler'`, tmdbID, tvdbID).Scan(&accepted); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM moderation_audit_log WHERE entity_kind='person' AND action='person_reconciliation_accept' AND subject_ids@>ARRAY[$1::uuid,$2::uuid]`, tmdbID, tvdbID).Scan(&audits); err != nil {
+		t.Fatal(err)
+	}
+	if accepted != 1 || audits != 1 {
+		t.Fatalf("accepted=%d audits=%d", accepted, audits)
+	}
+}
+
 func cleanupModerationPeople(runtime *platform.Runtime, ids ...string) {
 	ctx := context.Background()
 	_, _ = runtime.DB.Exec(ctx, `DELETE FROM change_log WHERE entity_id=ANY($1::uuid[])`, ids)
@@ -140,4 +230,18 @@ func cleanupModerationPeople(runtime *platform.Runtime, ids ...string) {
 	_, _ = runtime.DB.Exec(ctx, `DELETE FROM entity_slugs WHERE entity_id=ANY($1::uuid[])`, ids)
 	_, _ = runtime.DB.Exec(ctx, `DELETE FROM canonical_people WHERE entity_id=ANY($1::uuid[])`, ids)
 	_, _ = runtime.DB.Exec(ctx, `DELETE FROM entities WHERE id=ANY($1::uuid[])`, ids)
+}
+
+func cleanupModerationCreditEntity(runtime *platform.Runtime, id string) {
+	ctx := context.Background()
+	_, _ = runtime.DB.Exec(ctx, `DELETE FROM change_log WHERE entity_id=$1`, id)
+	_, _ = runtime.DB.Exec(ctx, `DELETE FROM change_outbox WHERE entity_id=$1`, id)
+	_, _ = runtime.DB.Exec(ctx, `DELETE FROM api_document_provenance WHERE entity_id=$1`, id)
+	_, _ = runtime.DB.Exec(ctx, `DELETE FROM api_documents WHERE entity_id=$1`, id)
+	_, _ = runtime.DB.Exec(ctx, `DELETE FROM entity_credit_projections WHERE entity_id=$1`, id)
+	_, _ = runtime.DB.Exec(ctx, `DELETE FROM canonical_tv_shows WHERE entity_id=$1`, id)
+	_, _ = runtime.DB.Exec(ctx, `DELETE FROM search_names WHERE entity_id=$1`, id)
+	_, _ = runtime.DB.Exec(ctx, `DELETE FROM search_entities WHERE entity_id=$1`, id)
+	_, _ = runtime.DB.Exec(ctx, `DELETE FROM entity_slugs WHERE entity_id=$1`, id)
+	_, _ = runtime.DB.Exec(ctx, `DELETE FROM entities WHERE id=$1`, id)
 }

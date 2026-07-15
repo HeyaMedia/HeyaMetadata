@@ -5520,7 +5520,7 @@ paths:
         - TV
   /v1/check:
     post:
-      description: TLS-dials the caller's own public source IP and requested port, then verifies a short-lived challenge at /api/connectivity/probe. The request can never select another target address.
+      description: TLS-dials the caller's own public source IP and requested port, then verifies a short-lived challenge at /api/connectivity/probe. A caller sharing this service's public egress IP receives same_network without a misleading hairpin probe. The request can never select another target address.
       operationId: connectivity-check
       requestBody:
         content:

@@ -32,6 +32,7 @@ type Config struct {
 // ignored unless request.RemoteAddr belongs to one of these networks.
 type ConnectivityConfig struct {
 	TrustedProxyCIDRs []string
+	PublicIPEchoURL   string
 }
 
 // CaptchaConfig enables the self-hosted proof-of-work captcha on register/login
@@ -332,10 +333,13 @@ func Load() (Config, error) {
 		},
 		Worker:  WorkerConfig{MaxWorkers: maxWorkers},
 		Captcha: CaptchaConfig{Secret: env("HEYA_METADATA_CAPTCHA_SECRET", "")},
-		Connectivity: ConnectivityConfig{TrustedProxyCIDRs: envList(
-			"HEYA_METADATA_CONNECTIVITY_TRUSTED_PROXIES",
-			"127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16",
-		)},
+		Connectivity: ConnectivityConfig{
+			TrustedProxyCIDRs: envList(
+				"HEYA_METADATA_CONNECTIVITY_TRUSTED_PROXIES",
+				"127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16",
+			),
+			PublicIPEchoURL: env("HEYA_METADATA_CONNECTIVITY_PUBLIC_IP_ECHO_URL", "https://api.ipify.org"),
+		},
 		Chromaprint: ChromaprintConfig{
 			FPCalcPath: env("HEYA_METADATA_FPCALC_PATH", ""), MaxPerRelease: chromaprintMax,
 		},
@@ -464,6 +468,12 @@ func (c Config) Validate() error {
 	for _, rawPrefix := range c.Connectivity.TrustedProxyCIDRs {
 		if _, err := netip.ParsePrefix(rawPrefix); err != nil {
 			return fmt.Errorf("HEYA_METADATA_CONNECTIVITY_TRUSTED_PROXIES contains invalid CIDR %q: %w", rawPrefix, err)
+		}
+	}
+	if c.Connectivity.PublicIPEchoURL != "" {
+		echoURL, err := url.Parse(c.Connectivity.PublicIPEchoURL)
+		if err != nil || echoURL.Scheme != "https" || echoURL.Host == "" {
+			return fmt.Errorf("HEYA_METADATA_CONNECTIVITY_PUBLIC_IP_ECHO_URL must be an absolute HTTPS URL")
 		}
 	}
 	if _, err := url.ParseRequestURI(c.DatabaseURL); err != nil {

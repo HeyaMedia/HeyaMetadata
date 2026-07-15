@@ -27,6 +27,7 @@ func Workers(runtime *platform.Runtime) *river.Workers {
 	river.AddWorker(workers, NewMusicalWorkIngestWorker(runtime))
 	river.AddWorker(workers, NewRecordingEvidenceRefreshWorker(runtime))
 	river.AddWorker(workers, NewPersonEnrichWorker(runtime))
+	river.AddWorker(workers, NewPersonReconciliationSchedulerWorker(runtime))
 	river.AddWorker(workers, NewDiscoverySearchWorker(runtime))
 	river.AddWorker(workers, NewTVShowIngestWorker(runtime))
 	river.AddWorker(workers, NewAnimeIngestWorker(runtime))
@@ -63,6 +64,11 @@ func NewClient(runtime *platform.Runtime, maxWorkers int, work bool) (*river.Cli
 				river.PeriodicInterval(time.Hour),
 				func() (river.JobArgs, *river.InsertOpts) { return ArtistCatalogSchedulerArgs{}, nil },
 				&river.PeriodicJobOpts{ID: "artist-catalog-refresh", RunOnStart: true},
+			),
+			river.NewPeriodicJob(
+				river.PeriodicInterval(10*time.Minute),
+				func() (river.JobArgs, *river.InsertOpts) { return PersonReconciliationSchedulerArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "person-identity-reconciliation", RunOnStart: true},
 			),
 		},
 	}

@@ -1,10 +1,13 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/connectivity"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
@@ -24,14 +27,32 @@ func New(version string) *Server {
 }
 
 func NewWithReadiness(version string, checker ReadinessChecker) *Server {
-	return newServer(version, checker, nil)
+	return newServer(version, checker, nil, nil)
 }
 
 func NewWithRuntime(version string, runtime *platform.Runtime) *Server {
-	return newServer(version, runtime, runtime)
+	return newServer(version, runtime, runtime, nil)
 }
 
-func newServer(version string, checker ReadinessChecker, runtime *platform.Runtime) *Server {
+// NewWithRuntimeContext configures production-only process services whose
+// lifetime follows the serving command, including public egress-IP refreshes.
+func NewWithRuntimeContext(ctx context.Context, version string, runtime *platform.Runtime) *Server {
+	if runtime.Config.Connectivity.PublicIPEchoURL == "" {
+		return newServer(version, runtime, runtime, nil)
+	}
+	publicIPs := connectivity.NewPublicIPCache(runtime.Config.Connectivity.PublicIPEchoURL, nil)
+	if err := publicIPs.Refresh(ctx); err != nil {
+		slog.WarnContext(ctx, "resolve connectivity service public egress IP", "error", err)
+	} else {
+		slog.InfoContext(ctx, "connectivity service public egress IP resolved")
+	}
+	go publicIPs.Run(ctx, time.Hour, func(err error) {
+		slog.WarnContext(ctx, "refresh connectivity service public egress IP", "error", err)
+	})
+	return newServer(version, runtime, runtime, publicIPs)
+}
+
+func newServer(version string, checker ReadinessChecker, runtime *platform.Runtime, publicIPs connectivityPublicIPMatcher) *Server {
 	mux := http.NewServeMux()
 	config := huma.DefaultConfig("Heya Metadata API", apiVersion)
 	config.Info.Description = "Canonical, provenance-aware metadata for Heya media servers."
@@ -50,7 +71,7 @@ func newServer(version string, checker ReadinessChecker, runtime *platform.Runti
 		panic(fmt.Sprintf("configure connectivity client IP resolver: %v", err))
 	}
 	registerHealth(api, version, checker)
-	registerConnectivity(api, runtime, clientIPs)
+	registerConnectivity(api, runtime, clientIPs, publicIPs)
 	registerAuth(api, runtime)
 	registerMovies(api, runtime)
 	registerImages(api, runtime)

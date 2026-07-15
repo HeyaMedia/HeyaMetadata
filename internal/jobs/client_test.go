@@ -34,6 +34,9 @@ func TestPriorityBandsReserveCapacityForInteractiveWork(t *testing.T) {
 	if opts := (ArtistCatalogSchedulerArgs{}).InsertOpts(); opts.Queue != river.QueueDefault || opts.Priority != PriorityScheduled {
 		t.Fatalf("artist catalog scheduler queue/priority: %s/%d", opts.Queue, opts.Priority)
 	}
+	if opts := (PersonReconciliationSchedulerArgs{}).InsertOpts(); opts.Queue != BackgroundQueue || opts.Priority != PriorityScheduled {
+		t.Fatalf("person reconciliation scheduler queue/priority: %s/%d", opts.Queue, opts.Priority)
+	}
 	if opts := (ImageMaterializeArgs{ImageID: "id"}).InsertOpts(); opts.Queue != ImageQueue || opts.Priority != PriorityInteractive {
 		t.Fatalf("image queue/priority: %s/%d", opts.Queue, opts.Priority)
 	}

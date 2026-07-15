@@ -137,9 +137,13 @@ func (s *Service) AcceptReconciliation(ctx context.Context, leftID, rightID, sur
 	if activeCount != 2 {
 		return ReconciliationDecision{}, fmt.Errorf("both candidate people must be active")
 	}
+	affectedEntityIDs, err := affectedCreditEntityIDs(ctx, tx, survivorID, retiredID)
+	if err != nil {
+		return ReconciliationDecision{}, err
+	}
 
 	var snapshot []byte
-	if err := tx.QueryRow(ctx, `SELECT jsonb_build_object('candidate',to_jsonb(candidate),'people',(SELECT jsonb_agg(to_jsonb(person)) FROM canonical_people person WHERE person.entity_id=ANY($1::uuid[])),'claims',(SELECT jsonb_agg(to_jsonb(claim)) FROM external_id_claims claim WHERE claim.entity_id=ANY($1::uuid[])),'provider_credits',(SELECT jsonb_agg(to_jsonb(credit)) FROM person_provider_credits credit WHERE credit.person_entity_id=ANY($1::uuid[])),'credit_projection_ids',(SELECT jsonb_agg(id) FROM entity_credit_projections WHERE person_entity_id=ANY($1::uuid[])),'search_names',(SELECT jsonb_agg(to_jsonb(name)) FROM search_names name WHERE name.entity_id=ANY($1::uuid[]))) FROM person_reconciliation_candidates candidate WHERE candidate.left_person_id=$2 AND candidate.right_person_id=$3`, []string{survivorID, retiredID}, candidate.LeftPersonID, candidate.RightPersonID).Scan(&snapshot); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT jsonb_build_object('candidate',to_jsonb(candidate),'people',(SELECT jsonb_agg(to_jsonb(person)) FROM canonical_people person WHERE person.entity_id=ANY($1::uuid[])),'claims',(SELECT jsonb_agg(to_jsonb(claim)) FROM external_id_claims claim WHERE claim.entity_id=ANY($1::uuid[])),'identity_evidence',(SELECT jsonb_agg(to_jsonb(evidence)) FROM person_identity_evidence evidence WHERE evidence.person_entity_id=ANY($1::uuid[])),'provider_credits',(SELECT jsonb_agg(to_jsonb(credit)) FROM person_provider_credits credit WHERE credit.person_entity_id=ANY($1::uuid[])),'credit_projection_ids',(SELECT jsonb_agg(id) FROM entity_credit_projections WHERE person_entity_id=ANY($1::uuid[])),'search_names',(SELECT jsonb_agg(to_jsonb(name)) FROM search_names name WHERE name.entity_id=ANY($1::uuid[]))) FROM person_reconciliation_candidates candidate WHERE candidate.left_person_id=$2 AND candidate.right_person_id=$3`, []string{survivorID, retiredID}, candidate.LeftPersonID, candidate.RightPersonID).Scan(&snapshot); err != nil {
 		return ReconciliationDecision{}, err
 	}
 	var auditID string
@@ -156,6 +160,9 @@ func (s *Service) AcceptReconciliation(ctx context.Context, leftID, rightID, sur
 	if err := mergePersonProviderCredits(ctx, tx, survivorID, retiredID); err != nil {
 		return ReconciliationDecision{}, err
 	}
+	if err := mergePersonIdentityEvidence(ctx, tx, survivorID, retiredID); err != nil {
+		return ReconciliationDecision{}, err
+	}
 	if err := mergePersonServingState(ctx, tx, survivorID, retiredID); err != nil {
 		return ReconciliationDecision{}, err
 	}
@@ -167,6 +174,9 @@ func (s *Service) AcceptReconciliation(ctx context.Context, leftID, rightID, sur
 		return ReconciliationDecision{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE entity_credit_projections SET person_entity_id=$1 WHERE person_entity_id=$2`, survivorID, retiredID); err != nil {
+		return ReconciliationDecision{}, err
+	}
+	if err := rebuildAffectedCreditDocuments(ctx, tx, affectedEntityIDs); err != nil {
 		return ReconciliationDecision{}, err
 	}
 
@@ -251,6 +261,31 @@ func mergePersonProviderCredits(ctx context.Context, tx pgx.Tx, survivorID, reti
 	}
 	_, err := tx.Exec(ctx, `DELETE FROM person_provider_credits WHERE person_entity_id=$1`, retiredID)
 	return err
+}
+
+func mergePersonIdentityEvidence(ctx context.Context, tx pgx.Tx, survivorID, retiredID string) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO person_identity_evidence(person_entity_id,provider,namespace,normalized_value,source_provider,source_observation_id,first_observed_at,last_observed_at)SELECT $1,provider,namespace,normalized_value,source_provider,source_observation_id,first_observed_at,last_observed_at FROM person_identity_evidence WHERE person_entity_id=$2 ON CONFLICT(person_entity_id,provider,namespace,normalized_value,source_provider)DO UPDATE SET source_observation_id=COALESCE(EXCLUDED.source_observation_id,person_identity_evidence.source_observation_id),first_observed_at=LEAST(person_identity_evidence.first_observed_at,EXCLUDED.first_observed_at),last_observed_at=GREATEST(person_identity_evidence.last_observed_at,EXCLUDED.last_observed_at)`, survivorID, retiredID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `DELETE FROM person_identity_evidence WHERE person_entity_id=$1`, retiredID)
+	return err
+}
+
+func affectedCreditEntityIDs(ctx context.Context, tx pgx.Tx, personIDs ...string) ([]string, error) {
+	rows, err := tx.Query(ctx, `SELECT DISTINCT entity_id::text FROM entity_credit_projections WHERE person_entity_id=ANY($1::uuid[])`, personIDs)
+	if err != nil {
+		return nil, fmt.Errorf("find credit-dependent entities: %w", err)
+	}
+	defer rows.Close()
+	var result []string
+	for rows.Next() {
+		var entityID string
+		if err := rows.Scan(&entityID); err != nil {
+			return nil, fmt.Errorf("scan credit-dependent entity: %w", err)
+		}
+		result = append(result, entityID)
+	}
+	return result, rows.Err()
 }
 
 func mergePersonServingState(ctx context.Context, tx pgx.Tx, survivorID, retiredID string) error {

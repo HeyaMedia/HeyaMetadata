@@ -45,7 +45,7 @@ func newServeCommand() *cobra.Command {
 			}
 			defer runtime.Close()
 
-			application := server.NewWithRuntime(buildinfo.Version, runtime)
+			application := server.NewWithRuntimeContext(ctx, buildinfo.Version, runtime)
 			handler := application.Handler()
 			if cfg.WebRoot != "" {
 				handler, err = server.WithWebUI(handler, cfg.WebRoot, runtime, cfg.SiteURL)

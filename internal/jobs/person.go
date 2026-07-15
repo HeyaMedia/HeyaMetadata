@@ -18,6 +18,8 @@ import (
 
 const PersonEnrichKind = "person_enrich_v1"
 
+const PersonReconciliationSchedulerKind = "person_reconciliation_scheduler_v1"
+
 type PersonEnrichArgs struct {
 	EntityID      string `json:"entity_id" river:"unique"`
 	TMDBID        string `json:"tmdb_id,omitempty"`
@@ -101,4 +103,52 @@ func (w *PersonEnrichWorker) Work(ctx context.Context, job *river.Job[PersonEnri
 		}
 	}
 	return fmt.Errorf("enrich canonical person %s: %w", job.Args.EntityID, err)
+}
+
+type PersonReconciliationSchedulerArgs struct{}
+
+func (PersonReconciliationSchedulerArgs) Kind() string { return PersonReconciliationSchedulerKind }
+func (PersonReconciliationSchedulerArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: BackgroundQueue, Priority: PriorityScheduled, MaxAttempts: 3, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
+}
+
+type PersonReconciliationSchedulerWorker struct {
+	river.WorkerDefaults[PersonReconciliationSchedulerArgs]
+	service *people.Service
+	runtime *platform.Runtime
+}
+
+func NewPersonReconciliationSchedulerWorker(runtime *platform.Runtime) *PersonReconciliationSchedulerWorker {
+	return &PersonReconciliationSchedulerWorker{service: people.NewService(runtime), runtime: runtime}
+}
+
+func (w *PersonReconciliationSchedulerWorker) Work(ctx context.Context, _ *river.Job[PersonReconciliationSchedulerArgs]) error {
+	roots, err := w.service.ReconciliationRoots(ctx, 250)
+	if err != nil {
+		return err
+	}
+	client := river.ClientFromContext[pgx.Tx](ctx)
+	for entityID := range roots {
+		if err := w.service.Reconcile(ctx, entityID); err != nil {
+			return fmt.Errorf("reconcile person %s: %w", entityID, err)
+		}
+		canonicalID, err := w.service.CanonicalID(ctx, entityID)
+		if errors.Is(err, people.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		ids, err := w.service.DueProviderIDs(ctx, canonicalID)
+		if err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		if _, err := InsertPersonEnrich(ctx, w.runtime, client, PersonEnrichArgs{EntityID: canonicalID, TMDBID: ids["tmdb"], TVMazeID: ids["tvmaze"], TVDBID: ids["tvdb"], Reason: "identity_reconciliation"}, PriorityScheduled); err != nil {
+			return fmt.Errorf("enqueue person reconciliation evidence: %w", err)
+		}
+	}
+	return nil
 }

@@ -19,6 +19,7 @@ import (
 	moviedomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/movie"
 	"github.com/HeyaMedia/HeyaMetadata/internal/ingest"
 	"github.com/HeyaMedia/HeyaMetadata/internal/mixer"
+	"github.com/HeyaMedia/HeyaMetadata/internal/people"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
@@ -524,6 +525,19 @@ func (s *Service) merge(ctx context.Context, normalizedID string, additionalNorm
 		if err := tx.QueryRow(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,character_name,department,job,credit_order,profile_image_id,projection_version)VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),$9,NULLIF($10,'')::uuid,$11) RETURNING person_entity_id::text`, entityID, credit.Provider, credit.ProviderPersonID, credit.DisplayName, credit.CreditType, credit.Character, credit.Department, credit.Job, credit.Order, credit.ProfileImageID, projectionVersion).Scan(&credit.PersonEntityID); err != nil {
 			return Result{}, err
 		}
+	}
+	canonicalCredits, err := people.CanonicalizeEntityCredits(ctx, tx, entityID, projectionVersion)
+	if err != nil {
+		return Result{}, err
+	}
+	projection.Detail.Data.Credits = make([]moviedomain.ProjectedCredit, 0, len(canonicalCredits))
+	for _, credit := range canonicalCredits {
+		projection.Detail.Data.Credits = append(projection.Detail.Data.Credits, moviedomain.ProjectedCredit{
+			PersonEntityID: credit.PersonEntityID, Provider: credit.Provider,
+			ProviderPersonID: credit.ProviderPersonID, DisplayName: credit.DisplayName,
+			CreditType: credit.CreditType, Character: credit.Character, Department: credit.Department,
+			Job: credit.Job, Order: credit.Order, ProfileImageID: credit.ProfileImageID,
+		})
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM entity_rating_projections WHERE entity_id=$1`, entityID); err != nil {
 		return Result{}, err

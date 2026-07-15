@@ -37,6 +37,8 @@ matched. Failure codes are stable client contract values:
 - `tls_handshake`
 - `http_error`
 - `challenge_mismatch`
+- `same_network` (the checker and caller share a public IP, so an outside-in
+  result cannot be determined without risking a NAT hairpin false negative)
 
 Invalid fields or source addresses return `400`; malformed JSON is rejected as
 an input-validation `4xx`. Rate or in-flight limits return `429`, a
@@ -68,3 +70,11 @@ a five-second deadline. Response bodies are capped at 4 KiB. Redis enforces ten
 checks per minute, one concurrent check, and sixty IP reads per minute for each
 source IP. Rate-limit keys hash the source address and expire automatically.
 Challenges are never logged.
+
+At process boot the service obtains its own public egress address from
+`HEYA_METADATA_CONNECTIVITY_PUBLIC_IP_ECHO_URL` and refreshes that value hourly.
+If a check arrives from that same public address, it skips the network probe and
+returns HTTP `200` with `reachable: false`, `verified: false`, and
+`error.code: "same_network"`. A failed echo refresh keeps the last successful
+address; if no address has ever been resolved, ordinary source-IP-only probing
+continues instead of making the connectivity endpoint unavailable.

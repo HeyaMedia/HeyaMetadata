@@ -24,6 +24,12 @@ type fakeConnectivityProber struct {
 	finish    chan struct{}
 }
 
+type fakePublicIPMatcher netip.Addr
+
+func (matcher fakePublicIPMatcher) Matches(address netip.Addr) bool {
+	return netip.Addr(matcher) == address
+}
+
 func (prober *fakeConnectivityProber) Probe(_ context.Context, address netip.Addr, port int, challenge string) connectivity.Result {
 	prober.mutex.Lock()
 	prober.address = address
@@ -135,6 +141,40 @@ func TestConnectivityCheckPassesOnlyObservedAddressToProber(t *testing.T) {
 	}
 }
 
+func TestConnectivityCheckSkipsSameNetworkHairpinProbe(t *testing.T) {
+	t.Parallel()
+	prober := &fakeConnectivityProber{}
+	resolver, err := connectivity.NewClientIPResolver(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	api := humago.New(mux, huma.DefaultConfig("connectivity-test", "test"))
+	address := netip.MustParseAddr("8.8.8.8")
+	registerConnectivityService(api, resolver, connectivity.NewLimiter(nil), prober, fakePublicIPMatcher(address))
+	handler := captureRequestDetails(cacheHeaders(mux))
+
+	response := performCheck(handler, "8.8.8.8:12345")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body connectivity.Result
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Reachable || body.Verified || body.ObservedIP != "8.8.8.8" || body.TLS != nil || body.Error == nil || body.Error.Code != "same_network" {
+		t.Fatalf("unexpected result: %+v", body)
+	}
+	if body.Error.Detail != "the check service shares a public IP with the target — cannot probe from outside" {
+		t.Fatalf("unexpected detail: %q", body.Error.Detail)
+	}
+	prober.mutex.Lock()
+	defer prober.mutex.Unlock()
+	if prober.address.IsValid() {
+		t.Fatalf("hairpin probe unexpectedly dialed %s", prober.address)
+	}
+}
+
 func TestConnectivityCheckReturnsExactInflightRateLimitBody(t *testing.T) {
 	t.Parallel()
 	prober := &fakeConnectivityProber{started: make(chan struct{}), finish: make(chan struct{})}
@@ -184,6 +224,6 @@ func connectivityTestHandler(t *testing.T, prober connectivityProbeRunner) (http
 	}
 	mux := http.NewServeMux()
 	api := humago.New(mux, huma.DefaultConfig("connectivity-test", "test"))
-	registerConnectivityService(api, resolver, connectivity.NewLimiter(nil), prober)
+	registerConnectivityService(api, resolver, connectivity.NewLimiter(nil), prober, nil)
 	return captureRequestDetails(cacheHeaders(mux)), api
 }

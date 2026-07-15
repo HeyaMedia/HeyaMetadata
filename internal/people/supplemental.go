@@ -22,6 +22,7 @@ import (
 type supplementalPerson struct {
 	Provider, ID, Name, Biography, BirthDate, DeathDate, Gender, PlaceOfBirth string
 	Aliases, Profiles                                                         []string
+	ExternalIDs                                                               []PersonExternalID
 	Biographies                                                               map[string]string
 	Credits                                                                   []supplementalCredit
 }
@@ -82,6 +83,11 @@ type tvdbPersonEnvelope struct {
 			Language  string `json:"language"`
 			Biography string `json:"biography"`
 		} `json:"biographies"`
+		RemoteIDs []struct {
+			ID         string `json:"id"`
+			Type       int    `json:"type"`
+			SourceName string `json:"sourceName"`
+		} `json:"remoteIds"`
 		Characters []struct {
 			Name       string `json:"name"`
 			PeopleType string `json:"peopleType"`
@@ -216,6 +222,11 @@ func (s *Service) EnrichTVDB(ctx context.Context, entityID, providerID string, j
 			}
 		}
 	}
+	for _, remote := range value.Data.RemoteIDs {
+		if claim, ok := tvdbPersonRemoteID(remote.ID, remote.Type, remote.SourceName); ok {
+			person.ExternalIDs = append(person.ExternalIDs, claim)
+		}
+	}
 	for _, credit := range value.Data.Characters {
 		item := supplementalCredit{CreditType: "crew", Character: credit.Name, Job: credit.PeopleType}
 		if strings.EqualFold(credit.PeopleType, "Actor") || strings.EqualFold(credit.PeopleType, "Guest Star") {
@@ -256,7 +267,11 @@ func (s *Service) persistSupplemental(ctx context.Context, entityID string, payl
 	}
 	defer tx.Rollback(ctx)
 	body, _ := json.Marshal(person)
-	if _, err := tx.Exec(ctx, `INSERT INTO normalized_records(entity_id,entity_kind,provider,provider_namespace,provider_record_id,primary_observation_id,normalizer_version,schema_version,document,observed_at)VALUES($1,'person',$2,'person',$3,$4,$5,1,$6,$7)ON CONFLICT(primary_observation_id,normalizer_version,schema_version)DO UPDATE SET document=EXCLUDED.document,entity_id=EXCLUDED.entity_id`, entityID, person.Provider, person.ID, payload.ObservationID, person.Provider+"-person/v1", body, payload.ObservedAt); err != nil {
+	var normalizedID string
+	if err := tx.QueryRow(ctx, `INSERT INTO normalized_records(entity_id,entity_kind,provider,provider_namespace,provider_record_id,primary_observation_id,normalizer_version,schema_version,document,observed_at)VALUES($1,'person',$2,'person',$3,$4,$5,1,$6,$7)ON CONFLICT(primary_observation_id,normalizer_version,schema_version)DO UPDATE SET document=EXCLUDED.document,entity_id=EXCLUDED.entity_id RETURNING id::text`, entityID, person.Provider, person.ID, payload.ObservationID, person.Provider+"-person/v1", body, payload.ObservedAt).Scan(&normalizedID); err != nil {
+		return err
+	}
+	if err := persistPersonExternalEvidence(ctx, tx, entityID, person.Provider, payload.ObservationID, normalizedID, payload.ObservedAt, person.ExternalIDs); err != nil {
 		return err
 	}
 	primaryImageID := ""
@@ -363,4 +378,34 @@ func yearValue(value string) int {
 		return year
 	}
 	return 0
+}
+
+func tvdbPersonRemoteID(id string, remoteType int, sourceName string) (PersonExternalID, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return PersonExternalID{}, false
+	}
+	provider, namespace := "", "person"
+	switch remoteType {
+	case 5:
+		provider = "facebook"
+	case 6:
+		provider = "twitter"
+	case 9:
+		provider = "instagram"
+	case 16:
+		provider, namespace = "imdb", "name"
+	default:
+		source := strings.ToLower(sourceName)
+		switch {
+		case strings.Contains(source, "wikidata"):
+			provider, namespace = "wikidata", "item"
+		case strings.Contains(source, "imdb"):
+			provider, namespace = "imdb", "name"
+		}
+	}
+	if provider == "" {
+		return PersonExternalID{}, false
+	}
+	return normalizePersonExternalID(PersonExternalID{Provider: provider, Namespace: namespace, Value: id}), true
 }

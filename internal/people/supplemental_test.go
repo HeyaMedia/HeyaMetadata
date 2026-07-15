@@ -32,3 +32,28 @@ func TestTVDBPersonCharacterUsesTopLevelMediaIDs(t *testing.T) {
 		t.Fatalf("decoded TVDB person: %+v", value.Data)
 	}
 }
+
+func TestTVDBPersonRemoteIDsMapToCanonicalEvidence(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		id         string
+		remoteType int
+		source     string
+		provider   string
+		namespace  string
+		value      string
+	}{
+		{"nm0165087", 16, "IMDB", "imdb", "name", "nm0165087"},
+		{"Q216160", 0, "Wikidata", "wikidata", "item", "Q216160"},
+		{"JeremyClarkson", 5, "Facebook", "facebook", "person", "JeremyClarkson"},
+	}
+	for _, test := range tests {
+		claim, ok := tvdbPersonRemoteID(test.id, test.remoteType, test.source)
+		if !ok || claim.Provider != test.provider || claim.Namespace != test.namespace || claim.Value != test.value {
+			t.Fatalf("remote ID %#v mapped to %#v, ok=%v", test, claim, ok)
+		}
+	}
+	if _, ok := tvdbPersonRemoteID("value", 999, "Unknown"); ok {
+		t.Fatal("unknown TVDB remote ID was accepted")
+	}
+}
