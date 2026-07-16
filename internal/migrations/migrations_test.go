@@ -163,3 +163,30 @@ func TestProviderObservationIdentityIndexBoundsRequestKeys(t *testing.T) {
 	}
 	t.Fatal("bounded provider observation identity migration is missing")
 }
+
+func TestKnownCreditPeopleBecomeReadOnlyDuringProjection(t *testing.T) {
+	t.Parallel()
+	migrations, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations {
+		if migration.Version != 63 {
+			continue
+		}
+		for _, value := range []string{
+			"person.entity_id IS NULL",
+			"IF canonical_id IS NULL THEN",
+			"heya:new-credit-person:",
+			"IF needs_projection THEN",
+			"ON CONFLICT(entity_id) DO NOTHING",
+			"CREATE OR REPLACE FUNCTION heya_attach_canonical_person_to_credit()",
+		} {
+			if !strings.Contains(migration.SQL, value) {
+				t.Errorf("read-only known credit person migration does not contain %q", value)
+			}
+		}
+		return
+	}
+	t.Fatal("read-only known credit person migration is missing")
+}

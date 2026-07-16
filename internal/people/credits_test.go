@@ -2,6 +2,16 @@ package people
 
 import "testing"
 
+func TestCanonicalizationOrderNormalizesProviderIdentity(t *testing.T) {
+	t.Parallel()
+	if left, right := CanonicalizationOrder(" TMDB ", "123"), CanonicalizationOrder("tmdb", "123"); left != right {
+		t.Fatalf("canonicalization order differs for equivalent identities: %q != %q", left, right)
+	}
+	if CanonicalizationOrder("tmdb", "123") >= CanonicalizationOrder("tvdb", "123") {
+		t.Fatal("canonicalization order is not stable by provider identity")
+	}
+}
+
 func TestEquivalentCreditCollapsesCrossProviderSelfRoles(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

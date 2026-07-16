@@ -211,7 +211,7 @@ func TestIntegrationReconcileAutomaticallyAcceptsIndependentExternalIDEvidence(t
 	}
 }
 
-func TestIntegrationCreditPersonCanonicalizationLocksSharedPeopleInDeterministicOrder(t *testing.T) {
+func TestIntegrationKnownCreditPeopleDoNotBlockReverseOrderProjections(t *testing.T) {
 	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
 		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local platform stack")
 	}
@@ -251,37 +251,20 @@ func TestIntegrationCreditPersonCanonicalizationLocksSharedPeopleInDeterministic
 		cleanupModerationPeople(runtime, personIDs...)
 	})
 
+	var firstPersonID, secondPersonID string
+	if err := runtime.DB.QueryRow(ctx, `SELECT heya_ensure_canonical_person($1,$2,'Person A',NULL)::text`, provider, "a-"+suffix).Scan(&firstPersonID); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.DB.QueryRow(ctx, `SELECT heya_ensure_canonical_person($1,$2,'Person B',NULL)::text`, provider, "b-"+suffix).Scan(&secondPersonID); err != nil {
+		t.Fatal(err)
+	}
+
 	firstTx, err := runtime.DB.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = firstTx.Rollback(context.Background()) })
-	firstIdentities := []CreditIdentity{
-		{Provider: provider, ProviderPersonID: "a-" + suffix},
-		{Provider: provider, ProviderPersonID: "b-" + suffix},
-	}
-	if err := LockCreditPersonCanonicalization(ctx, firstTx, firstIdentities); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := firstTx.Exec(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,credit_order,projection_version)VALUES($1,$2,$3,'Person A','cast',0,1)`, firstEntityID, provider, "a-"+suffix); err != nil {
-		t.Fatal(err)
-	}
-
-	disjointCtx, cancelDisjoint := context.WithTimeout(ctx, time.Second)
-	defer cancelDisjoint()
-	disjointTx, err := runtime.DB.Begin(disjointCtx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := LockCreditPersonCanonicalization(disjointCtx, disjointTx, []CreditIdentity{{Provider: provider, ProviderPersonID: "c-" + suffix}}); err != nil {
-		_ = disjointTx.Rollback(context.Background())
-		t.Fatalf("lock disjoint credit person while another projection is open: %v", err)
-	}
-	if _, err := disjointTx.Exec(disjointCtx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,credit_order,projection_version)VALUES($1,$2,$3,'Person C','cast',0,1)`, secondEntityID, provider, "c-"+suffix); err != nil {
-		_ = disjointTx.Rollback(context.Background())
-		t.Fatalf("project disjoint credit while another projection is open: %v", err)
-	}
-	if err := disjointTx.Rollback(disjointCtx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -297,14 +280,6 @@ func TestIntegrationCreditPersonCanonicalizationLocksSharedPeopleInDeterministic
 		}
 		defer secondTx.Rollback(context.Background())
 		close(started)
-		secondIdentities := []CreditIdentity{
-			{Provider: provider, ProviderPersonID: "b-" + suffix},
-			{Provider: provider, ProviderPersonID: "a-" + suffix},
-		}
-		if lockErr := LockCreditPersonCanonicalization(secondCtx, secondTx, secondIdentities); lockErr != nil {
-			finished <- lockErr
-			return
-		}
 		if _, execErr := secondTx.Exec(secondCtx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,credit_order,projection_version)VALUES($1,$2,$3,'Person B','cast',0,1),($1,$2,$4,'Person A','cast',1,1)`, secondEntityID, provider, "b-"+suffix, "a-"+suffix); execErr != nil {
 			finished <- execErr
 			return
@@ -314,8 +289,11 @@ func TestIntegrationCreditPersonCanonicalizationLocksSharedPeopleInDeterministic
 	<-started
 	select {
 	case err := <-finished:
-		t.Fatalf("reverse-order credit lock set completed before the first transaction released its shared people: %v", err)
-	case <-time.After(150 * time.Millisecond):
+		if err != nil {
+			t.Fatalf("reverse-order known-person projection failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reverse-order known-person projection blocked on the first transaction")
 	}
 
 	if _, err := firstTx.Exec(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,credit_order,projection_version)VALUES($1,$2,$3,'Person B','cast',1,1)`, firstEntityID, provider, "b-"+suffix); err != nil {
@@ -324,9 +302,6 @@ func TestIntegrationCreditPersonCanonicalizationLocksSharedPeopleInDeterministic
 	if err := firstTx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-finished; err != nil {
-		t.Fatalf("second reverse-order credit projection failed after the first committed: %v", err)
-	}
 
 	var projected int
 	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM entity_credit_projections WHERE entity_id=ANY($1::uuid[])`, []string{firstEntityID, secondEntityID}).Scan(&projected); err != nil {
@@ -334,6 +309,95 @@ func TestIntegrationCreditPersonCanonicalizationLocksSharedPeopleInDeterministic
 	}
 	if projected != 4 {
 		t.Fatalf("projected credits = %d, want 4", projected)
+	}
+}
+
+func TestIntegrationConcurrentFreshCreditPersonConverges(t *testing.T) {
+	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
+		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local platform stack")
+	}
+	ctx := context.Background()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := platform.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	provider, providerPersonID := "integration_fresh_credit", "person-"+suffix
+	entityIDs := make([]string, 2)
+	for index := range entityIDs {
+		if err := runtime.DB.QueryRow(ctx, `INSERT INTO entities(kind,slug,canonical_version)VALUES('movie',$1,1)RETURNING id::text`, fmt.Sprintf("integration-fresh-credit-%d-%s", index, suffix)).Scan(&entityIDs[index]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = runtime.DB.Exec(context.Background(), `DELETE FROM entities WHERE id=ANY($1::uuid[])`, entityIDs)
+		var personID string
+		if runtime.DB.QueryRow(context.Background(), `SELECT entity_id::text FROM external_id_claims WHERE entity_kind='person' AND provider=$1 AND namespace='person' AND normalized_value=$2`, provider, providerPersonID).Scan(&personID) == nil {
+			cleanupModerationPeople(runtime, personID)
+		}
+	})
+
+	firstTx, err := runtime.DB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = firstTx.Rollback(context.Background()) })
+	var firstPersonID string
+	if err := firstTx.QueryRow(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,credit_order,projection_version)VALUES($1,$2,$3,'Fresh Person','cast',0,1)RETURNING person_entity_id::text`, entityIDs[0], provider, providerPersonID).Scan(&firstPersonID); err != nil {
+		t.Fatal(err)
+	}
+
+	type result struct {
+		personID string
+		err      error
+	}
+	started := make(chan struct{})
+	finished := make(chan result, 1)
+	go func() {
+		secondCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		secondTx, beginErr := runtime.DB.Begin(secondCtx)
+		if beginErr != nil {
+			finished <- result{err: beginErr}
+			return
+		}
+		defer secondTx.Rollback(context.Background())
+		close(started)
+		var personID string
+		if scanErr := secondTx.QueryRow(secondCtx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,credit_order,projection_version)VALUES($1,$2,$3,'Fresh Person','cast',0,1)RETURNING person_entity_id::text`, entityIDs[1], provider, providerPersonID).Scan(&personID); scanErr != nil {
+			finished <- result{err: scanErr}
+			return
+		}
+		finished <- result{personID: personID, err: secondTx.Commit(secondCtx)}
+	}()
+	<-started
+	select {
+	case result := <-finished:
+		t.Fatalf("concurrent fresh identity did not wait for its creator: %+v", result)
+	case <-time.After(150 * time.Millisecond):
+	}
+	if err := firstTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	second := <-finished
+	if second.err != nil {
+		t.Fatal(second.err)
+	}
+	if second.personID != firstPersonID {
+		t.Fatalf("fresh identity split into %s and %s", firstPersonID, second.personID)
+	}
+	var claims int
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM external_id_claims WHERE entity_kind='person' AND provider=$1 AND namespace='person' AND normalized_value=$2`, provider, providerPersonID).Scan(&claims); err != nil {
+		t.Fatal(err)
+	}
+	if claims != 1 {
+		t.Fatalf("fresh identity claims = %d, want 1", claims)
 	}
 }
 
