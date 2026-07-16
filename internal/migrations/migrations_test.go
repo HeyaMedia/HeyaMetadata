@@ -190,3 +190,20 @@ func TestKnownCreditPeopleBecomeReadOnlyDuringProjection(t *testing.T) {
 	}
 	t.Fatal("read-only known credit person migration is missing")
 }
+
+func TestColdReadyImageIndexMatchesMaintenanceQuery(t *testing.T) {
+	t.Parallel()
+	migrations, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations {
+		if migration.Version == 64 &&
+			strings.Contains(migration.SQL, "image_candidates_ready_cold_access_idx") &&
+			strings.Contains(migration.SQL, "COALESCE(last_accessed_at, materialized_at, created_at)") &&
+			strings.Contains(migration.SQL, "WHERE materialization_state = 'ready'") {
+			return
+		}
+	}
+	t.Fatal("cold ready image maintenance index is missing")
+}
