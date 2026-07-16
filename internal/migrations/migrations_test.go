@@ -86,3 +86,28 @@ func TestPersonReconciliationRootIndexMigrationExists(t *testing.T) {
 	}
 	t.Fatal("person reconciliation root index migration is missing")
 }
+
+func TestCreditPersonProjectionMigrationSerializesCanonicalization(t *testing.T) {
+	t.Parallel()
+	migrations, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations {
+		if migration.Version != 60 {
+			continue
+		}
+		for _, value := range []string{
+			"CREATE OR REPLACE FUNCTION heya_attach_canonical_person_to_credit()",
+			"pg_advisory_xact_lock",
+			"heya:credit-projection-canonical-people",
+			"heya_ensure_canonical_person",
+		} {
+			if !strings.Contains(migration.SQL, value) {
+				t.Errorf("credit person projection migration does not contain %q", value)
+			}
+		}
+		return
+	}
+	t.Fatal("credit person projection serialization migration is missing")
+}

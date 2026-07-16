@@ -211,6 +211,99 @@ func TestIntegrationReconcileAutomaticallyAcceptsIndependentExternalIDEvidence(t
 	}
 }
 
+func TestIntegrationCreditPersonCanonicalizationIsSerialized(t *testing.T) {
+	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
+		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local platform stack")
+	}
+	ctx := context.Background()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := platform.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	provider := "integration_credit_lock"
+	var firstEntityID, secondEntityID string
+	if err := runtime.DB.QueryRow(ctx, `INSERT INTO entities(kind,slug,canonical_version)VALUES('movie',$1,1)RETURNING id::text`, "integration-credit-lock-a-"+suffix).Scan(&firstEntityID); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.DB.QueryRow(ctx, `INSERT INTO entities(kind,slug,canonical_version)VALUES('movie',$1,1)RETURNING id::text`, "integration-credit-lock-b-"+suffix).Scan(&secondEntityID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = runtime.DB.Exec(context.Background(), `DELETE FROM entities WHERE id=ANY($1::uuid[])`, []string{firstEntityID, secondEntityID})
+		var personIDs []string
+		rows, queryErr := runtime.DB.Query(context.Background(), `SELECT entity_id::text FROM external_id_claims WHERE entity_kind='person' AND provider=$1 AND namespace='person' AND normalized_value IN($2,$3)`, provider, "a-"+suffix, "b-"+suffix)
+		if queryErr == nil {
+			for rows.Next() {
+				var id string
+				if rows.Scan(&id) == nil {
+					personIDs = append(personIDs, id)
+				}
+			}
+			rows.Close()
+		}
+		cleanupModerationPeople(runtime, personIDs...)
+	})
+
+	firstTx, err := runtime.DB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = firstTx.Rollback(context.Background()) })
+	if _, err := firstTx.Exec(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,credit_order,projection_version)VALUES($1,$2,$3,'Person A','cast',0,1)`, firstEntityID, provider, "a-"+suffix); err != nil {
+		t.Fatal(err)
+	}
+
+	started := make(chan struct{})
+	finished := make(chan error, 1)
+	go func() {
+		secondCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		secondTx, beginErr := runtime.DB.Begin(secondCtx)
+		if beginErr != nil {
+			finished <- beginErr
+			return
+		}
+		defer secondTx.Rollback(context.Background())
+		close(started)
+		if _, execErr := secondTx.Exec(secondCtx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,credit_order,projection_version)VALUES($1,$2,$3,'Person B','cast',0,1),($1,$2,$4,'Person A','cast',1,1)`, secondEntityID, provider, "b-"+suffix, "a-"+suffix); execErr != nil {
+			finished <- execErr
+			return
+		}
+		finished <- secondTx.Commit(secondCtx)
+	}()
+	<-started
+	select {
+	case err := <-finished:
+		t.Fatalf("second credit projection completed before the first transaction released its canonical-person lock: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	if _, err := firstTx.Exec(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,credit_order,projection_version)VALUES($1,$2,$3,'Person B','cast',1,1)`, firstEntityID, provider, "b-"+suffix); err != nil {
+		t.Fatal(err)
+	}
+	if err := firstTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-finished; err != nil {
+		t.Fatalf("second reverse-order credit projection failed after the first committed: %v", err)
+	}
+
+	var projected int
+	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM entity_credit_projections WHERE entity_id=ANY($1::uuid[])`, []string{firstEntityID, secondEntityID}).Scan(&projected); err != nil {
+		t.Fatal(err)
+	}
+	if projected != 4 {
+		t.Fatalf("projected credits = %d, want 4", projected)
+	}
+}
+
 func cleanupModerationPeople(runtime *platform.Runtime, ids ...string) {
 	ctx := context.Background()
 	_, _ = runtime.DB.Exec(ctx, `DELETE FROM change_log WHERE entity_id=ANY($1::uuid[])`, ids)
