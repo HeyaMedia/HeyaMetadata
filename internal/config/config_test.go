@@ -93,6 +93,31 @@ func TestConfigValidateRejectsInvalidMusicBrainzPolicy(t *testing.T) {
 	}
 }
 
+func TestConfigValidateAllowsPrivateHTTPMusicBrainz(t *testing.T) {
+	t.Parallel()
+	for _, baseURL := range []string{
+		"http://musicbrainz.musicbrainz.svc.cluster.local:5000/ws/2",
+		"http://musicbrainz.musicbrainz.svc:5000/ws/2",
+		"http://10.103.117.225:5000/ws/2",
+		"http://127.0.0.1:5000/ws/2",
+	} {
+		config := validConfig()
+		config.Providers.MusicBrainz.BaseURL = baseURL
+		if err := config.Validate(); err != nil {
+			t.Errorf("validate private MusicBrainz URL %q: %v", baseURL, err)
+		}
+	}
+}
+
+func TestConfigValidateRejectsPublicHTTPMusicBrainz(t *testing.T) {
+	t.Parallel()
+	config := validConfig()
+	config.Providers.MusicBrainz.BaseURL = "http://musicbrainz.org/ws/2"
+	if err := config.Validate(); err == nil {
+		t.Fatal("expected public plaintext MusicBrainz URL to be rejected")
+	}
+}
+
 func TestImageWorkerConcurrencyDefaultsAndOverrides(t *testing.T) {
 	t.Setenv("HEYA_METADATA_IMAGE_MAX_WORKERS", "")
 	cfg, err := Load()

@@ -580,8 +580,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("HEYA_METADATA_FANART_BASE_URL must be an absolute HTTPS URL")
 	}
 	musicBrainzURL, err := url.Parse(c.Providers.MusicBrainz.BaseURL)
-	if err != nil || musicBrainzURL.Scheme != "https" || musicBrainzURL.Host == "" {
-		return fmt.Errorf("HEYA_METADATA_MUSICBRAINZ_BASE_URL must be an absolute HTTPS URL")
+	if err != nil || !validMusicBrainzURL(musicBrainzURL) {
+		return fmt.Errorf("HEYA_METADATA_MUSICBRAINZ_BASE_URL must be an absolute HTTPS URL or private HTTP URL")
 	}
 	if strings.TrimSpace(c.Providers.MusicBrainz.UserAgent) == "" {
 		return fmt.Errorf("HEYA_METADATA_MUSICBRAINZ_USER_AGENT must not be empty")
@@ -718,6 +718,26 @@ func (c Config) Validate() error {
 		return fmt.Errorf("HEYA_METADATA_CHROMAPRINT_MAX_PER_RELEASE must be between 0 and 1000")
 	}
 	return nil
+}
+
+func validMusicBrainzURL(value *url.URL) bool {
+	if value == nil || value.Host == "" || value.Hostname() == "" {
+		return false
+	}
+	if value.Scheme == "https" {
+		return true
+	}
+	if value.Scheme != "http" {
+		return false
+	}
+
+	host := strings.TrimSuffix(strings.ToLower(value.Hostname()), ".")
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") ||
+		strings.HasSuffix(host, ".svc") || strings.HasSuffix(host, ".svc.cluster.local") {
+		return true
+	}
+	address := net.ParseIP(host)
+	return address != nil && (address.IsPrivate() || address.IsLoopback() || address.IsLinkLocalUnicast())
 }
 
 func envFloat(key string, fallback float64) (float64, error) {
