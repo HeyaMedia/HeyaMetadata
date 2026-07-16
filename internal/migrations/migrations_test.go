@@ -72,3 +72,17 @@ func TestSearchAndPersonReconciliationIndexMigrationExists(t *testing.T) {
 	}
 	t.Fatal("search and person reconciliation index migration is missing")
 }
+
+func TestPersonReconciliationRootIndexMigrationExists(t *testing.T) {
+	t.Parallel()
+	migrations, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations {
+		if migration.Version == 59 && strings.Contains(migration.SQL, "external_id_claims_person_reconciliation_roots_idx") {
+			return
+		}
+	}
+	t.Fatal("person reconciliation root index migration is missing")
+}

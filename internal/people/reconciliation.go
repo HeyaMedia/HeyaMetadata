@@ -194,7 +194,52 @@ func (s *Service) ReconciliationRoots(ctx context.Context, limit int) (map[strin
 	if limit < 1 || limit > 500 {
 		limit = 100
 	}
-	rows, err := s.runtime.DB.Query(ctx, `WITH candidate_people AS(SELECT DISTINCT mine.entity_id,COALESCE((SELECT min(COALESCE(refresh.last_attempt_at,'-infinity'::timestamptz)) FROM external_id_claims root LEFT JOIN provider_refresh_states refresh ON refresh.entity_id=root.entity_id AND refresh.provider=root.provider WHERE root.entity_id=mine.entity_id AND root.entity_kind='person' AND root.namespace='person' AND root.provider IN('tmdb','tvmaze','tvdb') AND root.state='accepted'),'-infinity'::timestamptz) evidence_attempt,COALESCE((SELECT max(stats.decayed_score) FROM entity_credit_projections credit JOIN entity_access_stats stats ON stats.entity_id=credit.entity_id WHERE credit.person_entity_id=mine.entity_id),0) access_score FROM canonical_people mine JOIN canonical_people other ON other.normalized_display_name=mine.normalized_display_name AND other.entity_id<>mine.entity_id JOIN entities mine_entity ON mine_entity.id=mine.entity_id AND mine_entity.deleted_at IS NULL JOIN entities other_entity ON other_entity.id=other.entity_id AND other_entity.deleted_at IS NULL WHERE EXISTS(SELECT 1 FROM external_id_claims mine_claim JOIN external_id_claims other_claim ON other_claim.entity_id=other.entity_id AND other_claim.provider<>mine_claim.provider AND other_claim.entity_kind='person' AND other_claim.namespace='person' AND other_claim.provider IN('tmdb','tvmaze','tvdb') AND other_claim.state='accepted' WHERE mine_claim.entity_id=mine.entity_id AND mine_claim.entity_kind='person' AND mine_claim.namespace='person' AND mine_claim.provider IN('tmdb','tvmaze','tvdb') AND mine_claim.state='accepted') ORDER BY evidence_attempt,access_score DESC,mine.entity_id LIMIT $1)SELECT claim.entity_id::text,claim.provider,claim.normalized_value FROM candidate_people candidate JOIN external_id_claims claim ON claim.entity_id=candidate.entity_id WHERE claim.entity_kind='person' AND claim.namespace='person' AND claim.provider IN('tmdb','tvmaze','tvdb') AND claim.state='accepted' ORDER BY claim.entity_id,claim.provider`, limit)
+	// Bound the expensive identity and access-score evaluation to the stalest
+	// roots. Successful and failed provider attempts both advance freshness, so
+	// later roots move through this pool instead of requiring a full people scan
+	// on every scheduler tick.
+	rootPoolLimit := max(2000, limit*50)
+	candidatePoolLimit := max(500, limit*5)
+	rows, err := s.runtime.DB.Query(ctx, `WITH root_people AS MATERIALIZED (
+		SELECT claim.entity_id,
+		       min(COALESCE(refresh.last_attempt_at,'-infinity'::timestamptz)) AS evidence_attempt,
+		       array_agg(DISTINCT claim.provider) AS providers
+		FROM external_id_claims claim
+		LEFT JOIN provider_refresh_states refresh ON refresh.entity_id=claim.entity_id AND refresh.provider=claim.provider
+		WHERE claim.entity_kind='person' AND claim.namespace='person' AND claim.provider IN('tmdb','tvmaze','tvdb') AND claim.state='accepted'
+		GROUP BY claim.entity_id
+		ORDER BY evidence_attempt,claim.entity_id
+		LIMIT $2
+	), candidate_people AS MATERIALIZED (
+		SELECT mine_root.entity_id,mine_root.evidence_attempt
+		FROM root_people mine_root
+		JOIN canonical_people mine ON mine.entity_id=mine_root.entity_id
+		JOIN canonical_people other ON other.normalized_display_name=mine.normalized_display_name AND other.entity_id<>mine.entity_id
+		JOIN entities mine_entity ON mine_entity.id=mine.entity_id AND mine_entity.deleted_at IS NULL
+		JOIN entities other_entity ON other_entity.id=other.entity_id AND other_entity.deleted_at IS NULL
+		WHERE EXISTS(
+			SELECT 1 FROM external_id_claims other_claim
+			WHERE other_claim.entity_id=other.entity_id AND other_claim.entity_kind='person' AND other_claim.namespace='person'
+			  AND other_claim.provider IN('tmdb','tvmaze','tvdb') AND other_claim.state='accepted'
+			  AND (cardinality(mine_root.providers)>1 OR other_claim.provider<>mine_root.providers[1])
+		)
+		GROUP BY mine_root.entity_id,mine_root.evidence_attempt
+		ORDER BY mine_root.evidence_attempt,mine_root.entity_id
+		LIMIT $3
+	), ranked AS (
+		SELECT candidate.entity_id,candidate.evidence_attempt,COALESCE(max(stats.decayed_score),0) AS access_score
+		FROM candidate_people candidate
+		LEFT JOIN entity_credit_projections credit ON credit.person_entity_id=candidate.entity_id
+		LEFT JOIN entity_access_stats stats ON stats.entity_id=credit.entity_id
+		GROUP BY candidate.entity_id,candidate.evidence_attempt
+		ORDER BY candidate.evidence_attempt,access_score DESC,candidate.entity_id
+		LIMIT $1
+	)
+	SELECT claim.entity_id::text,claim.provider,claim.normalized_value
+	FROM ranked
+	JOIN external_id_claims claim ON claim.entity_id=ranked.entity_id
+	WHERE claim.entity_kind='person' AND claim.namespace='person' AND claim.provider IN('tmdb','tvmaze','tvdb') AND claim.state='accepted'
+	ORDER BY claim.entity_id,claim.provider`, limit, rootPoolLimit, candidatePoolLimit)
 	if err != nil {
 		return nil, fmt.Errorf("select person reconciliation roots: %w", err)
 	}
