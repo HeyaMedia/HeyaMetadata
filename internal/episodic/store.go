@@ -338,6 +338,13 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 	if _, err = tx.Exec(ctx, `DELETE FROM entity_credit_projections WHERE entity_id=$1`, entityID); err != nil {
 		return Result{}, err
 	}
+	creditIdentities := make([]people.CreditIdentity, 0, len(record.Credits))
+	for _, credit := range record.Credits {
+		creditIdentities = append(creditIdentities, people.CreditIdentity{Provider: credit.Provider, ProviderPersonID: credit.ProviderPersonID})
+	}
+	if err = people.LockCreditPersonCanonicalization(ctx, tx, creditIdentities); err != nil {
+		return Result{}, err
+	}
 	for i := range record.Credits {
 		credit := &record.Credits[i]
 		if err = tx.QueryRow(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,character_name,department,job,credit_order,profile_image_id,projection_version)VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),$9,NULLIF($10,'')::uuid,$11) RETURNING person_entity_id::text`, entityID, credit.Provider, credit.ProviderPersonID, credit.DisplayName, credit.CreditType, credit.Character, credit.Department, credit.Job, credit.Order, credit.ProfileImageID, version).Scan(&credit.PersonEntityID); err != nil {

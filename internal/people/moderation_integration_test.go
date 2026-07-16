@@ -211,7 +211,7 @@ func TestIntegrationReconcileAutomaticallyAcceptsIndependentExternalIDEvidence(t
 	}
 }
 
-func TestIntegrationCreditPersonCanonicalizationIsSerialized(t *testing.T) {
+func TestIntegrationCreditPersonCanonicalizationLocksSharedPeopleInDeterministicOrder(t *testing.T) {
 	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
 		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local platform stack")
 	}
@@ -256,7 +256,32 @@ func TestIntegrationCreditPersonCanonicalizationIsSerialized(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = firstTx.Rollback(context.Background()) })
+	firstIdentities := []CreditIdentity{
+		{Provider: provider, ProviderPersonID: "a-" + suffix},
+		{Provider: provider, ProviderPersonID: "b-" + suffix},
+	}
+	if err := LockCreditPersonCanonicalization(ctx, firstTx, firstIdentities); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := firstTx.Exec(ctx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,credit_order,projection_version)VALUES($1,$2,$3,'Person A','cast',0,1)`, firstEntityID, provider, "a-"+suffix); err != nil {
+		t.Fatal(err)
+	}
+
+	disjointCtx, cancelDisjoint := context.WithTimeout(ctx, time.Second)
+	defer cancelDisjoint()
+	disjointTx, err := runtime.DB.Begin(disjointCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := LockCreditPersonCanonicalization(disjointCtx, disjointTx, []CreditIdentity{{Provider: provider, ProviderPersonID: "c-" + suffix}}); err != nil {
+		_ = disjointTx.Rollback(context.Background())
+		t.Fatalf("lock disjoint credit person while another projection is open: %v", err)
+	}
+	if _, err := disjointTx.Exec(disjointCtx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,credit_order,projection_version)VALUES($1,$2,$3,'Person C','cast',0,1)`, secondEntityID, provider, "c-"+suffix); err != nil {
+		_ = disjointTx.Rollback(context.Background())
+		t.Fatalf("project disjoint credit while another projection is open: %v", err)
+	}
+	if err := disjointTx.Rollback(disjointCtx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -272,6 +297,14 @@ func TestIntegrationCreditPersonCanonicalizationIsSerialized(t *testing.T) {
 		}
 		defer secondTx.Rollback(context.Background())
 		close(started)
+		secondIdentities := []CreditIdentity{
+			{Provider: provider, ProviderPersonID: "b-" + suffix},
+			{Provider: provider, ProviderPersonID: "a-" + suffix},
+		}
+		if lockErr := LockCreditPersonCanonicalization(secondCtx, secondTx, secondIdentities); lockErr != nil {
+			finished <- lockErr
+			return
+		}
 		if _, execErr := secondTx.Exec(secondCtx, `INSERT INTO entity_credit_projections(entity_id,provider,provider_person_id,display_name,credit_type,credit_order,projection_version)VALUES($1,$2,$3,'Person B','cast',0,1),($1,$2,$4,'Person A','cast',1,1)`, secondEntityID, provider, "b-"+suffix, "a-"+suffix); execErr != nil {
 			finished <- execErr
 			return
@@ -281,7 +314,7 @@ func TestIntegrationCreditPersonCanonicalizationIsSerialized(t *testing.T) {
 	<-started
 	select {
 	case err := <-finished:
-		t.Fatalf("second credit projection completed before the first transaction released its canonical-person lock: %v", err)
+		t.Fatalf("reverse-order credit lock set completed before the first transaction released its shared people: %v", err)
 	case <-time.After(150 * time.Millisecond):
 	}
 

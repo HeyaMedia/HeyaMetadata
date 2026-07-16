@@ -111,3 +111,30 @@ func TestCreditPersonProjectionMigrationSerializesCanonicalization(t *testing.T)
 	}
 	t.Fatal("credit person projection serialization migration is missing")
 }
+
+func TestCreditPersonLockMigrationUsesDeterministicCanonicalRoots(t *testing.T) {
+	t.Parallel()
+	migrations, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations {
+		if migration.Version != 61 {
+			continue
+		}
+		for _, value := range []string{
+			"CREATE OR REPLACE FUNCTION heya_lock_credit_people(",
+			"'canonical:' || claim.entity_id::text",
+			"'provider:' || requested.provider",
+			"SELECT lock_key FROM lock_roots ORDER BY lock_key",
+			"pg_advisory_xact_lock",
+			"CREATE OR REPLACE FUNCTION heya_attach_canonical_person_to_credit()",
+		} {
+			if !strings.Contains(migration.SQL, value) {
+				t.Errorf("deterministic credit person lock migration does not contain %q", value)
+			}
+		}
+		return
+	}
+	t.Fatal("deterministic credit person lock migration is missing")
+}

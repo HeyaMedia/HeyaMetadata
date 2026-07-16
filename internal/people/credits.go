@@ -27,6 +27,39 @@ type CanonicalCredit struct {
 	ProfileImageID   string `json:"profile_image_id,omitempty"`
 }
 
+// CreditIdentity is the provider identity used by the projection trigger to
+// find or create a canonical person.
+type CreditIdentity struct {
+	Provider         string
+	ProviderPersonID string
+}
+
+// LockCreditPersonCanonicalization acquires transaction-scoped locks for the
+// complete credit identity set in deterministic canonical order. Concurrent
+// projections that share people are serialized, while disjoint casts remain
+// fully parallel.
+func LockCreditPersonCanonicalization(ctx context.Context, tx pgx.Tx, identities []CreditIdentity) error {
+	if len(identities) == 0 {
+		return nil
+	}
+	providers := make([]string, 0, len(identities))
+	personIDs := make([]string, 0, len(identities))
+	for _, identity := range identities {
+		if strings.TrimSpace(identity.Provider) == "" || strings.TrimSpace(identity.ProviderPersonID) == "" {
+			continue
+		}
+		providers = append(providers, identity.Provider)
+		personIDs = append(personIDs, identity.ProviderPersonID)
+	}
+	if len(providers) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `SELECT heya_lock_credit_people($1::text[],$2::text[])`, providers, personIDs); err != nil {
+		return fmt.Errorf("lock credit people for canonicalization: %w", err)
+	}
+	return nil
+}
+
 type storedCredit struct {
 	id int64
 	CanonicalCredit
