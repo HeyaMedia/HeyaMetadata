@@ -167,6 +167,33 @@ export function externalIdLabel(external: { provider?: string; namespace?: strin
   return [external.provider, external.namespace].filter(Boolean).map(formatKey).join(' · ')
 }
 
+/** Humanize a snake_case token without recasing, e.g. `electric_bass_guitar` → `electric bass guitar`. */
+export function humanizeToken(value: unknown): string {
+  return formatValue(value).replace(/[_]+/g, ' ').trim()
+}
+
+/** English display name for a language code (`eng`/`en` → `English`); falls back to the raw code. */
+export function languageName(code: unknown): string {
+  const text = formatValue(code)
+  if (!text) return ''
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(text) || text
+  } catch {
+    return text
+  }
+}
+
+/** English display name for an ISO 15924 script code (`Latn` → `Latin`); falls back to the raw code. */
+export function scriptName(code: unknown): string {
+  const text = formatValue(code)
+  if (!text) return ''
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'script' }).of(text) || text
+  } catch {
+    return text
+  }
+}
+
 // ---- Numeric / temporal ----------------------------------------------------
 
 /** Human runtime from whole minutes, e.g. 136 → `2h 16m`. */

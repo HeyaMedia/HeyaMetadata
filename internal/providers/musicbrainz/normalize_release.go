@@ -12,10 +12,31 @@ import (
 
 type releaseResponse struct {
 	ID, Title, Disambiguation, Status, Quality, Packaging, Date, Country, Barcode string
+	ASIN                                                                          string     `json:"asin"`
 	ArtistCredit                                                                  []mbCredit `json:"artist-credit"`
 	ReleaseGroup                                                                  struct {
 		ID string `json:"id"`
 	} `json:"release-group"`
+	TextRepresentation struct {
+		Language string `json:"language"`
+		Script   string `json:"script"`
+	} `json:"text-representation"`
+	ReleaseEvents []struct {
+		Date string `json:"date"`
+		Area *struct {
+			ISOCodes []string `json:"iso-3166-1-codes"`
+		} `json:"area"`
+	} `json:"release-events"`
+	Genres []struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	} `json:"genres"`
+	Tags []struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	} `json:"tags"`
+	Relations []mbRelation `json:"relations"`
 	LabelInfo []struct {
 		CatalogNumber string                    `json:"catalog-number"`
 		Label         struct{ ID, Name string } `json:"label"`
@@ -80,12 +101,41 @@ func NormalizeRelease(body []byte, observationID string, observedAt time.Time) (
 	if rg := strings.ToLower(source.ReleaseGroup.ID); mbidPattern.MatchString(rg) {
 		r.ExternalIDs = append(r.ExternalIDs, releasedomain.ExternalID{Provider: "musicbrainz", Namespace: "release_group", Value: rg, Evidence: "release_group_relationship"})
 	}
+	r.ASIN = strings.TrimSpace(source.ASIN)
+	r.Language = strings.ToLower(strings.TrimSpace(source.TextRepresentation.Language))
+	r.Script = strings.TrimSpace(source.TextRepresentation.Script)
 	r.ArtistCredits = releaseCredits(source.ArtistCredit)
 	for _, item := range source.LabelInfo {
 		if item.Label.ID != "" || item.Label.Name != "" {
 			r.Labels = append(r.Labels, releasedomain.Label{ProviderID: strings.ToLower(item.Label.ID), Name: item.Label.Name, CatalogNumber: item.CatalogNumber})
 		}
 	}
+	for _, event := range source.ReleaseEvents {
+		normalized := releasedomain.ReleaseEvent{Date: strings.TrimSpace(event.Date)}
+		if event.Area != nil && len(event.Area.ISOCodes) > 0 {
+			normalized.Country = strings.ToUpper(strings.TrimSpace(event.Area.ISOCodes[0]))
+		}
+		if normalized.Date != "" || normalized.Country != "" {
+			r.ReleaseEvents = append(r.ReleaseEvents, normalized)
+		}
+	}
+	for _, value := range source.Genres {
+		if name := strings.TrimSpace(value.Name); name != "" {
+			r.Genres = append(r.Genres, releasedomain.WeightedTerm{ProviderID: strings.ToLower(value.ID), Name: name, Count: value.Count})
+		}
+	}
+	for _, value := range source.Tags {
+		if name := strings.TrimSpace(value.Name); name != "" {
+			r.Tags = append(r.Tags, releasedomain.WeightedTerm{Name: name, Count: value.Count})
+		}
+	}
+	for _, value := range source.Relations {
+		if value.URL != nil && strings.TrimSpace(value.URL.Resource) != "" {
+			r.Links = append(r.Links, releasedomain.Link{Type: normalizeToken(value.Type), URL: strings.TrimSpace(value.URL.Resource)})
+		}
+	}
+	sort.Slice(r.Genres, func(i, j int) bool { return r.Genres[i].Name < r.Genres[j].Name })
+	sort.Slice(r.Tags, func(i, j int) bool { return r.Tags[i].Name < r.Tags[j].Name })
 	for _, medium := range source.Media {
 		m := releasedomain.Medium{Position: medium.Position, Title: medium.Title, Format: medium.Format, TrackCount: medium.TrackCount}
 		for _, disc := range medium.Discs {
@@ -97,7 +147,7 @@ func NormalizeRelease(body []byte, observationID string, observedAt time.Time) (
 			t := releasedomain.Track{ProviderID: strings.ToLower(item.ID), Position: string(item.Position), Number: string(item.Number), Sequence: i + 1, Title: item.Title, DurationMS: item.Length, ArtistCredits: releaseCredits(item.ArtistCredit)}
 			recID := strings.ToLower(item.Recording.ID)
 			if mbidPattern.MatchString(recID) {
-				t.Recording = releasedomain.Recording{Provider: "musicbrainz", Namespace: "recording", ProviderID: recID, Title: item.Recording.Title, DurationMS: item.Recording.Length, ISRCs: uniqueUpper(item.Recording.ISRCs), ArtistCredits: releaseCredits(item.Recording.ArtistCredit)}
+				t.Recording = releasedomain.Recording{Provider: "musicbrainz", Namespace: "recording", ProviderID: recID, Title: item.Recording.Title, DurationMS: item.Recording.Length, ISRCs: uniqueUpper(item.Recording.ISRCs), ArtistCredits: releaseCredits(item.Recording.ArtistCredit), Credits: performanceCredits(item.Recording.Relations)}
 				t.WorkRelations = workRelations(item.Recording.Relations)
 			}
 			if t.DurationMS == 0 {

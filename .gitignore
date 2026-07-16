@@ -5,6 +5,7 @@
 /.env
 /.env.local
 *.log
+.DS_Store
 HANDOFF.md
 HeyaMetadataV2.md
 docs/*

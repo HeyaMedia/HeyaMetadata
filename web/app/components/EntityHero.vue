@@ -60,14 +60,15 @@ const metaChips = computed(() => {
 })
 
 // Linked artist credits (album/recording/release) — wires music entities to
-// their artist pages. Falls back to the display credit string when unlinked.
+// their artist pages. Only the canonical artist_entity_id routes (artist_id is
+// provider-scoped provenance); falls back to the display credit string.
 const artistCredits = computed<{ name: string; to?: string }[]>(() => {
   const credits = props.entity.data?.artist_credits
   if (Array.isArray(credits) && credits.length) {
     return credits
       .map((credit: any) => ({
         name: formatValue(credit.artist_name ?? credit.name),
-        to: credit.artist_id ? entityPath({ id: credit.artist_id, kind: 'artist' }) : undefined,
+        to: credit.artist_entity_id ? entityPath({ id: credit.artist_entity_id, kind: 'artist' }) : undefined,
       }))
       .filter(credit => credit.name)
   }

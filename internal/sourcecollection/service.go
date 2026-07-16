@@ -16,6 +16,8 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/anidb"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/apple"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/audiodb"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/bandcamp"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/deezer"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/discogs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/googlebooks"
@@ -23,6 +25,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/openlibrary"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/openopus"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tidal"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvmaze"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/wikidata"
 )
@@ -135,10 +138,25 @@ func specification(runtime *platform.Runtime, provider string, credentials provi
 		return factory{version, capability, func(resolver providers.PayloadResolver) providers.Collector {
 			return apple.NewCached(runtime.Config.Providers.Apple, resolver, credentials.APIKey("apple"))
 		}}, nil
+	case "audiodb":
+		capability := audiodb.New(runtime.Config.Providers.AudioDB).Capability()
+		return factory{version, capability, func(resolver providers.PayloadResolver) providers.Collector {
+			return audiodb.NewCached(runtime.Config.Providers.AudioDB, resolver)
+		}}, nil
+	case "bandcamp":
+		capability := bandcamp.New(runtime.Config.Providers.Bandcamp).Capability()
+		return factory{version, capability, func(resolver providers.PayloadResolver) providers.Collector {
+			return bandcamp.NewCached(runtime.Config.Providers.Bandcamp, resolver)
+		}}, nil
 	case "deezer":
 		capability := deezer.New(runtime.Config.Providers.Deezer).Capability()
 		return factory{version, capability, func(resolver providers.PayloadResolver) providers.Collector {
 			return deezer.NewCached(runtime.Config.Providers.Deezer, resolver)
+		}}, nil
+	case "tidal":
+		capability := tidal.New(runtime.Config.Providers.Tidal).Capability()
+		return factory{version, capability, func(resolver providers.PayloadResolver) providers.Collector {
+			return tidal.NewCached(runtime.Config.Providers.Tidal, resolver)
 		}}, nil
 	case "discogs":
 		capability := discogs.New(runtime.Config.Providers.Discogs).Capability()
@@ -186,5 +204,5 @@ func specification(runtime *platform.Runtime, provider string, credentials provi
 }
 
 func RegisteredProviders() []string {
-	return []string{"anidb", "apple", "deezer", "discogs", "googlebooks", "lastfm", "musicbrainz", "openlibrary", "openopus", "tvmaze", "wikidata"}
+	return []string{"anidb", "apple", "audiodb", "bandcamp", "deezer", "discogs", "googlebooks", "lastfm", "musicbrainz", "openlibrary", "openopus", "tidal", "tvmaze", "wikidata"}
 }

@@ -29,17 +29,17 @@ func TestArtistReleaseEvidenceRoutesThroughCreditedMusicBrainzArtist(t *testing.
 	t.Cleanup(server.Close)
 	client := musicbrainz.New(config.MusicBrainzConfig{BaseURL: server.URL, RequestsPerSecond: 1000, UserAgent: "HeyaMetadata/test"})
 
-	roots, err := artistRootsFromMusicBrainzRelease(t.Context(), client, ReleaseHint{Title: "Vault Playlist, Vol. 1", Year: 2017, Type: "ep"}, releaseGroupID)
+	evidence, matched, err := artistReleaseEvidenceFromMusicBrainz(t.Context(), client, ReleaseHint{Title: "Vault Playlist, Vol. 1", Year: 2017, Type: "ep"}, Identifier{Scheme: "musicbrainz", Value: releaseGroupID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(roots) != 1 || roots[0] != (ingestionRoot{Kind: KindArtist, Provider: "musicbrainz", Namespace: "artist", Value: artistID}) {
-		t.Fatalf("roots=%+v", roots)
+	if !matched || len(evidence.Credits) != 1 || evidence.Credits[0].Root != (ingestionRoot{Kind: KindArtist, Provider: "musicbrainz", Namespace: "artist", Value: artistID}) {
+		t.Fatalf("evidence=%+v matched=%v", evidence, matched)
 	}
 
-	mismatched, err := artistRootsFromMusicBrainzRelease(t.Context(), client, ReleaseHint{Title: "The Hits Collection", Year: 2010, Type: "album"}, releaseGroupID)
-	if err != nil || len(mismatched) != 0 {
-		t.Fatalf("mismatched roots=%+v err=%v", mismatched, err)
+	mismatched, matched, err := artistReleaseEvidenceFromMusicBrainz(t.Context(), client, ReleaseHint{Title: "The Hits Collection", Year: 2010, Type: "album"}, Identifier{Scheme: "musicbrainz", Value: releaseGroupID})
+	if err != nil || matched || len(mismatched.Credits) != 0 {
+		t.Fatalf("mismatched evidence=%+v matched=%v err=%v", mismatched, matched, err)
 	}
 }
 
@@ -66,11 +66,67 @@ func TestStorefrontReleaseCreditsBecomeArtistRootsOnlyWhenReleaseMatches(t *test
 		Classification: rgdomain.Classification{PrimaryType: "album"},
 		ArtistCredits:  []rgdomain.ArtistCredit{{ArtistProvider: "apple", ArtistNamespace: "artist", ArtistID: "1352449404", ArtistName: "JAŸ-Z"}},
 	}
-	matched := artistRootsFromNormalizedRelease(ReleaseHint{Title: "The Hits Collection, Vol. One", Year: 2010, Type: "ep"}, record)
-	if len(matched) != 1 || matched[0] != (ingestionRoot{Kind: KindArtist, Provider: "apple", Namespace: "artist", Value: "1352449404"}) {
-		t.Fatalf("matched roots=%+v", matched)
+	matched, ok, err := artistReleaseEvidenceFromNormalizedRecord(ReleaseHint{Title: "The Hits Collection, Vol. One", Year: 2010, Type: "ep"}, Identifier{Scheme: "apple", Value: "1440984578"}, record)
+	if err != nil || !ok || len(matched.Credits) != 1 || matched.Credits[0].Root != (ingestionRoot{Kind: KindArtist, Provider: "apple", Namespace: "artist", Value: "1352449404"}) {
+		t.Fatalf("matched evidence=%+v ok=%v err=%v", matched, ok, err)
 	}
-	if roots := artistRootsFromNormalizedRelease(ReleaseHint{Title: "Vault Playlist, Vol. 1", Year: 2017, Type: "ep"}, record); len(roots) != 0 {
-		t.Fatalf("mismatched storefront release produced roots=%+v", roots)
+	if evidence, ok, err := artistReleaseEvidenceFromNormalizedRecord(ReleaseHint{Title: "Vault Playlist, Vol. 1", Year: 2017, Type: "ep"}, Identifier{Scheme: "apple", Value: "1440984578"}, record); err != nil || ok || len(evidence.Credits) != 0 {
+		t.Fatalf("mismatched storefront release produced evidence=%+v ok=%v err=%v", evidence, ok, err)
+	}
+}
+
+func TestCollaborativeReleaseCreditsAreFilteredByRequestedArtist(t *testing.T) {
+	hyolynID := "75aff57c-d397-4e6c-b5fc-1f32d7761512"
+	changmoID := "93ed67ff-2ab4-4fb3-9e3c-b971b8481e1a"
+	evidence := []artistReleaseEvidence{{
+		Hint:       ReleaseHint{Title: "BLUE MOON", Year: 2017, Type: "single"},
+		Identifier: Identifier{Scheme: "musicbrainz", Value: "1cfefaf8-b278-4f0e-a112-a1d9339c4ea4"},
+		Credits: []artistReleaseCredit{
+			{Root: ingestionRoot{Kind: KindArtist, Provider: "musicbrainz", Namespace: "artist", Value: hyolynID}, Names: []string{"HYOLYN", "Hyolyn", "효린"}},
+			{Root: ingestionRoot{Kind: KindArtist, Provider: "musicbrainz", Namespace: "artist", Value: changmoID}, Names: []string{"CHANGMO", "창모"}},
+		},
+	}}
+
+	selected := selectUnanchoredArtistReleaseRoots(Request{Kind: KindArtist, Query: "효린", Hints: Hints{Aliases: []string{"Hyolyn"}}}, evidence)
+	if len(selected) != 1 || selected[(ingestionRoot{Kind: KindArtist, Provider: "musicbrainz", Namespace: "artist", Value: hyolynID}).key()].Value != hyolynID {
+		t.Fatalf("Hyolyn selection=%+v", selected)
+	}
+	selected = selectUnanchoredArtistReleaseRoots(Request{Kind: KindArtist, Query: "CHANGMO"}, evidence)
+	if len(selected) != 1 || selected[(ingestionRoot{Kind: KindArtist, Provider: "musicbrainz", Namespace: "artist", Value: changmoID}).key()].Value != changmoID {
+		t.Fatalf("Changmo selection=%+v", selected)
+	}
+}
+
+func TestReleaseContributorRolesCannotBecomeArtistRoots(t *testing.T) {
+	evidence := []artistReleaseEvidence{{Credits: []artistReleaseCredit{
+		{Root: ingestionRoot{Kind: KindArtist, Provider: "deezer", Namespace: "artist", Value: "1"}, Names: []string{"Main Artist"}, Role: "main"},
+		{Root: ingestionRoot{Kind: KindArtist, Provider: "deezer", Namespace: "artist", Value: "2"}, Names: []string{"Guest Artist"}, Role: "featured"},
+		{Root: ingestionRoot{Kind: KindArtist, Provider: "discogs", Namespace: "artist", Value: "3"}, Names: []string{"Studio Producer"}, Role: "producer"},
+		{Root: ingestionRoot{Kind: KindArtist, Provider: "discogs", Namespace: "artist", Value: "4"}, Names: []string{"Mix Engineer"}, Role: "mixed_by"},
+	}}}
+
+	for _, test := range []struct {
+		query string
+		want  string
+	}{
+		{query: "Main Artist", want: "1"},
+		{query: "Guest Artist", want: "2"},
+		{query: "Studio Producer"},
+		{query: "Mix Engineer"},
+	} {
+		selected := selectUnanchoredArtistReleaseRoots(Request{Kind: KindArtist, Query: test.query}, evidence)
+		if test.want == "" && len(selected) != 0 {
+			t.Fatalf("%s became identity roots: %+v", test.query, selected)
+		}
+		if test.want != "" {
+			if len(selected) != 1 {
+				t.Fatalf("%s selection=%+v", test.query, selected)
+			}
+			for _, root := range selected {
+				if root.Value != test.want {
+					t.Fatalf("%s root=%+v, want %s", test.query, root, test.want)
+				}
+			}
+		}
 	}
 }

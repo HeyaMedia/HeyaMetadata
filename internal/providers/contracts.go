@@ -42,6 +42,7 @@ const (
 	ScopeCollections      Scope = "collections"
 	ScopeRecommendations  Scope = "recommendations"
 	ScopeLyrics           Scope = "lyrics"
+	ScopeVideos           Scope = "videos"
 	ScopeFingerprints     Scope = "fingerprints"
 	ScopeEpisodeNumbering Scope = "episode_numbering"
 )

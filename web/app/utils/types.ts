@@ -114,6 +114,77 @@ export interface CollectionCard {
   provider_id?: string
 }
 
+/** Provider-native neighbour from an artist document's `data.similar_artists`. */
+export interface SimilarArtist {
+  provider?: string
+  provider_id?: string
+  name?: string
+  /** provider-native page; may be absent (e.g. some lastfm entries) */
+  url?: string
+  /** provider-native score — only comparable within one provider */
+  score?: number
+  resolution_state?: ResolutionState
+}
+
+/** Artist music video from `data.music_videos` (YouTube-hosted URLs). */
+export interface MusicVideo {
+  provider?: string
+  provider_video_id?: string
+  track_title?: string
+  url?: string
+  description?: string
+}
+
+/** Localized description from `data.descriptions` on release-group documents. */
+export interface EntityDescription {
+  value?: string
+  language?: string
+  type?: string
+}
+
+export interface EditionLabel {
+  name?: string
+  catalog_number?: string
+}
+
+/** A release-group edition from `data.editions`. */
+export interface AlbumEdition {
+  /** canonical release id — the only routing key; present when materialized */
+  entity_id?: string
+  resolution_state?: ResolutionState
+  title?: string
+  country?: string
+  status?: string
+  barcode?: string
+  date?: { type?: string; value?: string; precision?: string } | string
+  labels?: EditionLabel[]
+  formats?: string[]
+  track_count?: number
+  /** passive provenance only — never used for routing */
+  provider?: string
+  provider_id?: string
+}
+
+/** {date, country} pair from a release document's `data.release_events`. */
+export interface ReleaseEvent {
+  date?: string
+  country?: string
+}
+
+/** Personnel credit from a recording document's `data.credits`. */
+export interface RecordingCredit {
+  role?: string
+  /** snake_case qualifiers, e.g. `electric_guitar` */
+  attributes?: string[]
+  artist_name?: string
+  /** canonical artist id — the only routing key; absent on provider-only credits */
+  artist_entity_id?: string
+  /** passive provenance only — never used for routing */
+  artist_id?: string
+  artist_provider?: string
+  artist_namespace?: string
+}
+
 export interface LibraryStats {
   entities?: number
   kinds?: Record<string, number>

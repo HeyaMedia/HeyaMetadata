@@ -21,6 +21,9 @@ func TestNormalizeArtistPreservesIdentityLocalesAndRelationships(t *testing.T) {
 			{"target-type":"url","type":"streaming","url":{"resource":"https://music.apple.com/gb/artist/the-beatles/136975"}},
 			{"target-type":"url","type":"free streaming","url":{"resource":"https://www.deezer.com/artist/1"}},
 			{"target-type":"url","type":"wikidata","url":{"resource":"https://www.wikidata.org/wiki/Q1299"}},
+			{"target-type":"url","type":"free streaming","url":{"resource":"https://tidal.com/browse/artist/3529"}},
+			{"target-type":"url","type":"purchase for download","url":{"resource":"https://thebeatles.bandcamp.com/"}},
+			{"target-type":"url","type":"review","url":{"resource":"https://daily.bandcamp.com/features/the-beatles"}},
 			{"target-type":"artist","type":"member of band","direction":"backward","artist":{"id":"42a8f507-8412-4611-854f-926571049fa0","name":"John Lennon"}}
 		]
 	}`)
@@ -38,10 +41,14 @@ func TestNormalizeArtistPreservesIdentityLocalesAndRelationships(t *testing.T) {
 	for _, candidate := range record.IdentityCandidates {
 		identities[candidate.Provider] = candidate.NormalizedValue
 	}
-	for provider, expected := range map[string]string{"discogs": "82730", "apple": "136975", "deezer": "1", "wikidata": "Q1299", "isni": "0000000121707484"} {
+	for provider, expected := range map[string]string{"discogs": "82730", "apple": "136975", "deezer": "1", "wikidata": "Q1299", "isni": "0000000121707484", "tidal": "3529", "bandcamp": "thebeatles"} {
 		if identities[provider] != expected {
 			t.Fatalf("identity %s: got %q, all=%+v", provider, identities[provider], identities)
 		}
+	}
+	// daily.bandcamp.com is Bandcamp's own editorial site, never artist identity.
+	if len(record.IdentityCandidates) != 8 {
+		t.Fatalf("identity candidates: %+v", record.IdentityCandidates)
 	}
 	if len(record.Relationships) != 1 || record.Relationships[0].TargetName != "John Lennon" {
 		t.Fatalf("relationships: %+v", record.Relationships)

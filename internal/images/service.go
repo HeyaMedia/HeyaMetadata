@@ -335,6 +335,9 @@ func providerHostAllowed(provider, host string) bool {
 		"kitsu":           {"media.kitsu.app"},
 		"myanimelist":     {"api-cdn.myanimelist.net"},
 		"apple":           {"mzstatic.com"},
+		"audiodb":         {"theaudiodb.com"},
+		"bandcamp":        {"bcbits.com"},
+		"tidal":           {"resources.tidal.com"},
 	}
 	for _, suffix := range allowed[strings.ToLower(provider)] {
 		if host == suffix || strings.HasSuffix(host, "."+suffix) {

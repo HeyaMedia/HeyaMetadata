@@ -16,6 +16,8 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/apple"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/audiodb"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/bandcamp"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/coverartarchive"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/deezer"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/discogs"
@@ -132,6 +134,14 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int6
 		c := deezer.New(s.runtime.Config.Providers.Deezer)
 		r, e := providercache.New(s.runtime, rgdomain.DeezerNormalizerVersion, c.Capability().RawRetention, c.Capability().ResponseCache, jobID)
 		return deezer.NewCached(s.runtime.Config.Providers.Deezer, r), e
+	}, func() (providers.Collector, error) {
+		c := audiodb.New(s.runtime.Config.Providers.AudioDB)
+		r, e := providercache.New(s.runtime, rgdomain.AudioDBNormalizerVersion, c.Capability().RawRetention, c.Capability().ResponseCache, jobID)
+		return audiodb.NewCached(s.runtime.Config.Providers.AudioDB, r), e
+	}, func() (providers.Collector, error) {
+		c := bandcamp.New(s.runtime.Config.Providers.Bandcamp)
+		r, e := providercache.New(s.runtime, rgdomain.BandcampNormalizerVersion, c.Capability().RawRetention, c.Capability().ResponseCache, jobID)
+		return bandcamp.NewCached(s.runtime.Config.Providers.Bandcamp, r), e
 	}} {
 		collector, e := build()
 		if e != nil {
@@ -184,6 +194,10 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int6
 				normalized, e = apple.NormalizeAlbum(observations[0].Payload.Body, step.Identifier.Value, observations[0].ID, observations[0].Payload.ObservedAt)
 			case "deezer":
 				normalized, e = deezer.NormalizeAlbum(observations[0].Payload.Body, observations[0].ID, observations[0].Payload.ObservedAt)
+			case "audiodb":
+				normalized, e = audiodb.NormalizeAlbum(observations[0].Payload.Body, mbid, observations[0].ID, observations[0].Payload.ObservedAt)
+			case "bandcamp":
+				normalized, e = bandcamp.NormalizeAlbum(observations[0].Payload.Body, step.Identifier.Value, observations[0].ID, observations[0].Payload.ObservedAt)
 			}
 			completed[provider] = true
 			if e != nil {
@@ -249,6 +263,10 @@ func releaseGroupNormalizerVersion(provider string) string {
 		return rgdomain.DiscogsNormalizerVersion
 	case "apple":
 		return rgdomain.AppleNormalizerVersion
+	case "audiodb":
+		return rgdomain.AudioDBNormalizerVersion
+	case "bandcamp":
+		return rgdomain.BandcampNormalizerVersion
 	case "deezer":
 		return rgdomain.DeezerNormalizerVersion
 	}

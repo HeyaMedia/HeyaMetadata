@@ -18,6 +18,7 @@ func NormalizeAlbum(body []byte, observationID string, observedAt time.Time) (rg
 		CoverXL     string `json:"cover_xl"`
 		ReleaseDate string `json:"release_date"`
 		RecordType  string `json:"record_type"`
+		Label       string `json:"label"`
 		Explicit    bool   `json:"explicit_lyrics"`
 		Duration    int64  `json:"duration"`
 		TrackCount  int    `json:"nb_tracks"`
@@ -41,6 +42,7 @@ func NormalizeAlbum(body []byte, observationID string, observedAt time.Time) (rg
 				Duration   int64  `json:"duration"`
 				ISRC       string `json:"isrc"`
 				Preview    string `json:"preview"`
+				DiskNumber int    `json:"disk_number"`
 				Artist     struct {
 					ID   int64  `json:"id"`
 					Name string `json:"name"`
@@ -64,10 +66,13 @@ func NormalizeAlbum(body []byte, observationID string, observedAt time.Time) (rg
 	}
 	date := rgdomain.DateValue{Value: source.ReleaseDate, Precision: "day", Type: "release"}
 	edition := rgdomain.Edition{Provider: "deezer", Namespace: "album", ProviderID: id, Title: title, Date: date, Barcode: source.UPC, TrackCount: source.TrackCount, DurationMS: source.Duration * 1000, Explicit: &source.Explicit, Link: source.Link}
+	if label := strings.TrimSpace(source.Label); label != "" {
+		edition.Labels = append(edition.Labels, rgdomain.Label{Name: label})
+	}
 	record := rgdomain.NormalizedRecordV1{ProviderRecord: rgdomain.ProviderRecord{Provider: "deezer", Namespace: "album", Value: id, PrimaryObservationID: observationID, ObservedAt: observedAt, NormalizerVersion: rgdomain.DeezerNormalizerVersion, SchemaVersion: rgdomain.NormalizedSchemaVersion}, IdentityCandidates: []rgdomain.IdentityCandidate{{Provider: "deezer", Namespace: "album", NormalizedValue: id, Confidence: 1, Evidence: "provider_record"}}, Titles: []rgdomain.Title{{Value: title, Type: "edition_title", Primary: true}}, Classification: rgdomain.Classification{PrimaryType: strings.ToLower(source.RecordType)}, Dates: []rgdomain.DateValue{date}, Editions: []rgdomain.Edition{edition}, Metrics: []rgdomain.Metric{{Name: "fan_count", Value: float64(source.Fans), RawValue: strconv.FormatInt(source.Fans, 10)}}}
 	for i, artist := range source.Contributors {
 		if artist.ID > 0 {
-			record.ArtistCredits = append(record.ArtistCredits, rgdomain.ArtistCredit{Position: i, Name: artist.Name, ArtistProvider: "deezer", ArtistNamespace: "artist", ArtistID: strconv.FormatInt(artist.ID, 10), ArtistName: artist.Name})
+			record.ArtistCredits = append(record.ArtistCredits, rgdomain.ArtistCredit{Position: i, Name: artist.Name, Role: strings.ToLower(strings.TrimSpace(artist.Role)), ArtistProvider: "deezer", ArtistNamespace: "artist", ArtistID: strconv.FormatInt(artist.ID, 10), ArtistName: artist.Name})
 		}
 	}
 	for _, genre := range source.Genres.Data {
@@ -88,7 +93,11 @@ func NormalizeAlbum(body []byte, observationID string, observedAt time.Time) (rg
 		if title == "" {
 			title = track.Title
 		}
-		record.Tracks = append(record.Tracks, rgdomain.Track{ProviderID: strconv.FormatInt(track.ID, 10), Position: strconv.Itoa(i + 1), Number: i + 1, DiscNumber: 1, Title: title, DurationMS: track.Duration * 1000, ISRC: strings.ToUpper(track.ISRC), PreviewURL: track.Preview, ArtistCredits: []rgdomain.ArtistCredit{{Name: track.Artist.Name, ArtistProvider: "deezer", ArtistNamespace: "artist", ArtistID: strconv.FormatInt(track.Artist.ID, 10), ArtistName: track.Artist.Name}}})
+		discNumber := track.DiskNumber
+		if discNumber < 1 {
+			discNumber = 1
+		}
+		record.Tracks = append(record.Tracks, rgdomain.Track{ProviderID: strconv.FormatInt(track.ID, 10), Position: strconv.Itoa(i + 1), Number: i + 1, DiscNumber: discNumber, Title: title, DurationMS: track.Duration * 1000, ISRC: strings.ToUpper(track.ISRC), PreviewURL: track.Preview, ArtistCredits: []rgdomain.ArtistCredit{{Name: track.Artist.Name, ArtistProvider: "deezer", ArtistNamespace: "artist", ArtistID: strconv.FormatInt(track.Artist.ID, 10), ArtistName: track.Artist.Name}}})
 	}
 	return record, nil
 }

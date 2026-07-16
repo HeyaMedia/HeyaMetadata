@@ -289,6 +289,7 @@ func TestIntegrationFreshArtistProviderRootsMustConverge(t *testing.T) {
 	mbid := "60000000-0000-4000-8000-" + suffix[len(suffix)-12:]
 	conflictingMBID := "61000000-0000-4000-8000-" + suffix[len(suffix)-12:]
 	conflictingReleaseID := "71000000-0000-4000-8000-" + suffix[len(suffix)-12:]
+	collaborativeReleaseID := "72000000-0000-4000-8000-" + suffix[len(suffix)-12:]
 	appleID := suffix
 	appleNumeric, err := strconv.ParseInt(appleID, 10, 64)
 	if err != nil {
@@ -311,6 +312,14 @@ func TestIntegrationFreshArtistProviderRootsMustConverge(t *testing.T) {
 			_ = json.NewEncoder(response).Encode(map[string]any{
 				"id": conflictingReleaseID, "title": "Contradictory Release", "first-release-date": "2024-01-01", "primary-type": "Album",
 				"artist-credit": []any{map[string]any{"artist": map[string]any{"id": conflictingMBID, "name": "Different Artist " + suffix}}},
+			})
+		case request.URL.Path == "/release-group/"+collaborativeReleaseID:
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"id": collaborativeReleaseID, "title": "Shared Release", "first-release-date": "2023-01-01", "primary-type": "Single",
+				"artist-credit": []any{
+					map[string]any{"name": artistName, "joinphrase": " x ", "artist": map[string]any{"id": mbid, "name": artistName, "aliases": []any{map[string]any{"name": "Localized " + artistName}}}},
+					map[string]any{"name": "Different Artist " + suffix, "artist": map[string]any{"id": conflictingMBID, "name": "Different Artist " + suffix}},
+				},
 			})
 		case request.URL.Path == "/lookup" && request.URL.Query().Get("id") == appleID:
 			_ = json.NewEncoder(response).Encode(map[string]any{
@@ -368,6 +377,17 @@ func TestIntegrationFreshArtistProviderRootsMustConverge(t *testing.T) {
 		t.Fatalf("result=%+v handled=%v err=%v", result, handled, err)
 	}
 	t.Cleanup(func() { cleanupDiscoveryArtistEntity(runtime, result.EntityID, mbid, appleID) })
+	collaborative, handled, err := NewService(runtime).ResolveFreshIdentifiers(ctx, Request{
+		Kind: KindArtist, Query: "Localized " + artistName,
+		Identifiers: []Identifier{{Scheme: "musicbrainz", Value: mbid}},
+		Hints: Hints{Aliases: []string{artistName}, Releases: []ReleaseHint{{
+			Title: "Shared Release", Year: 2023, Type: "single",
+			Identifiers: []Identifier{{Scheme: "musicbrainz", Value: collaborativeReleaseID}},
+		}}},
+	}, 0, providercredentials.Credentials{})
+	if err != nil || !handled || collaborative.EntityID != result.EntityID || collaborative.Status != "completed" || collaborative.Recommendation != "corroborated_identity" || len(collaborative.Candidates) != 0 {
+		t.Fatalf("collaborative result=%+v handled=%v err=%v", collaborative, handled, err)
+	}
 	known, handled, err := NewService(runtime).ResolveKnownIdentifiers(ctx, Request{
 		Kind: KindArtist, Query: artistName,
 		Identifiers: []Identifier{{Scheme: "apple", Value: appleID}},

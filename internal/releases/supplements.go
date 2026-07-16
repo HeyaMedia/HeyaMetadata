@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	releasedomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/release"
+	rgdomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/releasegroup"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
@@ -70,7 +71,7 @@ func (s *Service) collectSupplements(ctx context.Context, spine releasedomain.No
 
 	if credentials.APIKey("discogs") != "" || s.runtime.Config.Providers.Discogs.APIKey != "" {
 		base := discogs.New(s.runtime.Config.Providers.Discogs)
-		if resolver, err := providercache.New(s.runtime, "discogs-release/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID); err == nil {
+		if resolver, err := providercache.New(s.runtime, rgdomain.DiscogsReleaseVersion, base.Capability().RawRetention, base.Capability().ResponseCache, jobID); err == nil {
 			client := discogs.NewCached(s.runtime.Config.Providers.Discogs, resolver, credentials.APIKey("discogs"))
 			if search, err := client.SearchReleaseByBarcode(ctx, spine.Barcode, 5); err == nil && search.StatusCode == http.StatusOK {
 				for _, id := range discogsReleaseIDs(search.Body) {

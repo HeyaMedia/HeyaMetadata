@@ -10,6 +10,9 @@ import (
 	releasedomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/release"
 )
 
+// NormalizeRecording maps a standalone MusicBrainz recording lookup,
+// including artist-targeted performance relations (producer, engineer,
+// vocals, instruments) as role-bearing credits.
 func NormalizeRecording(body []byte, observationID string, observedAt time.Time) (releasedomain.NormalizedRecording, error) {
 	var source struct {
 		ID             string     `json:"id"`
@@ -81,6 +84,7 @@ func NormalizeRecording(body []byte, observationID string, observedAt time.Time)
 			recording.Links = append(recording.Links, releasedomain.Link{Type: normalizeToken(value.Type), URL: strings.TrimSpace(value.URL.Resource)})
 		}
 	}
+	recording.Credits = performanceCredits(source.Relations)
 	works := workRelations(source.Relations)
 	sort.Slice(recording.Genres, func(i, j int) bool { return recording.Genres[i].Name < recording.Genres[j].Name })
 	sort.Slice(recording.Tags, func(i, j int) bool { return recording.Tags[i].Name < recording.Tags[j].Name })
@@ -94,6 +98,7 @@ func NormalizeRecording(body []byte, observationID string, observedAt time.Time)
 
 type mbRelation struct {
 	Type       string   `json:"type"`
+	TargetType string   `json:"target-type"`
 	Attributes []string `json:"attributes"`
 	URL        *struct {
 		Resource string `json:"resource"`
@@ -103,6 +108,46 @@ type mbRelation struct {
 		Title    string `json:"title"`
 		Language string `json:"language"`
 	} `json:"work"`
+	Artist *struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"artist"`
+}
+
+// performanceCredits maps artist-targeted recording relations (producer,
+// engineer, vocal, instrument, ...) into role-bearing credits.
+func performanceCredits(values []mbRelation) []releasedomain.PerformanceCredit {
+	seen := map[string]bool{}
+	var out []releasedomain.PerformanceCredit
+	for _, value := range values {
+		if value.Artist == nil {
+			continue
+		}
+		role := normalizeToken(value.Type)
+		id := strings.ToLower(strings.TrimSpace(value.Artist.ID))
+		name := strings.TrimSpace(value.Artist.Name)
+		if role == "" || !mbidPattern.MatchString(id) || name == "" {
+			continue
+		}
+		attributes := append([]string(nil), value.Attributes...)
+		for index := range attributes {
+			attributes[index] = normalizeToken(attributes[index])
+		}
+		sort.Strings(attributes)
+		key := role + "\x00" + id + "\x00" + strings.Join(attributes, ",")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, releasedomain.PerformanceCredit{Role: role, Attributes: attributes, ArtistProvider: "musicbrainz", ArtistNamespace: "artist", ArtistID: id, ArtistName: name})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Role != out[j].Role {
+			return out[i].Role < out[j].Role
+		}
+		return out[i].ArtistName < out[j].ArtistName
+	})
+	return out
 }
 
 func workRelations(values []mbRelation) []releasedomain.WorkRelation {

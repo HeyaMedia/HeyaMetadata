@@ -94,6 +94,28 @@ func (c *Client) ArtistAlbums(ctx context.Context, artistID string, limit, index
 	values := url.Values{"limit": {strconv.Itoa(limit)}, "index": {strconv.Itoa(index)}}
 	return c.get(ctx, "/artist/"+artistID+"/albums", values, providers.Payload{Provider: "deezer", ProviderNamespace: "artist_albums", ProviderRecordID: artistID}, 6*time.Hour)
 }
+func (c *Client) ArtistTopTracks(ctx context.Context, artistID string, limit int) (providers.Payload, error) {
+	id, err := strconv.ParseInt(artistID, 10, 64)
+	if err != nil || id < 1 {
+		return providers.Payload{}, fmt.Errorf("Deezer artist top tracks requires a positive artist ID")
+	}
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	values := url.Values{"limit": {strconv.Itoa(limit)}}
+	return c.get(ctx, "/artist/"+artistID+"/top", values, providers.Payload{Provider: "deezer", ProviderNamespace: "artist_top_tracks", ProviderRecordID: artistID}, 12*time.Hour)
+}
+func (c *Client) ArtistRelated(ctx context.Context, artistID string, limit int) (providers.Payload, error) {
+	id, err := strconv.ParseInt(artistID, 10, 64)
+	if err != nil || id < 1 {
+		return providers.Payload{}, fmt.Errorf("Deezer related artists requires a positive artist ID")
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	values := url.Values{"limit": {strconv.Itoa(limit)}}
+	return c.get(ctx, "/artist/"+artistID+"/related", values, providers.Payload{Provider: "deezer", ProviderNamespace: "artist_related", ProviderRecordID: artistID}, 12*time.Hour)
+}
 func (c *Client) LookupAlbumByUPC(ctx context.Context, upc string) (providers.Payload, error) {
 	upc = strings.TrimSpace(upc)
 	if upc == "" {

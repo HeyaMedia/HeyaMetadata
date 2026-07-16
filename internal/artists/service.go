@@ -24,11 +24,14 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/apple"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/audiodb"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/bandcamp"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/deezer"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/discogs"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/fanart"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/lastfm"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tidal"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/wikidata"
 	"github.com/jackc/pgx/v5"
 )
@@ -113,6 +116,21 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 			r, e := providercache.New(s.runtime, artistdomain.WikidataNormalizerVersion, c.Capability().RawRetention, c.Capability().ResponseCache, riverJobID)
 			return wikidata.NewCached(s.runtime.Config.Providers.Wikidata, r), e
 		},
+		func() (providers.Collector, error) {
+			c := audiodb.New(s.runtime.Config.Providers.AudioDB)
+			r, e := providercache.New(s.runtime, artistdomain.AudioDBNormalizerVersion, c.Capability().RawRetention, c.Capability().ResponseCache, riverJobID)
+			return audiodb.NewCached(s.runtime.Config.Providers.AudioDB, r), e
+		},
+		func() (providers.Collector, error) {
+			c := bandcamp.New(s.runtime.Config.Providers.Bandcamp)
+			r, e := providercache.New(s.runtime, artistdomain.BandcampNormalizerVersion, c.Capability().RawRetention, c.Capability().ResponseCache, riverJobID)
+			return bandcamp.NewCached(s.runtime.Config.Providers.Bandcamp, r), e
+		},
+		func() (providers.Collector, error) {
+			c := tidal.New(s.runtime.Config.Providers.Tidal)
+			r, e := providercache.New(s.runtime, artistdomain.TidalNormalizerVersion, c.Capability().RawRetention, c.Capability().ResponseCache, riverJobID)
+			return tidal.NewCached(s.runtime.Config.Providers.Tidal, r), e
+		},
 	} {
 		collector, buildErr := build()
 		if buildErr != nil {
@@ -148,8 +166,20 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 		switch provider {
 		case "apple":
 			normalized, recordErr = apple.NormalizeArtist(recorded[0].Payload.Body, step.Identifier.Value, recorded[0].ID, recorded[0].Payload.ObservedAt)
+		case "audiodb":
+			normalized, recordErr = audiodb.NormalizeArtist(recorded[0].Payload.Body, mbid, recorded[0].ID, recorded[0].Payload.ObservedAt)
+			if recordErr == nil {
+				s.attachAudioDBMusicVideos(ctx, &normalized, step.Collector.Capability(), mbid, riverJobID)
+			}
+		case "bandcamp":
+			normalized, recordErr = bandcamp.NormalizeArtist(recorded[0].Payload.Body, step.Identifier.Value, recorded[0].ID, recorded[0].Payload.ObservedAt)
+		case "tidal":
+			normalized, recordErr = tidal.NormalizeArtist(recorded[0].Payload.Body, step.Identifier.Value, recorded[0].ID, recorded[0].Payload.ObservedAt)
 		case "deezer":
 			normalized, recordErr = deezer.NormalizeArtist(recorded[0].Payload.Body, recorded[0].ID, recorded[0].Payload.ObservedAt)
+			if recordErr == nil {
+				s.attachDeezerArtistExtras(ctx, &normalized, step.Collector.Capability(), step.Identifier.Value, riverJobID)
+			}
 		case "discogs":
 			normalized, recordErr = discogs.NormalizeArtist(recorded[0].Payload.Body, recorded[0].ID, recorded[0].Payload.ObservedAt)
 		case "lastfm":
@@ -191,6 +221,19 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 						slog.Debug("artist top tracks provider has no matching record", "provider", "lastfm", "mbid", mbid)
 					} else {
 						slog.Warn("artist top tracks provider failed", "provider", "lastfm", "mbid", mbid, "error", topErr)
+					}
+				}
+				// getSimilar returns a far larger neighborhood than the ~5
+				// similar artists embedded in getInfo. MBID-scoped only:
+				// name-scoped profiles keep the embedded list.
+				if lastFMNameLookup == "" {
+					if similar, similarObserved, similarErr := s.collectLastFMSimilarArtists(ctx, step.Collector.Capability(), mbid, credentials.APIKey("lastfm"), riverJobID); similarErr == nil && len(similar) > 0 {
+						normalized.SimilarArtists = similar
+						normalized.ProviderRecord.SupportingObservationIDs = append(normalized.ProviderRecord.SupportingObservationIDs, similarObserved.ID)
+					} else if similarErr != nil {
+						normalized.PartialFailure = true
+						normalized.Warnings = append(normalized.Warnings, "lastfm.similar_artists: "+similarErr.Error())
+						slog.Warn("artist similar provider failed", "provider", "lastfm", "mbid", mbid, "error", similarErr)
 					}
 				}
 			}
@@ -307,6 +350,132 @@ func (s *Service) collectLastFMArtistByName(ctx context.Context, client *lastfm.
 	return artistdomain.NormalizedRecordV1{}, "", lastErr
 }
 
+// attachAudioDBMusicVideos supplements a verified TheAudioDB artist record
+// with the artist's music-video links. Garnish: failures degrade to warnings.
+func (s *Service) attachAudioDBMusicVideos(ctx context.Context, record *artistdomain.NormalizedRecordV1, capability providers.Capability, mbid string, riverJobID int64) {
+	warn := func(err error) {
+		record.PartialFailure = true
+		record.Warnings = append(record.Warnings, "audiodb.music_videos: "+err.Error())
+		slog.Warn("audiodb music videos failed", "mbid", mbid, "error", err)
+	}
+	resolver, err := providercache.New(s.runtime, artistdomain.AudioDBMusicVideosVersion, capability.RawRetention, capability.ResponseCache, riverJobID)
+	if err != nil {
+		warn(err)
+		return
+	}
+	client := audiodb.NewCached(s.runtime.Config.Providers.AudioDB, resolver)
+	payload, err := client.ArtistMusicVideos(ctx, mbid)
+	if err != nil {
+		warn(err)
+		return
+	}
+	recorded, err := s.recordPayloads(ctx, []providers.Payload{payload}, artistdomain.AudioDBMusicVideosVersion, capability, riverJobID)
+	if err != nil || len(recorded) == 0 {
+		if err == nil {
+			err = fmt.Errorf("collector returned no observations")
+		}
+		warn(err)
+		return
+	}
+	if recorded[0].Payload.StatusCode != http.StatusOK {
+		warn(&providers.StatusError{Provider: "audiodb", StatusCode: recorded[0].Payload.StatusCode})
+		return
+	}
+	videos, err := audiodb.NormalizeArtistMusicVideos(recorded[0].Payload.Body, mbid, recorded[0].Payload.ObservedAt)
+	if err != nil {
+		warn(err)
+		return
+	}
+	if len(videos) > 0 {
+		record.MusicVideos = videos
+		record.ProviderRecord.SupportingObservationIDs = append(record.ProviderRecord.SupportingObservationIDs, recorded[0].ID)
+	}
+}
+
+// attachDeezerArtistExtras supplements a verified Deezer artist record with
+// top tracks and related artists. Both are garnish: failures degrade to
+// record warnings and never fail the supplement.
+func (s *Service) attachDeezerArtistExtras(ctx context.Context, record *artistdomain.NormalizedRecordV1, capability providers.Capability, deezerID string, riverJobID int64) {
+	warn := func(scope string, err error) {
+		record.PartialFailure = true
+		record.Warnings = append(record.Warnings, scope+": "+err.Error())
+		slog.Warn("deezer artist extras failed", "scope", scope, "deezer_id", deezerID, "error", err)
+	}
+	resolver, err := providercache.New(s.runtime, artistdomain.DeezerArtistExtrasVersion, capability.RawRetention, capability.ResponseCache, riverJobID)
+	if err != nil {
+		warn("deezer.extras", err)
+		return
+	}
+	client := deezer.NewCached(s.runtime.Config.Providers.Deezer, resolver)
+	fetch := func(scope string, get func() (providers.Payload, error)) *ingest.RecordedObservation {
+		payload, err := get()
+		if err != nil {
+			warn(scope, err)
+			return nil
+		}
+		recorded, err := s.recordPayloads(ctx, []providers.Payload{payload}, artistdomain.DeezerArtistExtrasVersion, capability, riverJobID)
+		if err != nil || len(recorded) == 0 {
+			if err == nil {
+				err = fmt.Errorf("collector returned no observations")
+			}
+			warn(scope, err)
+			return nil
+		}
+		if recorded[0].Payload.StatusCode != http.StatusOK {
+			warn(scope, &providers.StatusError{Provider: "deezer", StatusCode: recorded[0].Payload.StatusCode})
+			return nil
+		}
+		return &recorded[0]
+	}
+	if observed := fetch("deezer.top_tracks", func() (providers.Payload, error) { return client.ArtistTopTracks(ctx, deezerID, 50) }); observed != nil {
+		if snapshot, err := deezer.NormalizeArtistTopTracks(observed.Payload.Body); err != nil {
+			warn("deezer.top_tracks", err)
+		} else if len(snapshot.Tracks) > 0 {
+			record.TopTracks = snapshot.Tracks
+			record.TopTracksObserved = true
+			record.TopTracksTotal = snapshot.Total
+			record.TopTracksObservationID = observed.ID
+			record.TopTracksObservedAt = observed.Payload.ObservedAt
+			record.ProviderRecord.SupportingObservationIDs = append(record.ProviderRecord.SupportingObservationIDs, observed.ID)
+		}
+	}
+	if observed := fetch("deezer.related_artists", func() (providers.Payload, error) { return client.ArtistRelated(ctx, deezerID, 20) }); observed != nil {
+		if similar, err := deezer.NormalizeRelatedArtists(observed.Payload.Body); err != nil {
+			warn("deezer.related_artists", err)
+		} else if len(similar) > 0 {
+			record.SimilarArtists = append(record.SimilarArtists, similar...)
+			record.ProviderRecord.SupportingObservationIDs = append(record.ProviderRecord.SupportingObservationIDs, observed.ID)
+		}
+	}
+}
+
+func (s *Service) collectLastFMSimilarArtists(ctx context.Context, capability providers.Capability, mbid, apiKey string, riverJobID int64) ([]artistdomain.SimilarArtist, ingest.RecordedObservation, error) {
+	resolver, err := providercache.New(s.runtime, artistdomain.LastFMSimilarVersion, capability.RawRetention, capability.ResponseCache, riverJobID)
+	if err != nil {
+		return nil, ingest.RecordedObservation{}, err
+	}
+	client := lastfm.NewCached(s.runtime.Config.Providers.LastFM, resolver, apiKey)
+	payload, err := client.ArtistSimilar(ctx, mbid, 50)
+	if err != nil {
+		return nil, ingest.RecordedObservation{}, err
+	}
+	recorded, err := s.recordPayloads(ctx, []providers.Payload{payload}, artistdomain.LastFMSimilarVersion, capability, riverJobID)
+	if err != nil || len(recorded) == 0 {
+		if err == nil {
+			err = fmt.Errorf("Last.fm similar artists returned no observation")
+		}
+		return nil, ingest.RecordedObservation{}, err
+	}
+	if recorded[0].Payload.StatusCode != http.StatusOK {
+		return nil, ingest.RecordedObservation{}, &providers.StatusError{Provider: "lastfm", StatusCode: recorded[0].Payload.StatusCode}
+	}
+	similar, err := lastfm.NormalizeSimilarArtists(recorded[0].Payload.Body)
+	if err != nil {
+		return nil, ingest.RecordedObservation{}, err
+	}
+	return similar, recorded[0], nil
+}
+
 func (s *Service) collectLastFMTopTracks(ctx context.Context, client *lastfm.Client, capability providers.Capability, mbid string, expectedNames []string, profileNameLookup string, riverJobID int64) (lastfm.TopTracksSnapshot, ingest.RecordedObservation, error) {
 	lookups := make([]string, 0, len(expectedNames)+1)
 	if profileNameLookup == "" {
@@ -387,6 +556,12 @@ func artistNormalizerVersion(provider string) string {
 	switch provider {
 	case "apple":
 		return artistdomain.AppleNormalizerVersion
+	case "audiodb":
+		return artistdomain.AudioDBNormalizerVersion
+	case "bandcamp":
+		return artistdomain.BandcampNormalizerVersion
+	case "tidal":
+		return artistdomain.TidalNormalizerVersion
 	case "deezer":
 		return artistdomain.DeezerNormalizerVersion
 	case "discogs":

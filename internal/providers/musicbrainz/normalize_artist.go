@@ -14,6 +14,12 @@ import (
 var numericSuffix = regexp.MustCompile(`^[0-9]+$`)
 var wikidataItemPattern = regexp.MustCompile(`^Q[1-9][0-9]*$`)
 
+// bandcampSubdomainPattern accepts one DNS label of letters/digits/hyphens;
+// bandcampSharedSubdomains lists Bandcamp-operated hosts that are never an
+// artist's own page.
+var bandcampSubdomainPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+var bandcampSharedSubdomains = map[string]bool{"daily": true, "blog": true, "get": true, "help": true, "shop": true}
+
 type artistResponse struct {
 	ID             string           `json:"id"`
 	Name           string           `json:"name"`
@@ -219,6 +225,12 @@ func identityFromURL(raw string) (artistdomain.IdentityCandidate, bool) {
 		candidate.Provider, candidate.Namespace, candidate.NormalizedValue = "wikidata", "entity", strings.ToUpper(parts[1])
 	case host == "open.spotify.com" && len(parts) >= 2 && parts[0] == "artist":
 		candidate.Provider, candidate.NormalizedValue = "spotify", parts[1]
+	case (host == "tidal.com" || host == "listen.tidal.com") && len(parts) >= 2 && parts[len(parts)-2] == "artist" && numericSuffix.MatchString(parts[len(parts)-1]):
+		candidate.Provider, candidate.NormalizedValue = "tidal", parts[len(parts)-1]
+	case strings.HasSuffix(host, ".bandcamp.com"):
+		if subdomain := strings.TrimSuffix(host, ".bandcamp.com"); bandcampSubdomainPattern.MatchString(subdomain) && !bandcampSharedSubdomains[subdomain] {
+			candidate.Provider, candidate.NormalizedValue = "bandcamp", subdomain
+		}
 	}
 	return candidate, candidate.Provider != "" && candidate.NormalizedValue != ""
 }

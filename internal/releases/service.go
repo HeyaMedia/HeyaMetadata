@@ -137,7 +137,7 @@ func (s *Service) persist(ctx context.Context, records []releasedomain.Normalize
 		external = append(external, source.ExternalIDs...)
 		sources = append(sources, releasedomain.EditionSource{Provider: source.ProviderRecord.Provider, Namespace: source.ProviderRecord.Namespace, ProviderID: source.ProviderRecord.Value, Title: source.Title, Barcode: source.Barcode, Date: source.Date, Link: source.Link})
 	}
-	doc := releasedomain.DetailDocument{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: "release", Slug: slug, Display: releasedomain.Display{Title: r.Title, Year: year(r.Date)}, ExternalIDs: external, Data: releasedomain.ReleaseData{Title: r.Title, Disambiguation: r.Disambiguation, Status: r.Status, Quality: r.Quality, Packaging: r.Packaging, Date: r.Date, Country: r.Country, Barcode: r.Barcode, ArtistCredits: r.ArtistCredits, Labels: r.Labels, Sources: sources}, Freshness: fresh, Provenance: map[string][]releasedomain.SourceRef{"identity": {{Provider: "musicbrainz", ObservationID: r.ProviderRecord.PrimaryObservationID}}, "data": refs}}
+	doc := releasedomain.DetailDocument{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: "release", Slug: slug, Display: releasedomain.Display{Title: r.Title, Year: year(r.Date)}, ExternalIDs: external, Data: releasedomain.ReleaseData{Title: r.Title, Disambiguation: r.Disambiguation, Status: r.Status, Quality: r.Quality, Packaging: r.Packaging, Date: r.Date, Country: r.Country, Barcode: r.Barcode, ASIN: r.ASIN, Language: r.Language, Script: r.Script, ArtistCredits: r.ArtistCredits, Labels: r.Labels, ReleaseEvents: r.ReleaseEvents, Genres: r.Genres, Tags: r.Tags, Links: r.Links, Sources: sources}, Freshness: fresh, Provenance: map[string][]releasedomain.SourceRef{"identity": {{Provider: "musicbrainz", ObservationID: r.ProviderRecord.PrimaryObservationID}}, "data": refs}}
 	_, _ = tx.Exec(ctx, `DELETE FROM release_media WHERE release_entity_id=$1`, entityID)
 	for _, medium := range r.Media {
 		var mediumID string
@@ -427,6 +427,20 @@ func hydrateRecordingCanonicalIDs(ctx context.Context, db canonicalrefs.Querier,
 	}
 	if err := hydrateReleaseArtistCredits(ctx, db, credits); err != nil {
 		return err
+	}
+	if len(recording.Credits) > 0 {
+		refs := make([]canonicalrefs.Ref, 0, len(recording.Credits))
+		for _, credit := range recording.Credits {
+			refs = append(refs, canonicalrefs.Ref{Provider: credit.ArtistProvider, Namespace: credit.ArtistNamespace, Value: credit.ArtistID})
+		}
+		byRef, err := canonicalrefs.Resolve(ctx, db, "artist", refs)
+		if err != nil {
+			return err
+		}
+		for index := range recording.Credits {
+			credit := &recording.Credits[index]
+			credit.ArtistEntityID = byRef[canonicalrefs.Key(canonicalrefs.Ref{Provider: credit.ArtistProvider, Namespace: credit.ArtistNamespace, Value: credit.ArtistID})]
+		}
 	}
 	releaseRefs := make([]canonicalrefs.Ref, 0, len(recording.Releases))
 	groupRefs := make([]canonicalrefs.Ref, 0, len(recording.Releases))

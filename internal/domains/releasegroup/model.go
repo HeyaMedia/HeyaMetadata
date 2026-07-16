@@ -8,10 +8,13 @@ const (
 	MusicBrainzNormalizerVersion = "musicbrainz-release-group/v1"
 	WikidataNormalizerVersion    = "wikidata-release-group/v1"
 	DiscogsNormalizerVersion     = "discogs-master/v1"
+	DiscogsReleaseVersion        = "discogs-release/v2"
 	CoverArtNormalizerVersion    = "cover-art-archive-release-group/v1"
 	FanartNormalizerVersion      = "fanart-music-release-group/v1"
 	AppleNormalizerVersion       = "apple-album/v1"
-	DeezerNormalizerVersion      = "deezer-album/v1"
+	AudioDBNormalizerVersion     = "audiodb-album/v1"
+	BandcampNormalizerVersion    = "bandcamp-album/v1"
+	DeezerNormalizerVersion      = "deezer-album/v2"
 	LastFMNormalizerVersion      = "lastfm-album/v1"
 	MergeVersion                 = "release-group-merge/v1"
 	ProjectionSchemaVersion      = 1
@@ -45,6 +48,7 @@ type ArtistCredit struct {
 	Position        int    `json:"position"`
 	Name            string `json:"name"`
 	JoinPhrase      string `json:"join_phrase,omitempty"`
+	Role            string `json:"role,omitempty"`
 	ArtistEntityID  string `json:"artist_entity_id,omitempty" format:"uuid"`
 	ArtistProvider  string `json:"artist_provider"`
 	ArtistNamespace string `json:"artist_namespace"`
@@ -111,8 +115,14 @@ type Edition struct {
 	DurationMS int64     `json:"duration_ms,omitempty"`
 	Explicit   *bool     `json:"explicit,omitempty"`
 	Formats    []string  `json:"formats"`
+	Labels     []Label   `json:"labels,omitempty"`
 	Link       string    `json:"link,omitempty"`
 	Image      *Image    `json:"image,omitempty"`
+}
+type Label struct {
+	ProviderID    string `json:"provider_id,omitempty"`
+	Name          string `json:"name"`
+	CatalogNumber string `json:"catalog_number,omitempty"`
 }
 type Track struct {
 	ProviderID        string         `json:"provider_id,omitempty"`

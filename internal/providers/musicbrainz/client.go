@@ -19,8 +19,8 @@ var mbidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-
 var includes = map[string]string{
 	"artist":        "aliases+annotation+artist-rels+genres+tags+url-rels",
 	"release_group": "aliases+annotation+artist-credits+genres+ratings+releases+tags+url-rels",
-	"release":       "artist-credits+discids+genres+isrcs+labels+media+recordings+recording-level-rels+release-groups+tags+url-rels+work-rels",
-	"recording":     "artist-credits+genres+isrcs+ratings+releases+tags+url-rels+work-rels",
+	"release":       "artist-credits+artist-rels+discids+genres+isrcs+labels+media+recordings+recording-level-rels+release-groups+tags+url-rels+work-rels",
+	"recording":     "artist-credits+artist-rels+genres+isrcs+ratings+releases+tags+url-rels+work-rels",
 }
 
 type Client struct {

@@ -230,6 +230,9 @@ func MergeData(existing, incoming releasedomain.Recording) releasedomain.Recordi
 	if len(result.ArtistCredits) == 0 {
 		result.ArtistCredits = existing.ArtistCredits
 	}
+	if len(result.Credits) == 0 {
+		result.Credits = existing.Credits
+	}
 	if len(result.Genres) == 0 {
 		result.Genres = existing.Genres
 	}

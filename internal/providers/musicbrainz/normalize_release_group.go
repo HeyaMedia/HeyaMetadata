@@ -139,6 +139,10 @@ func releaseGroupIdentityFromURL(raw string) (rgdomain.IdentityCandidate, bool) 
 		if allMusicAlbumPattern.MatchString(value) {
 			candidate.Provider, candidate.Namespace, candidate.NormalizedValue = "allmusic", "album", value
 		}
+	case strings.HasSuffix(host, ".bandcamp.com") && len(parts) >= 2 && parts[0] == "album":
+		if subdomain := strings.TrimSuffix(host, ".bandcamp.com"); bandcampSubdomainPattern.MatchString(subdomain) && !bandcampSharedSubdomains[subdomain] {
+			candidate.Provider, candidate.Namespace, candidate.NormalizedValue = "bandcamp", "album", subdomain+"/"+parts[1]
+		}
 	}
 	return candidate, candidate.Provider != ""
 }

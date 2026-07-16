@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Fact } from '~/components/FactList.vue'
-import type { EntityDocument } from '~/utils/types'
+import type { EntityDocument, SimilarArtist } from '~/utils/types'
 
 const props = defineProps<{ entity: EntityDocument }>()
 const data = computed<any>(() => props.entity.data ?? {})
@@ -40,11 +40,40 @@ const names = computed(() => {
   }
   return out.sort((a, b) => Number(b.primary) - Number(a.primary))
 })
-const similar = computed(() =>
-  (data.value.similar_artists ?? [])
-    .map((artist: any) => ({ name: formatValue(artist.name), url: formatValue(artist.url) }))
-    .filter((artist: any) => artist.name),
-)
+// data.similar_artists arrives grouped by provider and scores are only
+// comparable within one provider (lastfm/tidal match ∈ 0..1, deezer fan
+// counts). Sort each provider's group by its own score, then round-robin
+// merge so every provider's best entries surface first, deduped by
+// lowercased name (first provider wins), capped for display.
+const SIMILAR_CAP = 24
+const similar = computed(() => {
+  const groups = new Map<string, { name: string; url: string; score: number }[]>()
+  for (const artist of (data.value.similar_artists ?? []) as SimilarArtist[]) {
+    const name = formatValue(artist.name)
+    if (!name) continue
+    const provider = formatValue(artist.provider) || 'unknown'
+    if (!groups.has(provider)) groups.set(provider, [])
+    groups.get(provider)!.push({ name, url: formatValue(artist.url), score: Number(artist.score) || 0 })
+  }
+  const lists = [...groups.values()].map(list => [...list].sort((a, b) => b.score - a.score))
+  const seen = new Set<string>()
+  const out: { name: string; url: string }[] = []
+  for (let rank = 0; out.length < SIMILAR_CAP; rank++) {
+    let advanced = false
+    for (const list of lists) {
+      const item = list[rank]
+      if (!item) continue
+      advanced = true
+      const key = item.name.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push({ name: item.name, url: item.url })
+      if (out.length >= SIMILAR_CAP) break
+    }
+    if (!advanced) break
+  }
+  return out
+})
 </script>
 
 <template>
@@ -62,7 +91,7 @@ const similar = computed(() =>
       </div>
     </OverviewPanel>
 
-    <OverviewPanel v-if="similar.length" title="Related artists" kicker="Neighbours">
+    <OverviewPanel v-if="similar.length" title="Similar artists" kicker="Neighbours">
       <div class="chip-row">
         <a v-for="(artist, index) in similar" :key="index" :href="artist.url || undefined" target="_blank" rel="noopener noreferrer" class="chip" :class="{ 'chip--accent': artist.url }">
           {{ artist.name }}<template v-if="artist.url"> ↗</template>
@@ -74,6 +103,7 @@ const similar = computed(() =>
     </div>
 
     <TopTracksPanel :entity-id="entity.id" />
+    <MusicVideoShelf :videos="data.music_videos" />
     <DiscographyGrid :entity-id="entity.id" />
   </div>
 </template>

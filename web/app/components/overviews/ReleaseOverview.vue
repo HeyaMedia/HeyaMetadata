@@ -12,12 +12,28 @@ const facts = computed<Fact[]>(() => {
     { label: 'Status', value: titleCase(d.status) },
     { label: 'Released', value: formatDate(d.date) },
     { label: 'Country', value: d.country },
+    {
+      label: 'Release events',
+      value: (d.release_events ?? []).map((event: any) =>
+        [formatDate(event.date), formatValue(event.country)].filter(Boolean).join(' — ')),
+    },
+    { label: 'Language', value: languageName(d.language) },
+    { label: 'Script', value: scriptName(d.script) },
     { label: 'Barcode', value: d.barcode },
+    { label: 'ASIN', value: d.asin },
     { label: 'Packaging', value: titleCase(d.packaging) },
     { label: 'Quality', value: titleCase(d.quality) },
-    { label: 'Labels', value: (d.labels ?? []).map((label: any) => formatValue(label.name)) },
+    {
+      label: 'Labels',
+      value: (d.labels ?? []).map((label: any) =>
+        [formatValue(label.name), formatValue(label.catalog_number)].filter(Boolean).join(' · ')),
+    },
   ]
 })
+
+// Folksonomy chips from the new genres[]/tags[] {name, count} arrays — ChipCloud
+// resolves each object to its `name` and dedupes case-insensitively.
+const genreChips = computed(() => [...(data.value.genres ?? []), ...(data.value.tags ?? [])])
 
 const media = computed<any[]>(() => (Array.isArray(data.value.media) ? data.value.media : []))
 // Discs that carry a real tracklist — rendered as full tracklists so each track
@@ -42,6 +58,8 @@ function mediumTitle(medium: any, index: number): string {
     </OverviewPanel>
 
     <ExternalIdsPanel :external-ids="entity.external_ids" />
+
+    <ChipCloud title="Genres & tags" kicker="Folksonomy" :items="genreChips" />
 
     <TracklistPanel
       v-for="disc in trackDiscs"

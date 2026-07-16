@@ -21,6 +21,11 @@ func NormalizeRelease(body []byte, observationID string, observedAt time.Time) (
 			ID              int64
 			Name, ANV, Join string
 		}
+		ExtraArtists []struct {
+			ID   int64
+			Name string
+			Role string
+		} `json:"extraartists"`
 		Labels []struct {
 			ID    int64
 			Name  string
@@ -38,10 +43,15 @@ func NormalizeRelease(body []byte, observationID string, observedAt time.Time) (
 			Height      int    `json:"height"`
 		} `json:"images"`
 		Tracklist []struct {
-			Position string `json:"position"`
-			Title    string `json:"title"`
-			Duration string `json:"duration"`
-			Type     string `json:"type_"`
+			Position     string `json:"position"`
+			Title        string `json:"title"`
+			Duration     string `json:"duration"`
+			Type         string `json:"type_"`
+			ExtraArtists []struct {
+				ID   int64
+				Name string
+				Role string
+			} `json:"extraartists"`
 		}
 	}
 	if err := json.Unmarshal(body, &s); err != nil {
@@ -60,7 +70,21 @@ func NormalizeRelease(body []byte, observationID string, observedAt time.Time) (
 	}
 	date := rgdomain.DateValue{Value: s.Released, Precision: "day", Type: "release"}
 	e := rgdomain.Edition{Provider: "discogs", Namespace: "release", ProviderID: id, Title: s.Title, Country: s.Country, Barcode: barcode, Date: date, Link: s.URI}
-	r := rgdomain.NormalizedRecordV1{ProviderRecord: rgdomain.ProviderRecord{Provider: "discogs", Namespace: "release", Value: id, PrimaryObservationID: observationID, ObservedAt: observedAt, NormalizerVersion: "discogs-release/v1", SchemaVersion: 1}, IdentityCandidates: []rgdomain.IdentityCandidate{{Provider: "discogs", Namespace: "release", NormalizedValue: id, Confidence: 1, Evidence: "provider_record"}}, Titles: []rgdomain.Title{{Value: s.Title, Type: "edition_title", Primary: true}}, Dates: []rgdomain.DateValue{date}, Editions: []rgdomain.Edition{e}}
+	for _, format := range s.Formats {
+		if name := strings.TrimSpace(format.Name); name != "" {
+			e.Formats = append(e.Formats, name)
+		}
+	}
+	for _, label := range s.Labels {
+		if name := strings.TrimSpace(label.Name); name != "" {
+			providerID := ""
+			if label.ID > 0 {
+				providerID = strconv.FormatInt(label.ID, 10)
+			}
+			e.Labels = append(e.Labels, rgdomain.Label{ProviderID: providerID, Name: name, CatalogNumber: strings.TrimSpace(label.CatNo)})
+		}
+	}
+	r := rgdomain.NormalizedRecordV1{ProviderRecord: rgdomain.ProviderRecord{Provider: "discogs", Namespace: "release", Value: id, PrimaryObservationID: observationID, ObservedAt: observedAt, NormalizerVersion: rgdomain.DiscogsReleaseVersion, SchemaVersion: 1}, IdentityCandidates: []rgdomain.IdentityCandidate{{Provider: "discogs", Namespace: "release", NormalizedValue: id, Confidence: 1, Evidence: "provider_record"}}, Titles: []rgdomain.Title{{Value: s.Title, Type: "edition_title", Primary: true}}, Dates: []rgdomain.DateValue{date}, Editions: []rgdomain.Edition{e}}
 	for i, a := range s.Artists {
 		name := a.ANV
 		if name == "" {
@@ -68,13 +92,24 @@ func NormalizeRelease(body []byte, observationID string, observedAt time.Time) (
 		}
 		r.ArtistCredits = append(r.ArtistCredits, rgdomain.ArtistCredit{Position: i, Name: name, JoinPhrase: a.Join, ArtistProvider: "discogs", ArtistNamespace: "artist", ArtistID: strconv.FormatInt(a.ID, 10), ArtistName: a.Name})
 	}
+	for _, a := range s.ExtraArtists {
+		if a.ID > 0 && strings.TrimSpace(a.Name) != "" {
+			r.ArtistCredits = append(r.ArtistCredits, rgdomain.ArtistCredit{Position: len(r.ArtistCredits), Name: a.Name, Role: strings.ToLower(strings.TrimSpace(a.Role)), ArtistProvider: "discogs", ArtistNamespace: "artist", ArtistID: strconv.FormatInt(a.ID, 10), ArtistName: a.Name})
+		}
+	}
 	number := 0
 	for _, t := range s.Tracklist {
 		if t.Type != "track" || strings.TrimSpace(t.Title) == "" {
 			continue
 		}
 		number++
-		r.Tracks = append(r.Tracks, rgdomain.Track{Position: t.Position, Number: number, Title: t.Title, DurationMS: parseDiscogsDuration(t.Duration)})
+		track := rgdomain.Track{Position: t.Position, Number: number, Title: t.Title, DurationMS: parseDiscogsDuration(t.Duration)}
+		for _, a := range t.ExtraArtists {
+			if a.ID > 0 && strings.TrimSpace(a.Name) != "" {
+				track.ArtistCredits = append(track.ArtistCredits, rgdomain.ArtistCredit{Position: len(track.ArtistCredits), Name: a.Name, Role: strings.ToLower(strings.TrimSpace(a.Role)), ArtistProvider: "discogs", ArtistNamespace: "artist", ArtistID: strconv.FormatInt(a.ID, 10), ArtistName: a.Name})
+			}
+		}
+		r.Tracks = append(r.Tracks, track)
 	}
 	r.Editions[0].TrackCount = len(r.Tracks)
 	for i, image := range s.Images {

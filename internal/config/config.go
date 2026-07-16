@@ -69,9 +69,12 @@ type ProvidersConfig struct {
 	Fanart      FanartConfig
 	MusicBrainz MusicBrainzConfig
 	Apple       AppleConfig
+	AudioDB     AudioDBConfig
+	Bandcamp    BandcampConfig
 	Deezer      DeezerConfig
 	Discogs     DiscogsConfig
 	LastFM      LastFMConfig
+	Tidal       TidalConfig
 	AniDB       AniDBConfig
 	AnimeLists  AnimeListsConfig
 	TheXEM      TheXEMConfig
@@ -172,8 +175,32 @@ type AppleConfig struct {
 	RequestsPerSecond float64
 }
 
+type AudioDBConfig struct {
+	APIKey            string
+	BaseURL           string
+	RequestsPerSecond float64
+}
+
+// BandcampConfig drives the keyless Bandcamp collector. Artist pages live on
+// per-artist subdomains, so PageURLTemplate carries a {subdomain} placeholder
+// instead of a single base URL.
+type BandcampConfig struct {
+	BaseURL           string
+	PageURLTemplate   string
+	RequestsPerSecond float64
+}
+
 type DeezerConfig struct {
 	BaseURL           string
+	RequestsPerSecond float64
+}
+
+type TidalConfig struct {
+	ClientID          string
+	ClientSecret      string
+	BaseURL           string
+	AuthURL           string
+	Country           string
 	RequestsPerSecond float64
 }
 
@@ -259,7 +286,19 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	audioDBRate, err := envFloat("HEYA_METADATA_AUDIODB_REQUESTS_PER_SECOND", 0.5)
+	if err != nil {
+		return Config{}, err
+	}
+	bandcampRate, err := envFloat("HEYA_METADATA_BANDCAMP_REQUESTS_PER_SECOND", 0.5)
+	if err != nil {
+		return Config{}, err
+	}
 	deezerRate, err := envFloat("HEYA_METADATA_DEEZER_REQUESTS_PER_SECOND", 5)
+	if err != nil {
+		return Config{}, err
+	}
+	tidalRate, err := envFloat("HEYA_METADATA_TIDAL_REQUESTS_PER_SECOND", 2)
 	if err != nil {
 		return Config{}, err
 	}
@@ -378,8 +417,19 @@ func Load() (Config, error) {
 		}, Apple: AppleConfig{
 			BaseURL: env("HEYA_METADATA_APPLE_BASE_URL", "https://itunes.apple.com"), MusicBaseURL: env("HEYA_METADATA_APPLE_MUSIC_BASE_URL", "https://api.music.apple.com/v1"),
 			DeveloperToken: env("HEYA_METADATA_APPLE_DEVELOPER_TOKEN", ""), Country: env("HEYA_METADATA_APPLE_COUNTRY", "US"), RequestsPerSecond: appleRate,
+		}, AudioDB: AudioDBConfig{
+			APIKey:  env("HEYA_METADATA_AUDIODB_API_KEY", "2"),
+			BaseURL: env("HEYA_METADATA_AUDIODB_BASE_URL", "https://www.theaudiodb.com/api/v1/json"), RequestsPerSecond: audioDBRate,
+		}, Bandcamp: BandcampConfig{
+			BaseURL:         env("HEYA_METADATA_BANDCAMP_BASE_URL", "https://bandcamp.com"),
+			PageURLTemplate: env("HEYA_METADATA_BANDCAMP_PAGE_URL_TEMPLATE", "https://{subdomain}.bandcamp.com"), RequestsPerSecond: bandcampRate,
 		}, Deezer: DeezerConfig{
 			BaseURL: env("HEYA_METADATA_DEEZER_BASE_URL", "https://api.deezer.com"), RequestsPerSecond: deezerRate,
+		}, Tidal: TidalConfig{
+			ClientID: env("HEYA_METADATA_TIDAL_CLIENT_ID", ""), ClientSecret: env("HEYA_METADATA_TIDAL_CLIENT_SECRET", ""),
+			BaseURL: env("HEYA_METADATA_TIDAL_BASE_URL", "https://openapi.tidal.com/v2"),
+			AuthURL: env("HEYA_METADATA_TIDAL_AUTH_URL", "https://auth.tidal.com/v1/oauth2/token"),
+			Country: env("HEYA_METADATA_TIDAL_COUNTRY", "US"), RequestsPerSecond: tidalRate,
 		}, Discogs: DiscogsConfig{
 			APIKey: env("HEYA_METADATA_DISCOGS_API_KEY", ""), BaseURL: env("HEYA_METADATA_DISCOGS_BASE_URL", "https://api.discogs.com"),
 			RequestsPerSecond: discogsRate, UserAgent: env("HEYA_METADATA_DISCOGS_USER_AGENT", "HeyaMetadata/dev +https://github.com/HeyaMedia/HeyaMetadata"),
@@ -549,9 +599,13 @@ func (c Config) Validate() error {
 	for name, rawURL := range map[string]string{
 		"HEYA_METADATA_APPLE_BASE_URL":       c.Providers.Apple.BaseURL,
 		"HEYA_METADATA_APPLE_MUSIC_BASE_URL": c.Providers.Apple.MusicBaseURL,
+		"HEYA_METADATA_AUDIODB_BASE_URL":     c.Providers.AudioDB.BaseURL,
+		"HEYA_METADATA_BANDCAMP_BASE_URL":    c.Providers.Bandcamp.BaseURL,
 		"HEYA_METADATA_DEEZER_BASE_URL":      c.Providers.Deezer.BaseURL,
 		"HEYA_METADATA_DISCOGS_BASE_URL":     c.Providers.Discogs.BaseURL,
 		"HEYA_METADATA_LASTFM_BASE_URL":      c.Providers.LastFM.BaseURL,
+		"HEYA_METADATA_TIDAL_BASE_URL":       c.Providers.Tidal.BaseURL,
+		"HEYA_METADATA_TIDAL_AUTH_URL":       c.Providers.Tidal.AuthURL,
 	} {
 		parsed, parseErr := url.Parse(rawURL)
 		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" {
@@ -561,11 +615,20 @@ func (c Config) Validate() error {
 	if len(strings.TrimSpace(c.Providers.Apple.Country)) != 2 {
 		return fmt.Errorf("HEYA_METADATA_APPLE_COUNTRY must be a two-letter storefront code")
 	}
+	if len(strings.TrimSpace(c.Providers.Tidal.Country)) != 2 {
+		return fmt.Errorf("HEYA_METADATA_TIDAL_COUNTRY must be a two-letter country code")
+	}
+	if !strings.HasPrefix(c.Providers.Bandcamp.PageURLTemplate, "https://") || !strings.Contains(c.Providers.Bandcamp.PageURLTemplate, "{subdomain}") {
+		return fmt.Errorf("HEYA_METADATA_BANDCAMP_PAGE_URL_TEMPLATE must be an HTTPS URL containing {subdomain}")
+	}
 	for name, rate := range map[string]float64{
-		"HEYA_METADATA_APPLE_REQUESTS_PER_SECOND":   c.Providers.Apple.RequestsPerSecond,
-		"HEYA_METADATA_DEEZER_REQUESTS_PER_SECOND":  c.Providers.Deezer.RequestsPerSecond,
-		"HEYA_METADATA_DISCOGS_REQUESTS_PER_SECOND": c.Providers.Discogs.RequestsPerSecond,
-		"HEYA_METADATA_LASTFM_REQUESTS_PER_SECOND":  c.Providers.LastFM.RequestsPerSecond,
+		"HEYA_METADATA_APPLE_REQUESTS_PER_SECOND":    c.Providers.Apple.RequestsPerSecond,
+		"HEYA_METADATA_AUDIODB_REQUESTS_PER_SECOND":  c.Providers.AudioDB.RequestsPerSecond,
+		"HEYA_METADATA_BANDCAMP_REQUESTS_PER_SECOND": c.Providers.Bandcamp.RequestsPerSecond,
+		"HEYA_METADATA_DEEZER_REQUESTS_PER_SECOND":   c.Providers.Deezer.RequestsPerSecond,
+		"HEYA_METADATA_DISCOGS_REQUESTS_PER_SECOND":  c.Providers.Discogs.RequestsPerSecond,
+		"HEYA_METADATA_LASTFM_REQUESTS_PER_SECOND":   c.Providers.LastFM.RequestsPerSecond,
+		"HEYA_METADATA_TIDAL_REQUESTS_PER_SECOND":    c.Providers.Tidal.RequestsPerSecond,
 	} {
 		if rate <= 0 || rate > 1000 {
 			return fmt.Errorf("%s must be greater than 0 and at most 1000", name)

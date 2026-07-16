@@ -6,8 +6,8 @@ import "time"
 
 const (
 	NormalizedSchemaVersion    = 1
-	NormalizerVersion          = "musicbrainz-release/v2"
-	RecordingNormalizerVersion = "musicbrainz-recording/v2"
+	NormalizerVersion          = "musicbrainz-release/v3"
+	RecordingNormalizerVersion = "musicbrainz-recording/v3"
 	MergeVersion               = "release-merge/v1"
 	RecordingMergeVersion      = "recording-merge/v2"
 	ProjectionSchemaVersion    = 1
@@ -32,6 +32,7 @@ type ArtistCredit struct {
 	Position        int    `json:"position"`
 	Name            string `json:"name"`
 	JoinPhrase      string `json:"join_phrase,omitempty"`
+	Role            string `json:"role,omitempty"`
 	ArtistEntityID  string `json:"artist_entity_id,omitempty" format:"uuid"`
 	ArtistProvider  string `json:"artist_provider"`
 	ArtistNamespace string `json:"artist_namespace"`
@@ -44,21 +45,39 @@ type Label struct {
 	Name          string `json:"name"`
 	CatalogNumber string `json:"catalog_number,omitempty"`
 }
+type ReleaseEvent struct {
+	Date    string `json:"date,omitempty"`
+	Country string `json:"country,omitempty"`
+}
 type Recording struct {
-	Provider       string             `json:"provider"`
-	Namespace      string             `json:"namespace"`
-	ProviderID     string             `json:"provider_id"`
-	Title          string             `json:"title"`
-	DurationMS     int64              `json:"duration_ms,omitempty"`
-	ISRCs          []string           `json:"isrcs"`
-	ArtistCredits  []ArtistCredit     `json:"artist_credits"`
-	Disambiguation string             `json:"disambiguation,omitempty"`
-	Video          bool               `json:"video,omitempty"`
-	Genres         []WeightedTerm     `json:"genres,omitempty"`
-	Tags           []WeightedTerm     `json:"tags,omitempty"`
-	Rating         *Rating            `json:"rating,omitempty"`
-	Releases       []RecordingRelease `json:"releases,omitempty"`
-	Links          []Link             `json:"links,omitempty"`
+	Provider       string              `json:"provider"`
+	Namespace      string              `json:"namespace"`
+	ProviderID     string              `json:"provider_id"`
+	Title          string              `json:"title"`
+	DurationMS     int64               `json:"duration_ms,omitempty"`
+	ISRCs          []string            `json:"isrcs"`
+	ArtistCredits  []ArtistCredit      `json:"artist_credits"`
+	Credits        []PerformanceCredit `json:"credits,omitempty"`
+	Disambiguation string              `json:"disambiguation,omitempty"`
+	Video          bool                `json:"video,omitempty"`
+	Genres         []WeightedTerm      `json:"genres,omitempty"`
+	Tags           []WeightedTerm      `json:"tags,omitempty"`
+	Rating         *Rating             `json:"rating,omitempty"`
+	Releases       []RecordingRelease  `json:"releases,omitempty"`
+	Links          []Link              `json:"links,omitempty"`
+}
+
+// PerformanceCredit is a role-bearing contribution to a recording: producer,
+// engineer, mixer, vocals, instruments. Attributes carry the specifics
+// MusicBrainz reports (instrument names, "lead vocals", "additional").
+type PerformanceCredit struct {
+	Role            string   `json:"role"`
+	Attributes      []string `json:"attributes,omitempty"`
+	ArtistEntityID  string   `json:"artist_entity_id,omitempty" format:"uuid"`
+	ArtistProvider  string   `json:"artist_provider"`
+	ArtistNamespace string   `json:"artist_namespace"`
+	ArtistID        string   `json:"artist_id"`
+	ArtistName      string   `json:"artist_name"`
 }
 type WorkRelation struct {
 	ProviderID string   `json:"provider_id"`
@@ -130,9 +149,16 @@ type NormalizedRecord struct {
 	Date           string         `json:"date,omitempty"`
 	Country        string         `json:"country,omitempty"`
 	Barcode        string         `json:"barcode,omitempty"`
+	ASIN           string         `json:"asin,omitempty"`
+	Language       string         `json:"language,omitempty"`
+	Script         string         `json:"script,omitempty"`
 	Link           string         `json:"link,omitempty"`
 	ArtistCredits  []ArtistCredit `json:"artist_credits"`
 	Labels         []Label        `json:"labels"`
+	ReleaseEvents  []ReleaseEvent `json:"release_events,omitempty"`
+	Genres         []WeightedTerm `json:"genres,omitempty"`
+	Tags           []WeightedTerm `json:"tags,omitempty"`
+	Links          []Link         `json:"links,omitempty"`
 	Media          []Medium       `json:"media"`
 	Warnings       []string       `json:"warnings"`
 	PartialFailure bool           `json:"partial_failure"`
@@ -226,8 +252,15 @@ type ReleaseData struct {
 	Date           string           `json:"date,omitempty"`
 	Country        string           `json:"country,omitempty"`
 	Barcode        string           `json:"barcode,omitempty"`
+	ASIN           string           `json:"asin,omitempty"`
+	Language       string           `json:"language,omitempty"`
+	Script         string           `json:"script,omitempty"`
 	ArtistCredits  []ArtistCredit   `json:"artist_credits"`
 	Labels         []Label          `json:"labels"`
+	ReleaseEvents  []ReleaseEvent   `json:"release_events,omitempty"`
+	Genres         []WeightedTerm   `json:"genres,omitempty"`
+	Tags           []WeightedTerm   `json:"tags,omitempty"`
+	Links          []Link           `json:"links,omitempty"`
 	Media          []MediumDocument `json:"media"`
 	Sources        []EditionSource  `json:"sources"`
 }

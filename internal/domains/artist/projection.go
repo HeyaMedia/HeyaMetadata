@@ -80,6 +80,11 @@ type DetailData struct {
 	Metrics        []ProjectedMetric        `json:"metrics"`
 	Relationships  []ProjectedRelationship  `json:"relationships"`
 	SimilarArtists []ProjectedSimilarArtist `json:"similar_artists"`
+	MusicVideos    []ProjectedMusicVideo    `json:"music_videos,omitempty"`
+}
+type ProjectedMusicVideo struct {
+	MusicVideo
+	Provider string `json:"provider"`
 }
 type DetailDocument struct {
 	SchemaVersion     int                     `json:"schema_version"`
@@ -242,6 +247,13 @@ func Combine(entityID, slug string, projectionVersion int64, records []RecordInp
 			if !seen[key] {
 				seen[key] = true
 				detail.Data.SimilarArtists = append(detail.Data.SimilarArtists, ProjectedSimilarArtist{SimilarArtist: value, Provider: provider})
+			}
+		}
+		for _, value := range record.MusicVideos {
+			key := "video:" + strings.ToLower(value.URL)
+			if !seen[key] {
+				seen[key] = true
+				detail.Data.MusicVideos = append(detail.Data.MusicVideos, ProjectedMusicVideo{MusicVideo: value, Provider: provider})
 			}
 		}
 	}

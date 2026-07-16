@@ -72,6 +72,7 @@ type ProjectedEdition struct {
 	DurationMS      int64           `json:"duration_ms,omitempty"`
 	Explicit        *bool           `json:"explicit,omitempty"`
 	Formats         []string        `json:"formats"`
+	Labels          []Label         `json:"labels,omitempty"`
 	Link            string          `json:"link,omitempty"`
 	ImageID         string          `json:"image_id,omitempty"`
 	Sources         []EditionSource `json:"sources"`
@@ -252,7 +253,7 @@ func Combine(entityID, slug string, version int64, records []RecordInput, imageI
 				continue
 			}
 			seen[key] = true
-			projected := ProjectedEdition{Provider: value.Provider, Namespace: value.Namespace, ProviderID: value.ProviderID, Title: value.Title, Status: value.Status, Date: value.Date, Country: value.Country, Barcode: value.Barcode, TrackCount: value.TrackCount, DurationMS: value.DurationMS, Explicit: value.Explicit, Formats: value.Formats, Link: value.Link, Sources: []EditionSource{{Provider: value.Provider, Namespace: value.Namespace, ProviderID: value.ProviderID, Link: value.Link}}}
+			projected := ProjectedEdition{Provider: value.Provider, Namespace: value.Namespace, ProviderID: value.ProviderID, Title: value.Title, Status: value.Status, Date: value.Date, Country: value.Country, Barcode: value.Barcode, TrackCount: value.TrackCount, DurationMS: value.DurationMS, Explicit: value.Explicit, Formats: value.Formats, Labels: value.Labels, Link: value.Link, Sources: []EditionSource{{Provider: value.Provider, Namespace: value.Namespace, ProviderID: value.ProviderID, Link: value.Link}}}
 			if value.Image != nil {
 				projected.ImageID = imageIDs[ImageKey(provider, *value.Image)]
 			}
@@ -260,6 +261,7 @@ func Combine(entityID, slug string, version int64, records []RecordInput, imageI
 				existing := &detail.Data.Editions[index]
 				existing.Sources = append(existing.Sources, projected.Sources...)
 				existing.Formats = unionReleaseGroupStrings(existing.Formats, projected.Formats)
+				existing.Labels = unionEditionLabels(existing.Labels, projected.Labels)
 				if existing.ImageID == "" {
 					existing.ImageID = projected.ImageID
 				}
@@ -359,6 +361,20 @@ func formatArtistCredit(credits []ArtistCredit) string {
 		out.WriteString(credit.JoinPhrase)
 	}
 	return out.String()
+}
+func unionEditionLabels(existing, incoming []Label) []Label {
+	seen := map[string]bool{}
+	for _, value := range existing {
+		seen[strings.ToLower(value.Name+"\x00"+value.CatalogNumber)] = true
+	}
+	for _, value := range incoming {
+		key := strings.ToLower(value.Name + "\x00" + value.CatalogNumber)
+		if value.Name != "" && !seen[key] {
+			seen[key] = true
+			existing = append(existing, value)
+		}
+	}
+	return existing
 }
 func unionReleaseGroupStrings(existing, incoming []string) []string {
 	seen := map[string]bool{}

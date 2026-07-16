@@ -124,8 +124,8 @@ func TestInvalidArtistReleaseIdentifiersDoNotTriggerProviderRouting(t *testing.T
 	if hasArtistReleaseIdentityEvidence(request) {
 		t.Fatal("invalid release identifiers forced durable provider routing")
 	}
-	roots, err := (&Service{}).artistRootsFromReleaseHints(context.Background(), request.Hints.Releases, 0, providercredentials.Credentials{})
-	if err != nil || len(roots) != 0 {
-		t.Fatalf("roots=%+v err=%v", roots, err)
+	evidence, err := (&Service{}).artistReleaseEvidenceFromHints(context.Background(), request.Hints.Releases, 0, providercredentials.Credentials{})
+	if err != nil || len(evidence) != 0 {
+		t.Fatalf("evidence=%+v err=%v", evidence, err)
 	}
 }

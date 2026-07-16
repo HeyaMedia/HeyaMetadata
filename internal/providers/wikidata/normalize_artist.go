@@ -76,7 +76,13 @@ func NormalizeArtist(body []byte, expectedID, observationID string, observedAt t
 	if len(musicBrainzArtists) > 1 {
 		record.Warnings = append(record.Warnings, "wikidata_item_spans_multiple_musicbrainz_artists")
 	}
-	linkProperties := map[string]string{"P856": "official", "P2397": "youtube", "P2002": "twitter", "P2003": "instagram", "P2013": "facebook", "P7085": "tiktok"}
+	// Streaming/catalog IDs (P1902 etc.) stay descriptive links for the same
+	// reason P434 stays evidence-only: one Wikidata item can span several
+	// catalog identities, so they must not become identity candidates.
+	linkProperties := map[string]string{
+		"P856": "official", "P2397": "youtube", "P2002": "twitter", "P2003": "instagram", "P2013": "facebook", "P7085": "tiktok",
+		"P1902": "spotify", "P2850": "apple", "P2722": "deezer", "P1953": "discogs", "P3040": "soundcloud",
+	}
 	for property, kind := range linkProperties {
 		for _, value := range claimStrings(source.Claims[property]) {
 			if property != "P856" {
@@ -88,13 +94,17 @@ func NormalizeArtist(body []byte, expectedID, observationID string, observedAt t
 	for _, value := range claimStrings(source.Claims["P18"]) {
 		record.Images = append(record.Images, artistdomain.Image{ProviderImageID: value, SourceURL: "https://commons.wikimedia.org/wiki/Special:Redirect/file/" + url.PathEscape(value), Class: "commons"})
 	}
-	for _, date := range claimTimes(source.Claims["P571"], "begin") {
-		record.Lifecycle.Dates = append(record.Lifecycle.Dates, date)
+	for _, property := range []string{"P571", "P569"} {
+		for _, date := range claimTimes(source.Claims[property], "begin") {
+			record.Lifecycle.Dates = append(record.Lifecycle.Dates, date)
+		}
 	}
-	for _, date := range claimTimes(source.Claims["P576"], "end") {
-		record.Lifecycle.Dates = append(record.Lifecycle.Dates, date)
-		ended := true
-		record.Lifecycle.Ended = &ended
+	for _, property := range []string{"P576", "P570"} {
+		for _, date := range claimTimes(source.Claims[property], "end") {
+			record.Lifecycle.Dates = append(record.Lifecycle.Dates, date)
+			ended := true
+			record.Lifecycle.Ended = &ended
+		}
 	}
 	for _, property := range []struct{ id, kind string }{{"P740", "formation_location"}, {"P27", "country"}, {"P527", "member"}} {
 		for _, entityID := range claimEntityIDs(source.Claims[property.id]) {
@@ -165,6 +175,9 @@ func claimTimes(statements []statement, kind string) []artistdomain.DateValue {
 }
 
 func socialURL(property, value string) string {
-	prefix := map[string]string{"P2397": "https://www.youtube.com/channel/", "P2002": "https://twitter.com/", "P2003": "https://www.instagram.com/", "P2013": "https://www.facebook.com/", "P7085": "https://www.tiktok.com/@"}[property]
+	prefix := map[string]string{
+		"P2397": "https://www.youtube.com/channel/", "P2002": "https://twitter.com/", "P2003": "https://www.instagram.com/", "P2013": "https://www.facebook.com/", "P7085": "https://www.tiktok.com/@",
+		"P1902": "https://open.spotify.com/artist/", "P2850": "https://music.apple.com/artist/", "P2722": "https://www.deezer.com/artist/", "P1953": "https://www.discogs.com/artist/", "P3040": "https://soundcloud.com/",
+	}[property]
 	return prefix + value
 }

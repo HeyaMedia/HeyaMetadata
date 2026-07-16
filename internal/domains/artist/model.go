@@ -7,12 +7,18 @@ const (
 	NormalizedSchemaVersion      = 1
 	MusicBrainzNormalizerVersion = "musicbrainz-artist/v1"
 	AppleNormalizerVersion       = "apple-artist/v1"
+	AudioDBNormalizerVersion     = "audiodb-artist/v2"
+	AudioDBMusicVideosVersion    = "audiodb-artist-music-videos/v1"
+	BandcampNormalizerVersion    = "bandcamp-artist/v1"
 	DeezerNormalizerVersion      = "deezer-artist/v1"
+	DeezerArtistExtrasVersion    = "deezer-artist-extras/v1"
 	DiscogsNormalizerVersion     = "discogs-artist/v1"
 	FanartNormalizerVersion      = "fanart-music-artist/v1"
 	LastFMNormalizerVersion      = "lastfm-artist/v3"
 	LastFMTopTracksVersion       = "lastfm-artist-top-tracks/v2"
-	WikidataNormalizerVersion    = "wikidata-artist/v3"
+	LastFMSimilarVersion         = "lastfm-artist-similar/v1"
+	TidalNormalizerVersion       = "tidal-artist/v2"
+	WikidataNormalizerVersion    = "wikidata-artist/v4"
 	MergeVersion                 = "artist-merge/v1"
 	ProjectionSchemaVersion      = 1
 )
@@ -124,6 +130,15 @@ type SimilarArtist struct {
 	Score      float64 `json:"score,omitempty"`
 }
 
+// MusicVideo is an artist-scoped music video link (typically YouTube).
+// Providers report these per track title without recording identity.
+type MusicVideo struct {
+	ProviderVideoID string `json:"provider_video_id,omitempty"`
+	TrackTitle      string `json:"track_title"`
+	URL             string `json:"url"`
+	Description     string `json:"description,omitempty"`
+}
+
 type TopTrack struct {
 	Rank            int    `json:"rank"`
 	Title           string `json:"title"`
@@ -151,6 +166,7 @@ type NormalizedRecordV1 struct {
 	Metrics                []Metric            `json:"metrics"`
 	Relationships          []Relationship      `json:"relationships"`
 	SimilarArtists         []SimilarArtist     `json:"similar_artists"`
+	MusicVideos            []MusicVideo        `json:"music_videos,omitempty"`
 	TopTracks              []TopTrack          `json:"top_tracks,omitempty"`
 	TopTracksObserved      bool                `json:"top_tracks_observed,omitempty"`
 	TopTracksTotal         int                 `json:"top_tracks_total,omitempty"`
