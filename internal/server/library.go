@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -13,6 +14,15 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/resourceid"
 	"github.com/danielgtaylor/huma/v2"
+)
+
+const (
+	libraryStatsCacheKey         = "heya:metadata:v2:library-stats"
+	libraryStatsRefreshLockKey   = libraryStatsCacheKey + ":refresh"
+	libraryStatsFreshFor         = 5 * time.Minute
+	libraryStatsCacheRetention   = 24 * time.Hour
+	movieCollectionsCacheKey     = "heya:metadata:v2:movie-collections"
+	movieCollectionsCacheRefresh = time.Hour
 )
 
 type browseInput struct {
@@ -184,9 +194,17 @@ func browseLibrary(ctx context.Context, runtime *platform.Runtime, input *browse
 
 func libraryStats(ctx context.Context, runtime *platform.Runtime) (*statsOutput, error) {
 	out := &statsOutput{}
-	if cached, err := runtime.Redis.Get(ctx, "heya:metadata:v2:library-stats").Bytes(); err == nil && json.Unmarshal(cached, &out.Body) == nil {
+	if cached, err := runtime.Redis.Get(ctx, libraryStatsCacheKey).Bytes(); err == nil && json.Unmarshal(cached, &out.Body) == nil {
+		if time.Since(out.Body.GeneratedAt) > libraryStatsFreshFor {
+			refreshLibraryStatsAsync(runtime)
+		}
 		return out, nil
 	}
+	return computeLibraryStats(ctx, runtime)
+}
+
+func computeLibraryStats(ctx context.Context, runtime *platform.Runtime) (*statsOutput, error) {
+	out := &statsOutput{}
 	out.Body.Kinds = map[string]int64{}
 	out.Body.ProviderClaims = map[string]int64{}
 	out.Body.GeneratedAt = time.Now().UTC()
@@ -235,13 +253,32 @@ func libraryStats(ctx context.Context, runtime *platform.Runtime) (*statsOutput,
 		return nil, err
 	}
 	if body, marshalErr := json.Marshal(out.Body); marshalErr == nil {
-		_ = runtime.Redis.Set(ctx, "heya:metadata:v2:library-stats", body, 5*time.Minute).Err()
+		if cacheErr := runtime.Redis.Set(ctx, libraryStatsCacheKey, body, libraryStatsCacheRetention).Err(); cacheErr != nil {
+			slog.WarnContext(ctx, "cache library stats", "error", cacheErr)
+		}
 	}
 	return out, nil
 }
 
+func refreshLibraryStatsAsync(runtime *platform.Runtime) {
+	lockCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	acquired, err := runtime.Redis.SetNX(lockCtx, libraryStatsRefreshLockKey, "1", time.Minute).Result()
+	cancel()
+	if err != nil || !acquired {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		defer runtime.Redis.Del(context.WithoutCancel(ctx), libraryStatsRefreshLockKey)
+		if _, err := computeLibraryStats(ctx, runtime); err != nil {
+			slog.WarnContext(ctx, "refresh cached library stats", "error", err)
+		}
+	}()
+}
+
 func movieCollections(ctx context.Context, runtime *platform.Runtime) ([]collectionCard, error) {
-	if cached, err := runtime.Redis.Get(ctx, "heya:metadata:v2:movie-collections").Bytes(); err == nil {
+	if cached, err := runtime.Redis.Get(ctx, movieCollectionsCacheKey).Bytes(); err == nil {
 		var values []collectionCard
 		if json.Unmarshal(cached, &values) == nil {
 			return values, nil
@@ -282,9 +319,34 @@ func movieCollections(ctx context.Context, runtime *platform.Runtime) ([]collect
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
+	providerIDs := make([]string, 0)
 	for i := range values {
 		for j := range values[i].Members {
-			_ = runtime.DB.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind='movie'AND provider='tmdb'AND namespace='movie'AND normalized_value=$1 AND state='accepted'`, values[i].Members[j].ProviderID).Scan(&values[i].Members[j].EntityID)
+			providerIDs = append(providerIDs, values[i].Members[j].ProviderID)
+		}
+	}
+	entityIDs := make(map[string]string, len(providerIDs))
+	if len(providerIDs) > 0 {
+		claimRows, queryErr := runtime.DB.Query(ctx, `SELECT normalized_value,entity_id::text FROM external_id_claims WHERE entity_kind='movie'AND provider='tmdb'AND namespace='movie'AND normalized_value=ANY($1)AND state='accepted'`, providerIDs)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		for claimRows.Next() {
+			var providerID, entityID string
+			if scanErr := claimRows.Scan(&providerID, &entityID); scanErr != nil {
+				claimRows.Close()
+				return nil, scanErr
+			}
+			entityIDs[providerID] = entityID
+		}
+		claimRows.Close()
+		if queryErr = claimRows.Err(); queryErr != nil {
+			return nil, queryErr
+		}
+	}
+	for i := range values {
+		for j := range values[i].Members {
+			values[i].Members[j].EntityID = entityIDs[values[i].Members[j].ProviderID]
 			values[i].Members[j].ResolutionState = "unresolved"
 			if values[i].Members[j].EntityID != "" {
 				values[i].Members[j].ResolutionState = "materialized"
@@ -298,7 +360,9 @@ func movieCollections(ctx context.Context, runtime *platform.Runtime) ([]collect
 		return values[i].Name < values[j].Name
 	})
 	if body, marshalErr := json.Marshal(values); marshalErr == nil {
-		_ = runtime.Redis.Set(ctx, "heya:metadata:v2:movie-collections", body, 5*time.Minute).Err()
+		if cacheErr := runtime.Redis.Set(ctx, movieCollectionsCacheKey, body, movieCollectionsCacheRefresh).Err(); cacheErr != nil {
+			slog.WarnContext(ctx, "cache movie collections", "error", cacheErr)
+		}
 	}
 	return values, nil
 }

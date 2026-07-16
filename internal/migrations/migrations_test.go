@@ -44,3 +44,17 @@ func TestDomainQueueMigrationRemapsWaitingBacklog(t *testing.T) {
 		}
 	}
 }
+
+func TestLibraryReadIndexMigrationExists(t *testing.T) {
+	t.Parallel()
+	migrations, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations {
+		if migration.Version == 57 && strings.Contains(migration.SQL, "search_entities_kind_updated_idx") && strings.Contains(migration.SQL, "image_candidates_materialization_state_idx") {
+			return
+		}
+	}
+	t.Fatal("library read index migration is missing")
+}

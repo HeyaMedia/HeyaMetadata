@@ -58,10 +58,10 @@ export function useHeyaApi() {
   async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const { json, headers, ...rest } = options
     const response = await fetch(path, {
-      // Canonical documents can be rebuilt at the same URL. Always validate a
-      // browser-held response; origin/edge ETags still make unchanged reads
-      // cheap, while an old max-age entry can no longer mask a completed refresh.
-      cache: rest.method && rest.method !== 'GET' ? 'no-store' : 'no-cache',
+      // Let each origin Cache-Control policy govern ordinary GETs. Stateful
+      // writes remain uncacheable, and callers can still request an explicit
+      // revalidation through RequestOptions when freshness is user-triggered.
+      cache: rest.method && rest.method !== 'GET' ? 'no-store' : 'default',
       ...rest,
       headers: { ...buildHeaders(json), ...(headers as Record<string, string>) },
     })

@@ -38,7 +38,10 @@ const SHELVES: Shelf[] = [
   { key: 'manga_volume', title: 'Manga volumes', kicker: 'Written', kind: 'manga_volume', shape: 'poster', to: '/manga' },
 ]
 
-const { data, pending } = await useAsyncData('home', async () => {
+// Do not suspend the initial SPA mount on the complete library overview. The
+// hero and loading shelf should paint immediately while these independent
+// reads settle in the background.
+const { data, pending } = useLazyAsyncData('home', async () => {
   const [shelves, collectionData, stats] = await Promise.all([
     Promise.all(SHELVES.map(shelf => api.latest(shelf.kind, 12).then(r => r.results ?? []).catch(() => []))),
     api.collections().then(r => r.collections ?? []).catch(() => []),
