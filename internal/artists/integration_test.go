@@ -156,6 +156,10 @@ func TestIntegrationMusicBrainzConsolidatesExplicitStorefrontRoots(t *testing.T)
 	if err := runtime.DB.QueryRow(ctx, `SELECT survivor_entity_id::text FROM entity_redirects WHERE retired_entity_id=$1`, entityIDs[1]).Scan(&redirect); err != nil || redirect != merged.EntityID {
 		t.Fatalf("redirect=%q err=%v", redirect, err)
 	}
+	canonicalID, err := service.CanonicalID(ctx, entityIDs[1])
+	if err != nil || canonicalID != merged.EntityID {
+		t.Fatalf("canonical ID for retired artist=%q err=%v", canonicalID, err)
+	}
 	var active int
 	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM entities WHERE id=ANY($1::uuid[]) AND deleted_at IS NULL`, entityIDs).Scan(&active); err != nil || active != 1 {
 		t.Fatalf("active roots=%d err=%v", active, err)

@@ -206,6 +206,22 @@ func (s *Service) Resolve(ctx context.Context, provider, namespace, value string
 	}
 	return id, nil
 }
+
+// CanonicalID follows explicit entity redirects and returns the active artist
+// UUID. This keeps operator tooling on canonical Heya identities even after an
+// artist consolidation retires the originally supplied UUID.
+func (s *Service) CanonicalID(ctx context.Context, entityID string) (string, error) {
+	var canonicalID string
+	err := s.runtime.DB.QueryRow(ctx, `WITH RECURSIVE chain(id,depth)AS(SELECT $1::uuid,0 UNION ALL SELECT redirect.survivor_entity_id,chain.depth+1 FROM chain JOIN entity_redirects redirect ON redirect.retired_entity_id=chain.id WHERE chain.depth<16)SELECT chain.id::text FROM chain JOIN entities entity ON entity.id=chain.id WHERE entity.kind='artist' AND entity.deleted_at IS NULL ORDER BY chain.depth DESC LIMIT 1`, entityID).Scan(&canonicalID)
+	if err == pgx.ErrNoRows {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve canonical artist ID: %w", err)
+	}
+	return canonicalID, nil
+}
+
 func (s *Service) MusicBrainzID(ctx context.Context, entityID string) (string, error) {
 	var value string
 	err := s.runtime.DB.QueryRow(ctx, `SELECT normalized_value FROM external_id_claims WHERE entity_id=$1 AND entity_kind='artist' AND provider='musicbrainz' AND namespace='artist' AND state='accepted'`, entityID).Scan(&value)
