@@ -1053,14 +1053,42 @@ func searchAllEntities(ctx context.Context, runtime *platform.Runtime, input *se
 	// submit schemes as generic evidence to /discoveries when identification or
 	// conflict handling is required.
 	value := query
-	rows, err := runtime.DB.Query(ctx, `WITH matches AS (
-		SELECT entity_id,0 AS tier,1::double precision AS score,1000 AS source_quality FROM external_id_claims WHERE state='accepted' AND lower(normalized_value)=lower($1) AND $2::text=''
+	candidateLimit := max(500, limit*20)
+	rows, err := runtime.DB.Query(ctx, `WITH search_settings AS MATERIALIZED (
+		SELECT set_config('pg_trgm.similarity_threshold','0.25',true)
+	), matches AS (
+		SELECT claim.entity_id,0 AS tier,1::double precision AS score,1000 AS source_quality
+		FROM external_id_claims claim
+		JOIN search_entities filter_entity ON filter_entity.entity_id=claim.entity_id AND ($8='' OR filter_entity.kind=$8)
+		WHERE claim.state='accepted' AND lower(claim.normalized_value)=lower($1)
 		UNION ALL
-		SELECT entity_id,CASE WHEN normalized_value=lower(unaccent($3)) THEN 1 WHEN normalized_value LIKE lower(unaccent($3))||'%' THEN 2 ELSE 3 END,similarity(normalized_value,lower(unaccent($3))),source_quality FROM search_names WHERE normalized_value=lower(unaccent($3)) OR normalized_value LIKE lower(unaccent($3))||'%' OR similarity(normalized_value,lower(unaccent($3)))>=0.25
+		SELECT name.entity_id,1,1::double precision,name.source_quality
+		FROM search_names name
+		JOIN search_entities filter_entity ON filter_entity.entity_id=name.entity_id AND ($8='' OR filter_entity.kind=$8)
+		WHERE name.normalized_value=lower(unaccent($1))
+		UNION ALL
+		SELECT prefix.entity_id,2,prefix.score,prefix.source_quality FROM (
+			SELECT name.entity_id,similarity(name.normalized_value,lower(unaccent($1))) AS score,name.source_quality
+			FROM search_names name
+			JOIN search_entities filter_entity ON filter_entity.entity_id=name.entity_id AND ($8='' OR filter_entity.kind=$8)
+			WHERE name.normalized_value LIKE lower(unaccent($1))||'%' AND name.normalized_value<>lower(unaccent($1))
+			ORDER BY score DESC,name.source_quality DESC
+			LIMIT $9
+		) prefix
+		UNION ALL
+		SELECT fuzzy.entity_id,3,fuzzy.score,fuzzy.source_quality FROM (
+			SELECT name.entity_id,similarity(name.normalized_value,lower(unaccent($1))) AS score,name.source_quality
+			FROM search_names name
+			CROSS JOIN search_settings
+			JOIN search_entities filter_entity ON filter_entity.entity_id=name.entity_id AND ($8='' OR filter_entity.kind=$8)
+			WHERE name.normalized_value % lower(unaccent($1)) AND name.normalized_value NOT LIKE lower(unaccent($1))||'%'
+			ORDER BY score DESC,name.source_quality DESC
+			LIMIT $9
+		) fuzzy
 	), ranked AS (SELECT DISTINCT ON (entity_id) entity_id,tier,score,source_quality FROM matches ORDER BY entity_id,tier,score DESC,source_quality DESC)
 	SELECT se.summary FROM ranked JOIN search_entities se ON se.entity_id=ranked.entity_id
-	WHERE ($5=0 OR se.release_year=$5) AND ($6='' OR EXISTS(SELECT 1 FROM unnest(se.genres) genre WHERE lower(genre)=lower($6))) AND ($7='' OR upper($7)=ANY(se.countries)) AND ($8='' OR lower($8)=ANY(se.languages)) AND ($9='' OR se.status=lower($9)) AND ($10='' OR se.kind=$10)
-		ORDER BY ranked.tier,ranked.score DESC,ranked.source_quality DESC,se.popularity DESC NULLS LAST,se.display_title LIMIT $4`, value, "", query, limit, input.Year, input.Genre, input.Country, input.Language, input.Status, kind)
+	WHERE ($3=0 OR se.release_year=$3) AND ($4='' OR EXISTS(SELECT 1 FROM unnest(se.genres) genre WHERE lower(genre)=lower($4))) AND ($5='' OR upper($5)=ANY(se.countries)) AND ($6='' OR lower($6)=ANY(se.languages)) AND ($7='' OR se.status=lower($7)) AND ($8='' OR se.kind=$8)
+		ORDER BY ranked.tier,ranked.score DESC,ranked.source_quality DESC,se.popularity DESC NULLS LAST,se.display_title LIMIT $2`, value, limit, input.Year, input.Genre, input.Country, input.Language, input.Status, kind, candidateLimit)
 	if err != nil {
 		return nil, err
 	}

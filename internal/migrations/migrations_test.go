@@ -58,3 +58,17 @@ func TestLibraryReadIndexMigrationExists(t *testing.T) {
 	}
 	t.Fatal("library read index migration is missing")
 }
+
+func TestSearchAndPersonReconciliationIndexMigrationExists(t *testing.T) {
+	t.Parallel()
+	migrations, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations {
+		if migration.Version == 58 && strings.Contains(migration.SQL, "external_id_claims_accepted_value_idx") && strings.Contains(migration.SQL, "canonical_people_normalized_display_name_idx") {
+			return
+		}
+	}
+	t.Fatal("search and person reconciliation index migration is missing")
+}
