@@ -26,14 +26,14 @@ type ReleaseGroupIngestArgs struct {
 
 func (ReleaseGroupIngestArgs) Kind() string { return ReleaseGroupIngestKind }
 func (ReleaseGroupIngestArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{MaxAttempts: 5, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
+	return river.InsertOpts{Queue: MusicQueue, MaxAttempts: 5, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
 }
 func InsertReleaseGroup(ctx context.Context, runtime *platform.Runtime, client *river.Client[pgx.Tx], args ReleaseGroupIngestArgs, priority int) (*rivertype.JobInsertResult, error) {
 	inserted, err := client.Insert(ctx, args, &river.InsertOpts{Priority: priority})
 	if err != nil {
 		return nil, err
 	}
-	tag, err := runtime.DB.Exec(ctx, `UPDATE river_job SET priority=LEAST(priority,$2),args=CASE WHEN $3='' THEN args ELSE jsonb_set(args,'{credential_ref}',to_jsonb($3::text),true) END WHERE id=$1 AND state IN ('available','pending','retryable','scheduled')`, inserted.Job.ID, priority, args.CredentialRef)
+	tag, err := runtime.DB.Exec(ctx, `UPDATE river_job SET queue=$4,priority=LEAST(priority,$2),args=CASE WHEN $3='' THEN args ELSE jsonb_set(args,'{credential_ref}',to_jsonb($3::text),true) END WHERE id=$1 AND state IN ('available','pending','retryable','scheduled')`, inserted.Job.ID, priority, args.CredentialRef, MusicQueue)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (w *ReleaseGroupIngestWorker) Work(ctx context.Context, job *river.Job[Rele
 	}
 	client := river.ClientFromContext[pgx.Tx](ctx)
 	for _, releaseID := range musicBrainzReleaseIDs(result.Detail.Data.Editions) {
-		if _, err := client.Insert(ctx, ReleaseIngestArgs{MusicBrainzID: releaseID, Reason: "release_group_edition"}, &river.InsertOpts{Queue: BackgroundQueue, Priority: PriorityScheduled}); err != nil {
+		if _, err := client.Insert(ctx, ReleaseIngestArgs{MusicBrainzID: releaseID, Reason: "release_group_edition"}, &river.InsertOpts{Queue: MusicQueue, Priority: PriorityScheduled}); err != nil {
 			return fmt.Errorf("enqueue issued release %s: %w", releaseID, err)
 		}
 	}

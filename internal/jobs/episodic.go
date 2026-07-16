@@ -29,7 +29,7 @@ type TVShowIngestArgs struct {
 
 func (TVShowIngestArgs) Kind() string { return TVShowIngestKind }
 func (TVShowIngestArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{MaxAttempts: 5, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
+	return river.InsertOpts{Queue: TVQueue, MaxAttempts: 5, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
 }
 
 type AnimeIngestArgs struct {
@@ -42,14 +42,14 @@ type AnimeIngestArgs struct {
 
 func (AnimeIngestArgs) Kind() string { return AnimeIngestKind }
 func (AnimeIngestArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{MaxAttempts: 5, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
+	return river.InsertOpts{Queue: AnimeQueue, MaxAttempts: 5, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
 }
 func InsertTVShow(ctx context.Context, runtime *platform.Runtime, client *river.Client[pgx.Tx], args TVShowIngestArgs, priority int) (*rivertype.JobInsertResult, error) {
 	inserted, err := client.Insert(ctx, args, &river.InsertOpts{Priority: priority})
 	if err != nil {
 		return nil, err
 	}
-	tag, err := runtime.DB.Exec(ctx, `UPDATE river_job SET priority=LEAST(priority,$2),args=CASE WHEN $3='' THEN args ELSE jsonb_set(args,'{credential_ref}',to_jsonb($3::text),true) END WHERE id=$1 AND state IN ('available','pending','retryable','scheduled')`, inserted.Job.ID, priority, args.CredentialRef)
+	tag, err := runtime.DB.Exec(ctx, `UPDATE river_job SET queue=$4,priority=LEAST(priority,$2),args=CASE WHEN $3='' THEN args ELSE jsonb_set(args,'{credential_ref}',to_jsonb($3::text),true) END WHERE id=$1 AND state IN ('available','pending','retryable','scheduled')`, inserted.Job.ID, priority, args.CredentialRef, TVQueue)
 	if err == nil && tag.RowsAffected() == 0 && args.CredentialRef != "" {
 		_ = providercredentials.Delete(context.WithoutCancel(ctx), runtime.Redis, args.CredentialRef)
 	}
@@ -60,7 +60,7 @@ func InsertAnime(ctx context.Context, runtime *platform.Runtime, client *river.C
 	if err != nil {
 		return nil, err
 	}
-	tag, err := runtime.DB.Exec(ctx, `UPDATE river_job SET priority=LEAST(priority,$2),args=CASE WHEN $3='' THEN args ELSE jsonb_set(args,'{credential_ref}',to_jsonb($3::text),true) END WHERE id=$1 AND state IN ('available','pending','retryable','scheduled')`, inserted.Job.ID, priority, args.CredentialRef)
+	tag, err := runtime.DB.Exec(ctx, `UPDATE river_job SET queue=$4,priority=LEAST(priority,$2),args=CASE WHEN $3='' THEN args ELSE jsonb_set(args,'{credential_ref}',to_jsonb($3::text),true) END WHERE id=$1 AND state IN ('available','pending','retryable','scheduled')`, inserted.Job.ID, priority, args.CredentialRef, AnimeQueue)
 	if err == nil && tag.RowsAffected() == 0 && args.CredentialRef != "" {
 		_ = providercredentials.Delete(context.WithoutCancel(ctx), runtime.Redis, args.CredentialRef)
 	}

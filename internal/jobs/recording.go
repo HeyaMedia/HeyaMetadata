@@ -24,7 +24,7 @@ type RecordingIngestArgs struct {
 
 func (RecordingIngestArgs) Kind() string { return RecordingIngestKind }
 func (RecordingIngestArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{MaxAttempts: 5, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
+	return river.InsertOpts{Queue: MusicQueue, MaxAttempts: 5, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
 }
 
 func InsertRecording(ctx context.Context, runtime *platform.Runtime, client *river.Client[pgx.Tx], args RecordingIngestArgs, priority int) (*rivertype.JobInsertResult, error) {
@@ -32,7 +32,7 @@ func InsertRecording(ctx context.Context, runtime *platform.Runtime, client *riv
 	if err != nil {
 		return nil, err
 	}
-	_, err = runtime.DB.Exec(ctx, `UPDATE river_job SET priority=LEAST(priority,$2),args=CASE WHEN $3='' THEN args ELSE jsonb_set(args,'{reason}',to_jsonb($3::text),true)END WHERE id=$1 AND state IN('available','pending','retryable','scheduled')`, inserted.Job.ID, priority, args.Reason)
+	_, err = runtime.DB.Exec(ctx, `UPDATE river_job SET queue=$4,priority=LEAST(priority,$2),args=CASE WHEN $3='' THEN args ELSE jsonb_set(args,'{reason}',to_jsonb($3::text),true)END WHERE id=$1 AND state IN('available','pending','retryable','scheduled')`, inserted.Job.ID, priority, args.Reason, MusicQueue)
 	return inserted, err
 }
 

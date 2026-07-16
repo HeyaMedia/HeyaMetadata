@@ -29,7 +29,7 @@ type ArtistCatalogSyncArgs struct {
 func (ArtistCatalogSyncArgs) Kind() string { return ArtistCatalogSyncKind }
 func (ArtistCatalogSyncArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
-		Queue:       CatalogQueue,
+		Queue:       MusicQueue,
 		Priority:    PriorityCatalog,
 		MaxAttempts: 5,
 		UniqueOpts:  river.UniqueOpts{ByArgs: true, ByState: activeJobStates()},
@@ -86,7 +86,7 @@ func (w *ArtistCatalogSyncWorker) Work(ctx context.Context, job *river.Job[Artis
 		if _, err := client.Insert(ctx, ReleaseGroupIngestArgs{
 			MusicBrainzID: group.ID,
 			Reason:        "artist_catalog",
-		}, &river.InsertOpts{Queue: BackgroundQueue, Priority: PriorityScheduled}); err != nil {
+		}, &river.InsertOpts{Queue: MusicQueue, Priority: PriorityScheduled}); err != nil {
 			return fmt.Errorf("enqueue release group %s: %w", group.ID, err)
 		}
 	}

@@ -41,7 +41,8 @@ func InsertMovie(ctx context.Context, runtime *platform.Runtime, client *river.C
 	// while it is still waiting to run.
 	commandTag, err := runtime.DB.Exec(ctx, `
 		UPDATE river_job
-		SET priority = LEAST(priority, $2),
+		SET queue = $5,
+			priority = LEAST(priority, $2),
 			args = CASE WHEN $4 = '' THEN
 				CASE WHEN $3 = '' THEN args ELSE jsonb_set(args, '{credential_ref}', to_jsonb($3::text), true) END
 			ELSE jsonb_set(
@@ -49,7 +50,7 @@ func InsertMovie(ctx context.Context, runtime *platform.Runtime, client *river.C
 				'{reason}', to_jsonb($4::text), true)
 			END
 		WHERE id = $1 AND state IN ('available', 'pending', 'retryable', 'scheduled')`,
-		inserted.Job.ID, priority, args.CredentialRef, args.Reason)
+		inserted.Job.ID, priority, args.CredentialRef, args.Reason, MovieQueue)
 	if err != nil {
 		return nil, fmt.Errorf("promote movie ingestion job: %w", err)
 	}
@@ -63,8 +64,9 @@ func (MovieIngestArgs) Kind() string { return MovieIngestKind }
 
 func (MovieIngestArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
+		Queue:       MovieQueue,
 		MaxAttempts: 5,
-		Priority:    1,
+		Priority:    PriorityInteractive,
 		UniqueOpts: river.UniqueOpts{
 			ByArgs:  true,
 			ByState: activeJobStates(),

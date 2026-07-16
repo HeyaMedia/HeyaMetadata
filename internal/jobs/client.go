@@ -86,6 +86,11 @@ func NewClient(runtime *platform.Runtime, maxWorkers int, work bool) (*river.Cli
 func queueConfig(maxWorkers, imageMaxWorkers int) map[string]river.QueueConfig {
 	return map[string]river.QueueConfig{
 		river.QueueDefault: {MaxWorkers: maxWorkers},
+		MusicQueue:         {MaxWorkers: maxWorkers},
+		MovieQueue:         {MaxWorkers: maxWorkers},
+		TVQueue:            {MaxWorkers: maxWorkers},
+		AnimeQueue:         {MaxWorkers: maxWorkers},
+		BooksQueue:         {MaxWorkers: maxWorkers},
 		BackgroundQueue:    {MaxWorkers: 1},
 		CatalogQueue:       {MaxWorkers: 2},
 		ImageQueue:         {MaxWorkers: imageMaxWorkers},

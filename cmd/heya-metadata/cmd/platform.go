@@ -115,7 +115,7 @@ func newWorkerCommand() *cobra.Command {
 			if err := client.Start(ctx); err != nil {
 				return fmt.Errorf("start River workers: %w", err)
 			}
-			ui.Success("Worker started with %d default slots and %d image slots", cfg.Worker.MaxWorkers, cfg.Worker.ImageMaxWorkers)
+			ui.Success("Worker started with %d slots per metadata domain and %d image slots", cfg.Worker.MaxWorkers, cfg.Worker.ImageMaxWorkers)
 			<-ctx.Done()
 
 			stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

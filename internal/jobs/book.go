@@ -24,7 +24,7 @@ type BookIngestArgs struct {
 
 func (BookIngestArgs) Kind() string { return BookIngestKind }
 func (BookIngestArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{MaxAttempts: 5, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
+	return river.InsertOpts{Queue: BooksQueue, MaxAttempts: 5, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
 }
 func InsertBook(ctx context.Context, runtime *platform.Runtime, client *river.Client[pgx.Tx], args BookIngestArgs, priority int) (*rivertype.JobInsertResult, error) {
 	if args.EntityKind == "" {
@@ -34,7 +34,7 @@ func InsertBook(ctx context.Context, runtime *platform.Runtime, client *river.Cl
 	if err != nil {
 		return nil, err
 	}
-	tag, err := runtime.DB.Exec(ctx, `UPDATE river_job SET priority=LEAST(priority,$2),args=CASE WHEN $3='' THEN args ELSE jsonb_set(args,'{credential_ref}',to_jsonb($3::text),true)END WHERE id=$1 AND state IN('available','pending','retryable','scheduled')`, inserted.Job.ID, priority, args.CredentialRef)
+	tag, err := runtime.DB.Exec(ctx, `UPDATE river_job SET queue=$4,priority=LEAST(priority,$2),args=CASE WHEN $3='' THEN args ELSE jsonb_set(args,'{credential_ref}',to_jsonb($3::text),true)END WHERE id=$1 AND state IN('available','pending','retryable','scheduled')`, inserted.Job.ID, priority, args.CredentialRef, BooksQueue)
 	if err == nil && tag.RowsAffected() == 0 && args.CredentialRef != "" {
 		_ = providercredentials.Delete(context.WithoutCancel(ctx), runtime.Redis, args.CredentialRef)
 	}

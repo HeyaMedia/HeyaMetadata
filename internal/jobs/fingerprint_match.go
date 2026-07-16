@@ -21,7 +21,7 @@ type FingerprintMatchArgs struct {
 
 func (FingerprintMatchArgs) Kind() string { return FingerprintMatchKind }
 func (FingerprintMatchArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{MaxAttempts: 3, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
+	return river.InsertOpts{Queue: MusicQueue, MaxAttempts: 3, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
 }
 func InsertFingerprintMatch(ctx context.Context, runtime *platform.Runtime, client *river.Client[pgx.Tx], args FingerprintMatchArgs) (*rivertype.JobInsertResult, error) {
 	inserted, err := client.Insert(ctx, args, nil)

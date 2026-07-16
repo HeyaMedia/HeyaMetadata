@@ -13,6 +13,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/discovery"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
+	"github.com/riverqueue/river"
 )
 
 func TestIntegrationInteractiveRequestPromotesScheduledMovie(t *testing.T) {
@@ -35,7 +36,9 @@ func TestIntegrationInteractiveRequestPromotesScheduledMovie(t *testing.T) {
 	}
 
 	const tmdbID = int64(8_765_432_101)
-	scheduled, err := InsertMovie(ctx, runtime, client, MovieIngestArgs{TMDBID: tmdbID, Reason: "adaptive_refresh"}, PriorityScheduled)
+	// Keep the low-priority job pending so a concurrently running local worker
+	// cannot claim it before this test exercises the in-place promotion path.
+	scheduled, err := client.Insert(ctx, MovieIngestArgs{TMDBID: tmdbID, Reason: "adaptive_refresh"}, &river.InsertOpts{Pending: true, Priority: PriorityScheduled})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,16 +59,17 @@ func TestIntegrationInteractiveRequestPromotesScheduledMovie(t *testing.T) {
 		t.Fatalf("unique scheduled job was duplicated: %d != %d", interactive.Job.ID, scheduled.Job.ID)
 	}
 	var priority int
+	var queue string
 	var argsJSON []byte
-	if err := runtime.DB.QueryRow(ctx, `SELECT priority, args FROM river_job WHERE id = $1`, scheduled.Job.ID).Scan(&priority, &argsJSON); err != nil {
+	if err := runtime.DB.QueryRow(ctx, `SELECT queue,priority,args FROM river_job WHERE id = $1`, scheduled.Job.ID).Scan(&queue, &priority, &argsJSON); err != nil {
 		t.Fatal(err)
 	}
 	var args MovieIngestArgs
 	if err := json.Unmarshal(argsJSON, &args); err != nil {
 		t.Fatal(err)
 	}
-	if priority != PriorityInteractive || args.CredentialRef != reference || args.Reason != "interactive_resolution" {
-		t.Fatalf("job was not promoted with request context: priority=%d args=%+v", priority, args)
+	if queue != MovieQueue || priority != PriorityInteractive || args.CredentialRef != reference || args.Reason != "interactive_resolution" {
+		t.Fatalf("job was not promoted with request context: queue=%s priority=%d args=%+v", queue, priority, args)
 	}
 	if strings.Contains(string(argsJSON), "integration-secret") {
 		t.Fatal("plaintext provider key entered River args")
@@ -114,12 +118,15 @@ func TestIntegrationIdenticalDiscoveryCollapsesToOneJob(t *testing.T) {
 	if first.Job.ID != second.Job.ID {
 		t.Fatalf("discovery jobs duplicated: %d != %d", first.Job.ID, second.Job.ID)
 	}
-	var storedRef string
-	if err := runtime.DB.QueryRow(ctx, `SELECT args->>'credential_ref' FROM river_job WHERE id=$1`, first.Job.ID).Scan(&storedRef); err != nil {
+	var storedRef, mediaKind, queue string
+	if err := runtime.DB.QueryRow(ctx, `SELECT queue,args->>'credential_ref',args->>'media_kind' FROM river_job WHERE id=$1`, first.Job.ID).Scan(&queue, &storedRef, &mediaKind); err != nil {
 		t.Fatal(err)
 	}
 	if storedRef != secondRef {
 		t.Fatalf("new request credential did not replace queued job credential")
+	}
+	if queue != MusicQueue || mediaKind != discovery.KindArtist {
+		t.Fatalf("discovery routing: queue=%s media_kind=%s", queue, mediaKind)
 	}
 	t.Cleanup(func() {
 		_ = providercredentials.Delete(context.Background(), runtime.Redis, firstRef)

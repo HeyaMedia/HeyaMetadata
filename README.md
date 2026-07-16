@@ -147,9 +147,16 @@ go run ./cmd/heya-metadata discover musical-work \
 go run ./cmd/heya-metadata musical-work ingest --openopus 16406 --wait 90s
 ```
 
-LRCLIB's slow `/api/get` lookup is an internal scheduled job on a single-worker
-background queue. It never blocks release ingestion, and there is deliberately
-no public endpoint for starting evidence refreshes.
+LRCLIB's slow `/api/get` lookup is an internal scheduled job on the music
+queue. It never blocks movie, TV, anime, or publication ingestion, and there is
+deliberately no public endpoint for starting evidence refreshes.
+
+River gives music, movie, TV, anime, and book/publication metadata independent
+queues and worker capacity. Interactive and scheduled priorities still apply
+inside each domain, while every provider client shares its provider/base-URL
+request gate across all queues in the worker process. Raising queue concurrency
+therefore improves cross-domain fairness without increasing an upstream's
+configured request rate.
 
 The smoke command enqueues a real River job and waits for the separate worker.
 It writes an immutable, gzip-compressed, content-addressed observation to S3,

@@ -21,18 +21,19 @@ const DiscoverySearchKind = "discovery_search_v1"
 type DiscoverySearchArgs struct {
 	RequestHash   string `json:"request_hash" river:"unique"`
 	CredentialRef string `json:"credential_ref,omitempty"`
+	MediaKind     string `json:"media_kind,omitempty"`
 }
 
 func (DiscoverySearchArgs) Kind() string { return DiscoverySearchKind }
-func (DiscoverySearchArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{MaxAttempts: 4, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
+func (args DiscoverySearchArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: MetadataQueueForKind(args.MediaKind), MaxAttempts: 4, Priority: PriorityInteractive, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeJobStates()}}
 }
 func InsertDiscovery(ctx context.Context, runtime *platform.Runtime, client *river.Client[pgx.Tx], run discovery.Run, credentialRef string) (*rivertype.JobInsertResult, error) {
-	inserted, err := client.Insert(ctx, DiscoverySearchArgs{RequestHash: run.RequestHash, CredentialRef: credentialRef}, &river.InsertOpts{Priority: PriorityInteractive})
+	inserted, err := client.Insert(ctx, DiscoverySearchArgs{RequestHash: run.RequestHash, CredentialRef: credentialRef, MediaKind: run.Request.Kind}, &river.InsertOpts{Priority: PriorityInteractive})
 	if err != nil {
 		return nil, err
 	}
-	tag, err := runtime.DB.Exec(ctx, `UPDATE river_job SET priority=LEAST(priority,$2),args=CASE WHEN $3='' THEN args ELSE jsonb_set(args,'{credential_ref}',to_jsonb($3::text),true) END WHERE id=$1 AND state IN ('available','pending','retryable','scheduled')`, inserted.Job.ID, PriorityInteractive, credentialRef)
+	tag, err := runtime.DB.Exec(ctx, `UPDATE river_job SET queue=$4,priority=LEAST(priority,$2),args=jsonb_set(CASE WHEN $3='' THEN args ELSE jsonb_set(args,'{credential_ref}',to_jsonb($3::text),true) END,'{media_kind}',to_jsonb($5::text),true) WHERE id=$1 AND state IN ('available','pending','retryable','scheduled')`, inserted.Job.ID, PriorityInteractive, credentialRef, MetadataQueueForKind(run.Request.Kind), run.Request.Kind)
 	if err != nil {
 		return nil, fmt.Errorf("promote discovery job: %w", err)
 	}
