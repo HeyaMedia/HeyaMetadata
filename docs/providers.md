@@ -87,6 +87,7 @@ River priority bands are shared across providers:
 
 - `1` — interactive resolution, explicit refresh, and CLI requests.
 - `2` — stale-on-read refreshes where an existing document can still be served.
+- `3` — root/catalog work that must complete before scheduled child expansion.
 - `4` — scheduled refresh and storage-maintenance work.
 
 Movie ingestion remains unique by TMDB ID. If an interactive request collides
@@ -97,8 +98,10 @@ is not created, and a running job is never mutated.
 Successful entity detail reads increment a Redis-buffered access counter. The
 hourly `adaptive_refresh_scheduler_v1` job flushes those counters into
 `entity_access_stats`, applies exponential score decay, recalculates each
-provider's `next_eligible_at`, and enqueues due refreshes at priority 4. Current
-cadence bands are:
+provider's `next_eligible_at`, and enqueues due refreshes. Artist roots use
+priority 3 so their identity and catalog are refreshed ahead of priority-4
+release-group, issued-release, and recording refreshes. Other independent
+scheduled refreshes use priority 4. Current cadence bands are:
 
 - fetched in the last 2 days or very high decayed demand: every 2 days;
 - fetched in the last 14 days or sustained demand: every 7 days;

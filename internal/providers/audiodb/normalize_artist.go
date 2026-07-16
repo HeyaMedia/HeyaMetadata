@@ -61,7 +61,7 @@ func NormalizeArtist(body []byte, expectedMBID, observationID string, observedAt
 		return artistdomain.NormalizedRecordV1{}, fmt.Errorf("decode TheAudioDB artist: %w", err)
 	}
 	if len(envelope.Artists) == 0 {
-		return artistdomain.NormalizedRecordV1{}, fmt.Errorf("TheAudioDB has no artist for this MusicBrainz ID")
+		return artistdomain.NormalizedRecordV1{}, ErrNotFound
 	}
 	source := envelope.Artists[0]
 	expectedMBID = strings.ToLower(strings.TrimSpace(expectedMBID))

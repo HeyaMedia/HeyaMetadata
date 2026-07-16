@@ -16,6 +16,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/accessstats"
 	animeservice "github.com/HeyaMedia/HeyaMetadata/internal/anime"
 	"github.com/HeyaMedia/HeyaMetadata/internal/artists"
+	"github.com/HeyaMedia/HeyaMetadata/internal/auth"
 	"github.com/HeyaMedia/HeyaMetadata/internal/books"
 	"github.com/HeyaMedia/HeyaMetadata/internal/changelog"
 	"github.com/HeyaMedia/HeyaMetadata/internal/discovery"
@@ -43,6 +44,20 @@ type entityInput struct {
 	FallbackLanguages string `query:"fallback_languages" doc:"Comma-separated ordered presentation language fallbacks"`
 	AcceptLanguage    string `header:"Accept-Language" doc:"Presentation preferences used after explicit query preferences"`
 	Country           string `query:"country" minLength:"2" maxLength:"2" doc:"Optional ISO 3166-1 alpha-2 presentation region"`
+	TMDBAPIKey        string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
+	OMDBAPIKey        string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
+	TVDBAPIKey        string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
+	FanartAPIKey      string `header:"X-Heya-Fanart-API-Key" doc:"Optional request-scoped Fanart.tv personal API key; never persisted"`
+	AppleAPIKey       string `header:"X-Heya-Apple-API-Key" doc:"Optional request-scoped Apple Music developer token; never persisted"`
+	DiscogsAPIKey     string `header:"X-Heya-Discogs-API-Key" doc:"Optional request-scoped Discogs token; never persisted"`
+	LastFMAPIKey      string `header:"X-Heya-LastFM-API-Key" doc:"Optional request-scoped Last.fm API key; never persisted"`
+	GoogleBooksAPIKey string `header:"X-Heya-Google-Books-API-Key" doc:"Optional request-scoped Google Books API key; never persisted"`
+	MALClientID       string `header:"X-Heya-MAL-Client-ID" doc:"Optional request-scoped MyAnimeList client ID; never persisted"`
+}
+type refreshEntityInput struct {
+	ID                string `path:"id" format:"uuid"`
+	Session           string `cookie:"__Host-heya_session" doc:"Opaque browser session"`
+	Authorization     string `header:"Authorization" doc:"Optional Heya API key using the Bearer scheme"`
 	TMDBAPIKey        string `header:"X-Heya-TMDB-API-Key" doc:"Optional request-scoped TMDB API key; never persisted"`
 	OMDBAPIKey        string `header:"X-Heya-OMDB-API-Key" doc:"Optional request-scoped OMDb API key; never persisted"`
 	TVDBAPIKey        string `header:"X-Heya-TVDB-API-Key" doc:"Optional request-scoped TVDB API key; never persisted"`
@@ -184,6 +199,7 @@ type changesOutput struct {
 
 func registerMovies(api huma.API, runtime *platform.Runtime) {
 	var service *movies.Service
+	var authService *auth.Service
 	var artistService *artists.Service
 	var releaseGroupService *releasegroups.Service
 	var releaseService *releases.Service
@@ -197,6 +213,7 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 	var client *river.Client[pgx.Tx]
 	if runtime != nil {
 		service = movies.NewService(runtime)
+		authService = auth.New(runtime.DB, runtime.Redis)
 		artistService = artists.NewService(runtime)
 		releaseGroupService = releasegroups.NewService(runtime)
 		releaseService = releases.NewService(runtime)
@@ -769,9 +786,21 @@ func registerMovies(api huma.API, runtime *platform.Runtime) {
 		return &resolutionOutput{Status: http.StatusAccepted, RetryAfter: "1", Body: resolutionBody{State: "accepted", Job: &jobResource{ID: inserted.Job.ID, Kind: jobs.MovieIngestKind, State: string(inserted.Job.State)}}}, nil
 	})
 
-	huma.Register(api, huma.Operation{OperationID: "refresh-entity", Method: http.MethodPost, Path: "/api/v2/entities/{id}/refreshes", Summary: "Refresh a canonical entity", Tags: []string{"Entities"}, DefaultStatus: http.StatusAccepted}, func(ctx context.Context, input *entityInput) (*refreshOutput, error) {
-		if service == nil || client == nil {
+	huma.Register(api, huma.Operation{
+		OperationID:   "refresh-entity",
+		Method:        http.MethodPost,
+		Path:          "/api/v2/entities/{id}/refreshes",
+		Summary:       "Refresh a canonical entity",
+		Description:   "Enqueues an interactive provider refresh. Admin role required.",
+		Tags:          []string{"Entities"},
+		DefaultStatus: http.StatusAccepted,
+		Errors:        []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusServiceUnavailable},
+	}, func(ctx context.Context, input *refreshEntityInput) (*refreshOutput, error) {
+		if service == nil || authService == nil || client == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
+		}
+		if _, err := requireAdmin(ctx, authService, input.Session, input.Authorization); err != nil {
+			return nil, err
 		}
 		resolvedID, kind, resolveErr := resolveActiveEntity(ctx, runtime, input.ID)
 		if resolveErr != nil {

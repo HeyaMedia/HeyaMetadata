@@ -275,6 +275,38 @@ func TestAsynchronousSuccessResponsesAreTyped(t *testing.T) {
 	}
 }
 
+func TestEntityRefreshRequiresAdminCredentials(t *testing.T) {
+	contract := filepath.Join("..", "api", "openapi.yaml")
+	document, err := openapi3.NewLoader().LoadFromFile(contract)
+	if err != nil {
+		t.Fatalf("load %s: %v", contract, err)
+	}
+	operation := operationByID(document, "refresh-entity")
+	if operation == nil {
+		t.Fatal("refresh-entity operation is missing")
+	}
+	for _, status := range []string{"401", "403"} {
+		if operation.Responses.Value(status) == nil {
+			t.Errorf("refresh-entity has no %s response", status)
+		}
+	}
+	wanted := map[string]string{
+		"__Host-heya_session": "cookie",
+		"Authorization":       "header",
+	}
+	for _, parameter := range operation.Parameters {
+		if parameter.Value == nil {
+			continue
+		}
+		if location, ok := wanted[parameter.Value.Name]; ok && parameter.Value.In == location {
+			delete(wanted, parameter.Value.Name)
+		}
+	}
+	for name, location := range wanted {
+		t.Errorf("refresh-entity has no %s %q credential", location, name)
+	}
+}
+
 func operationByID(document *openapi3.T, operationID string) *openapi3.Operation {
 	for _, item := range document.Paths.Map() {
 		for _, operation := range item.Operations() {

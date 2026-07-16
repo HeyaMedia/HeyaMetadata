@@ -16,6 +16,7 @@ const props = withDefaults(defineProps<{
 
 const route = useRoute()
 const { entity, images, pending, error, refreshing, refreshFromProviders } = useEntity(() => props.id)
+const { isAdmin } = useAuth()
 
 // Reactive SEO (title/description/og:image/twitter/JSON-LD) for all 12 detail
 // pages that render through this shell. Fields stay empty until the entity loads.
@@ -75,7 +76,7 @@ const backLink = computed(() => {
     </EmptyState>
 
     <template v-else>
-      <EntityHero :entity="entity" :images="images" :refreshing="refreshing" @refresh="refreshFromProviders" />
+      <EntityHero :entity="entity" :images="images" :can-refresh="isAdmin" :refreshing="refreshing" @refresh="refreshFromProviders" />
 
       <div v-if="error" class="notice">
         <strong>That didn't work.</strong><span>{{ error }}</span>

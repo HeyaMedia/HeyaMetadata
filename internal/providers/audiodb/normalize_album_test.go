@@ -1,6 +1,7 @@
 package audiodb
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -68,7 +69,7 @@ func TestNormalizeAlbumRejectsIdentityMismatch(t *testing.T) {
 	if _, err := NormalizeAlbum([]byte(albumBody), "11111111-1111-4111-8111-111111111111", "obs-1", time.Now()); err == nil {
 		t.Fatal("expected mismatched release group identity to be rejected")
 	}
-	if _, err := NormalizeAlbum([]byte(`{"album":null}`), abbeyRoadRG, "obs-1", time.Now()); err == nil {
-		t.Fatal("expected empty response to be rejected")
+	if _, err := NormalizeAlbum([]byte(`{"album":null}`), abbeyRoadRG, "obs-1", time.Now()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("empty response error = %v, want ErrNotFound", err)
 	}
 }

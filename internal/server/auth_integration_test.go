@@ -80,6 +80,22 @@ func TestAuthHTTPRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected current user: %+v", current.User)
 	}
 
+	refreshPath := "/api/v2/entities/00000000-0000-4000-8000-000000000001/refreshes"
+	if response := serveJSON(t, handler, http.MethodPost, refreshPath, nil, nil); response.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous refresh status: got %d body=%s", response.Code, response.Body.String())
+	}
+	if response := serveJSON(t, handler, http.MethodPost, refreshPath, nil, cookie); response.Code != http.StatusForbidden {
+		t.Fatalf("ordinary user refresh status: got %d body=%s", response.Code, response.Body.String())
+	}
+	if _, err := database.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	// A 404 proves the admin passed authorization and reached entity lookup;
+	// the synthetic UUID deliberately does not name a canonical entity.
+	if response := serveJSON(t, handler, http.MethodPost, refreshPath, nil, cookie); response.Code != http.StatusNotFound {
+		t.Fatalf("admin refresh status: got %d body=%s", response.Code, response.Body.String())
+	}
+
 	createKey := serveJSON(t, handler, http.MethodPost, "/api/v2/auth/api-keys", map[string]string{"name": "Living Room"}, cookie)
 	if createKey.Code != http.StatusCreated {
 		t.Fatalf("create API key status: got %d body=%s", createKey.Code, createKey.Body.String())

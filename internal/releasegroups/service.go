@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/HeyaMedia/HeyaMetadata/internal/changelog"
 	rgdomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/releasegroup"
@@ -200,6 +201,10 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int6
 				normalized, e = bandcamp.NormalizeAlbum(observations[0].Payload.Body, step.Identifier.Value, observations[0].ID, observations[0].Payload.ObservedAt)
 			}
 			completed[provider] = true
+			if errors.Is(e, audiodb.ErrNotFound) {
+				slog.Debug("supplemental release group provider has no matching record", "provider", provider, "mbid", mbid)
+				continue
+			}
 			if e != nil {
 				failures[provider] = e
 				continue

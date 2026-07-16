@@ -19,6 +19,9 @@ func TestPriorityBandsReserveCapacityForInteractiveWork(t *testing.T) {
 	if !(PriorityInteractive < PriorityStaleRead && PriorityStaleRead < PriorityCatalog && PriorityCatalog < PriorityScheduled) {
 		t.Fatalf("priority order: interactive=%d stale=%d catalog=%d scheduled=%d", PriorityInteractive, PriorityStaleRead, PriorityCatalog, PriorityScheduled)
 	}
+	if adaptiveArtistPriority != PriorityCatalog || adaptiveArtistPriority >= PriorityScheduled {
+		t.Fatalf("adaptive artist priority must precede scheduled child work: artist=%d child=%d", adaptiveArtistPriority, PriorityScheduled)
+	}
 	if got := (MovieIngestArgs{TMDBID: 603}).InsertOpts().Priority; got != PriorityInteractive {
 		t.Fatalf("default movie priority: %d", got)
 	}

@@ -1,6 +1,7 @@
 package audiodb
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -76,7 +77,7 @@ func TestNormalizeArtistRejectsIdentityMismatch(t *testing.T) {
 	if _, err := NormalizeArtist([]byte(artistBody), "11111111-1111-4111-8111-111111111111", "obs-1", time.Now()); err == nil {
 		t.Fatal("expected mismatched MusicBrainz identity to be rejected")
 	}
-	if _, err := NormalizeArtist([]byte(`{"artists":null}`), weekndMBID, "obs-1", time.Now()); err == nil {
-		t.Fatal("expected empty response to be rejected")
+	if _, err := NormalizeArtist([]byte(`{"artists":null}`), weekndMBID, "obs-1", time.Now()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("empty response error = %v, want ErrNotFound", err)
 	}
 }

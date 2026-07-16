@@ -47,7 +47,7 @@ func NormalizeAlbum(body []byte, expectedMBID, observationID string, observedAt 
 		return rgdomain.NormalizedRecordV1{}, fmt.Errorf("decode TheAudioDB album: %w", err)
 	}
 	if len(envelope.Albums) == 0 {
-		return rgdomain.NormalizedRecordV1{}, fmt.Errorf("TheAudioDB has no album for this MusicBrainz release group")
+		return rgdomain.NormalizedRecordV1{}, ErrNotFound
 	}
 	source := envelope.Albums[0]
 	expectedMBID = strings.ToLower(strings.TrimSpace(expectedMBID))

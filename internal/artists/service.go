@@ -250,6 +250,10 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 				}
 			}
 		}
+		if errors.Is(recordErr, audiodb.ErrNotFound) {
+			slog.Debug("supplemental artist provider has no matching record", "provider", provider, "mbid", mbid)
+			continue
+		}
 		if recordErr != nil {
 			failures[provider] = recordErr
 			continue

@@ -8,6 +8,7 @@ import type { EntityDocument, ImagesResponse } from '~/utils/types'
 const props = defineProps<{
   entity: EntityDocument
   images?: ImagesResponse | null
+  canRefresh?: boolean
   refreshing?: boolean
 }>()
 
@@ -177,7 +178,7 @@ async function copyId() {
       </dl>
 
       <div class="hero__actions">
-        <button type="button" class="btn btn--gold" :disabled="refreshing" @click="emit('refresh')">
+        <button v-if="canRefresh" type="button" class="btn btn--gold" :disabled="refreshing" @click="emit('refresh')">
           {{ refreshing ? 'Refreshing…' : 'Refresh providers' }}
         </button>
         <button type="button" class="hero__id" :title="entity.id" @click="copyId">

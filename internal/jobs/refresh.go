@@ -13,6 +13,12 @@ import (
 
 const RefreshSchedulerKind = "adaptive_refresh_scheduler_v1"
 
+// Adaptive artist refreshes rebuild the root identity and catalog that all
+// release-group, release, and recording work hangs from. Keep them ahead of
+// scheduled child refreshes without allowing them to overtake interactive or
+// stale-on-read work.
+const adaptiveArtistPriority = PriorityCatalog
+
 type RefreshSchedulerArgs struct{}
 
 func (RefreshSchedulerArgs) Kind() string { return RefreshSchedulerKind }
@@ -136,7 +142,7 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 	}
 	artistRows.Close()
 	for _, artist := range artists {
-		inserted, err := InsertArtist(ctx, w.runtime, client, ArtistIngestArgs{Provider: artist.provider, ProviderID: artist.providerID, Reason: "adaptive_refresh"}, PriorityScheduled)
+		inserted, err := InsertArtist(ctx, w.runtime, client, ArtistIngestArgs{Provider: artist.provider, ProviderID: artist.providerID, Reason: "adaptive_refresh"}, adaptiveArtistPriority)
 		if err != nil {
 			return fmt.Errorf("enqueue adaptive refresh for %s artist %s: %w", artist.provider, artist.providerID, err)
 		}
