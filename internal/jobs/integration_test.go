@@ -76,6 +76,50 @@ func TestIntegrationInteractiveRequestPromotesScheduledMovie(t *testing.T) {
 	}
 }
 
+func TestIntegrationOperatorJobJumpsInteractiveBacklog(t *testing.T) {
+	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
+		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local Postgres and Redis stack")
+	}
+	ctx := context.Background()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := platform.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+	client, err := NewClient(runtime, 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	queue := fmt.Sprintf("operator-integration-%d", time.Now().UnixNano())
+	older, err := client.Insert(ctx, MovieIngestArgs{TMDBID: 8_765_432_102}, &river.InsertOpts{Queue: queue, Priority: PriorityInteractive, ScheduledAt: time.Now().Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator, err := client.Insert(ctx, MovieIngestArgs{TMDBID: 8_765_432_103}, &river.InsertOpts{Queue: queue, Priority: PriorityInteractive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = runtime.DB.Exec(context.Background(), `DELETE FROM river_job WHERE id=ANY($1::bigint[])`, []int64{older.Job.ID, operator.Job.ID})
+	})
+
+	if err := PromoteOperatorJob(ctx, runtime, operator.Job.ID); err != nil {
+		t.Fatal(err)
+	}
+	var firstID int64
+	if err := runtime.DB.QueryRow(ctx, `SELECT id FROM river_job WHERE queue=$1 AND state='available' ORDER BY priority,scheduled_at,id LIMIT 1`, queue).Scan(&firstID); err != nil {
+		t.Fatal(err)
+	}
+	if firstID != operator.Job.ID {
+		t.Fatalf("first eligible job=%d want operator job %d", firstID, operator.Job.ID)
+	}
+}
+
 func TestIntegrationIdenticalDiscoveryCollapsesToOneJob(t *testing.T) {
 	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
 		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local Postgres and Redis stack")

@@ -64,6 +64,9 @@ func newArtistUpdateCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("enqueue artist %s update: %w", entityID, err)
 			}
+			if err := jobs.PromoteOperatorJob(cmd.Context(), runtime, inserted.Job.ID); err != nil {
+				return err
+			}
 			if wait <= 0 {
 				return outputArtistUpdateQueued(inserted.Job.ID, entityID)
 			}
