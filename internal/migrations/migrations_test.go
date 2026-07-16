@@ -138,3 +138,28 @@ func TestCreditPersonLockMigrationUsesDeterministicCanonicalRoots(t *testing.T) 
 	}
 	t.Fatal("deterministic credit person lock migration is missing")
 }
+
+func TestProviderObservationIdentityIndexBoundsRequestKeys(t *testing.T) {
+	t.Parallel()
+	migrations, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations {
+		if migration.Version != 62 {
+			continue
+		}
+		for _, value := range []string{
+			"DROP CONSTRAINT IF EXISTS provider_observations_provider_provider_namespace_provider__key",
+			"CREATE UNIQUE INDEX provider_observations_identity_time_uidx",
+			"md5(provider_record_id)",
+			"md5(request_key)",
+		} {
+			if !strings.Contains(migration.SQL, value) {
+				t.Errorf("provider observation identity migration does not contain %q", value)
+			}
+		}
+		return
+	}
+	t.Fatal("bounded provider observation identity migration is missing")
+}

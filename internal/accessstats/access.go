@@ -115,10 +115,17 @@ func Flush(ctx context.Context, runtime *platform.Runtime, limit int64) (int, er
 // RecalculateRefreshCadence maps demand onto a 2/7/14/30-day schedule. Scores
 // decay with a seven-day time constant even without new reads.
 func RecalculateRefreshCadence(ctx context.Context, runtime *platform.Runtime) error {
-	_, err := runtime.DB.Exec(ctx, `
-		WITH cadence AS (
+	_, err := runtime.DB.Exec(ctx, recalculateRefreshCadenceSQL)
+	if err != nil {
+		return fmt.Errorf("recalculate adaptive refresh cadence: %w", err)
+	}
+	return nil
+}
+
+const recalculateRefreshCadenceSQL = `
+		WITH cadence AS MATERIALIZED (
 			SELECT prs.entity_id, prs.provider,
-				CASE
+				prs.last_success_at + CASE
 					WHEN stats.last_accessed_at >= now() - interval '2 days'
 					  OR COALESCE(stats.decayed_score * exp(-EXTRACT(EPOCH FROM (now() - stats.score_updated_at)) / 604800.0), 0) >= 20
 						THEN interval '2 days'
@@ -128,20 +135,24 @@ func RecalculateRefreshCadence(ctx context.Context, runtime *platform.Runtime) e
 					WHEN stats.last_accessed_at >= now() - interval '60 days'
 						THEN interval '14 days'
 					ELSE interval '30 days'
-				END AS refresh_interval
+				END AS desired_next_eligible_at
 			FROM provider_refresh_states prs
 			LEFT JOIN entity_access_stats stats ON stats.entity_id = prs.entity_id
 			WHERE prs.last_success_at IS NOT NULL
+		), locked AS (
+			SELECT prs.entity_id, prs.provider, cadence.desired_next_eligible_at
+			FROM provider_refresh_states prs
+			JOIN cadence
+			  ON cadence.entity_id = prs.entity_id
+			 AND cadence.provider = prs.provider
+			WHERE prs.next_eligible_at IS DISTINCT FROM cadence.desired_next_eligible_at
+			ORDER BY prs.entity_id, prs.provider
+			FOR UPDATE OF prs SKIP LOCKED
 		)
 		UPDATE provider_refresh_states prs
-		SET next_eligible_at = prs.last_success_at + cadence.refresh_interval
-		FROM cadence
-		WHERE prs.entity_id = cadence.entity_id AND prs.provider = cadence.provider`)
-	if err != nil {
-		return fmt.Errorf("recalculate adaptive refresh cadence: %w", err)
-	}
-	return nil
-}
+		SET next_eligible_at = locked.desired_next_eligible_at
+		FROM locked
+		WHERE prs.entity_id = locked.entity_id AND prs.provider = locked.provider`
 
 func Cadence(now time.Time, lastAccessed *time.Time, decayedScore float64, scoreUpdatedAt time.Time) time.Duration {
 	adjusted := decayedScore

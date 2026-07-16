@@ -1,6 +1,7 @@
 package accessstats
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -34,6 +35,19 @@ func TestCadenceKeepsFrequentlyFetchedEntityWarm(t *testing.T) {
 	now := time.Now().UTC()
 	if got := Cadence(now, nil, 25, now); got != 2*24*time.Hour {
 		t.Fatalf("high-score cadence: %s", got)
+	}
+}
+
+func TestRefreshCadenceSQLSkipsConcurrentIngestionRows(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{
+		"IS DISTINCT FROM cadence.desired_next_eligible_at",
+		"ORDER BY prs.entity_id, prs.provider",
+		"FOR UPDATE OF prs SKIP LOCKED",
+	} {
+		if !strings.Contains(recalculateRefreshCadenceSQL, value) {
+			t.Errorf("refresh cadence SQL does not contain %q", value)
+		}
 	}
 }
 
