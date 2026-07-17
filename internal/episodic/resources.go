@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -229,6 +230,23 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 }
 
 func hydrateResources(ctx context.Context, runtime *platform.Runtime, showID string, doc *Document) error {
+	// Phase timings surface where cold reads spend their time; per-phase cost
+	// on a cold buffer cache is the recurring performance failure mode here.
+	started := time.Now()
+	var recommendationsAt, creditsAt, seasonsAt time.Time
+	defer func() {
+		total := time.Since(started)
+		if total < 500*time.Millisecond {
+			return
+		}
+		slog.InfoContext(ctx, "episodic hydrate timings",
+			"entity_id", showID,
+			"recommendations_ms", phaseMillis(started, recommendationsAt),
+			"credits_ms", phaseMillis(recommendationsAt, creditsAt),
+			"seasons_ms", phaseMillis(creditsAt, seasonsAt),
+			"episodes_ms", phaseMillis(seasonsAt, time.Now()),
+			"total_ms", total.Milliseconds())
+	}()
 	for index := range doc.Data.Networks {
 		network := &doc.Data.Networks[index]
 		network.ResolutionState = "unresolved"
@@ -294,6 +312,7 @@ func hydrateResources(ctx context.Context, runtime *platform.Runtime, showID str
 			recommendation.ResolutionState = "materialized"
 		}
 	}
+	recommendationsAt = time.Now()
 	if len(doc.Data.Credits) > 0 {
 		providers := make([]string, 0, len(doc.Data.Credits))
 		values := make([]string, 0, len(doc.Data.Credits))
@@ -324,6 +343,7 @@ func hydrateResources(ctx context.Context, runtime *platform.Runtime, showID str
 			credit.PersonEntityID = resolved[credit.Provider+":"+credit.ProviderPersonID]
 		}
 	}
+	creditsAt = time.Now()
 	seasonRows, err := runtime.DB.Query(ctx, `SELECT id,document FROM episodic_seasons WHERE show_entity_id=$1 ORDER BY season_number`, showID)
 	if err != nil {
 		return err
@@ -346,6 +366,7 @@ func hydrateResources(ctx context.Context, runtime *platform.Runtime, showID str
 	if err := seasonRows.Err(); err != nil {
 		return err
 	}
+	seasonsAt = time.Now()
 	episodeRows, err := runtime.DB.Query(ctx, `SELECT id,season_id,document FROM episodic_episodes WHERE show_entity_id=$1`, showID)
 	if err != nil {
 		return err
@@ -380,6 +401,15 @@ func hydrateResources(ctx context.Context, runtime *platform.Runtime, showID str
 		doc.Data.Episodes = episodes
 	}
 	return nil
+}
+
+// phaseMillis reports the span between two phase boundaries, tolerating
+// phases that were never reached (zero times) when hydration errors out.
+func phaseMillis(from, to time.Time) int64 {
+	if from.IsZero() || to.IsZero() || to.Before(from) {
+		return -1
+	}
+	return to.Sub(from).Milliseconds()
 }
 
 func SeasonDetail(ctx context.Context, runtime *platform.Runtime, id string) (SeasonResource, error) {

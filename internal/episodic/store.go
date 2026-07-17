@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strconv"
@@ -458,18 +459,28 @@ func storedProviderFallbacks(ctx context.Context, tx pgx.Tx, entityID, kind stri
 	return result, rows.Err()
 }
 func Detail(ctx context.Context, runtime *platform.Runtime, kind, id string) (Document, bool, error) {
+	started := time.Now()
 	var body []byte
 	var freshUntil time.Time
 	err := runtime.DB.QueryRow(ctx, `SELECT d.document,d.fresh_until FROM api_documents d JOIN entities e ON e.id=d.entity_id WHERE d.entity_id=$1 AND d.document_kind='detail' AND e.kind=$2 AND e.deleted_at IS NULL`, id, kind).Scan(&body, &freshUntil)
 	if err != nil {
 		return Document{}, false, err
 	}
+	fetchedAt := time.Now()
 	var doc Document
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return Document{}, false, err
 	}
+	decodedAt := time.Now()
 	if err := hydrateResources(ctx, runtime, id, &doc); err != nil {
 		return Document{}, false, err
+	}
+	if total := time.Since(started); total > 500*time.Millisecond {
+		slog.InfoContext(ctx, "episodic detail timings", "entity_id", id,
+			"fetch_ms", fetchedAt.Sub(started).Milliseconds(),
+			"decode_ms", decodedAt.Sub(fetchedAt).Milliseconds(),
+			"hydrate_ms", time.Since(decodedAt).Milliseconds(),
+			"document_bytes", len(body), "total_ms", total.Milliseconds())
 	}
 	_ = accessstats.Track(ctx, runtime.Redis, id)
 	return doc, time.Now().Before(freshUntil), nil
