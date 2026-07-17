@@ -96,10 +96,9 @@ func WithWebUI(api http.Handler, root string, runtime *platform.Runtime, siteURL
 			// Compress here rather than leaving it to the CDN: Cloudflare strips
 			// the ETag from any body it re-encodes, which silently disables
 			// revalidation. An origin-compressed body passes through untouched.
-			// The ETag hashes the uncompressed bytes and is weak, so both
-			// encodings share one validator per RFC 7232 semantic equivalence.
-			sum := sha256.Sum256(body)
-			writer.Header().Set("ETag", `W/"`+hex.EncodeToString(sum[:8])+`"`)
+			// Hash the exact bytes served, after compression, as a strong ETag —
+			// mirroring the API middleware, whose validators Cloudflare preserves
+			// (it drops both weak ETags and validators for bodies it transforms).
 			writer.Header().Set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600")
 			writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 			appendVary(writer.Header(), "Accept-Encoding")
@@ -111,6 +110,8 @@ func WithWebUI(api http.Handler, root string, runtime *platform.Runtime, siteURL
 					writer.Header().Set("Content-Encoding", "gzip")
 				}
 			}
+			sum := sha256.Sum256(body)
+			writer.Header().Set("ETag", `"`+hex.EncodeToString(sum[:8])+`"`)
 			http.ServeContent(writer, request, "index.html", time.Time{}, bytes.NewReader(body))
 			return
 		}
