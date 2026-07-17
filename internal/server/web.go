@@ -90,9 +90,12 @@ func WithWebUI(api http.Handler, root string, runtime *platform.Runtime, siteURL
 			// and varies only by URL, so a shared edge may hold each route's
 			// injected variant briefly while browsers revalidate the body ETag on
 			// every navigation. Deploys purge the edge (internal/cdn), so the
-			// s-maxage window never outlives a release.
+			// s-maxage window never outlives a release. The ETag must be weak:
+			// Cloudflare re-compresses HTML at the edge and strips strong ETags
+			// from transformed responses, while weak ones survive (and ServeContent
+			// compares If-None-Match weakly per RFC 7232).
 			sum := sha256.Sum256(body)
-			writer.Header().Set("ETag", `"`+hex.EncodeToString(sum[:8])+`"`)
+			writer.Header().Set("ETag", `W/"`+hex.EncodeToString(sum[:8])+`"`)
 			writer.Header().Set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600")
 			writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 			http.ServeContent(writer, request, "index.html", time.Time{}, bytes.NewReader(body))
