@@ -279,7 +279,10 @@ func hydrateResources(ctx context.Context, runtime *platform.Runtime, showID str
 	}
 	resolvedRecommendations := map[string]string{}
 	if len(values) > 0 {
-		claimRows, err := runtime.DB.Query(ctx, `SELECT claim.provider,claim.namespace,claim.normalized_value,claim.entity_id::text FROM external_id_claims claim JOIN entities entity ON entity.id=claim.entity_id AND entity.kind=$1 AND entity.deleted_at IS NULL WHERE claim.entity_kind=$1 AND claim.state='accepted' AND claim.provider=ANY($2) AND claim.namespace=ANY($3) AND claim.normalized_value=ANY($4)`, doc.Kind, providers, namespaces, values)
+		// unnest keeps each (provider,namespace,value) triple as one exact probe
+		// of the claims unique index; independent ANY() filters made the planner
+		// probe the cross-product of all three arrays.
+		claimRows, err := runtime.DB.Query(ctx, `SELECT claim.provider,claim.namespace,claim.normalized_value,claim.entity_id::text FROM unnest($2::text[],$3::text[],$4::text[]) AS lookup(provider,namespace,value) JOIN external_id_claims claim ON claim.entity_kind=$1 AND claim.provider=lookup.provider AND claim.namespace=lookup.namespace AND claim.normalized_value=lookup.value AND claim.state='accepted' JOIN entities entity ON entity.id=claim.entity_id AND entity.kind=$1 AND entity.deleted_at IS NULL`, doc.Kind, providers, namespaces, values)
 		if err != nil {
 			return err
 		}
@@ -320,7 +323,7 @@ func hydrateResources(ctx context.Context, runtime *platform.Runtime, showID str
 			providers = append(providers, credit.Provider)
 			values = append(values, credit.ProviderPersonID)
 		}
-		rows, err := runtime.DB.Query(ctx, `SELECT provider,normalized_value,entity_id::text FROM external_id_claims WHERE entity_kind='person' AND namespace='person' AND state='accepted' AND provider=ANY($1) AND normalized_value=ANY($2)`, providers, values)
+		rows, err := runtime.DB.Query(ctx, `SELECT claim.provider,claim.normalized_value,claim.entity_id::text FROM unnest($1::text[],$2::text[]) AS lookup(provider,value) JOIN external_id_claims claim ON claim.entity_kind='person' AND claim.provider=lookup.provider AND claim.namespace='person' AND claim.normalized_value=lookup.value AND claim.state='accepted'`, providers, values)
 		if err != nil {
 			return err
 		}

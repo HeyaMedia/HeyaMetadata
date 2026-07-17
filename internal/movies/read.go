@@ -127,7 +127,10 @@ func hydrateRecommendationIDs(ctx context.Context, db recommendationQuerier, doc
 		providers = append(providers, provider)
 		values = append(values, document.Data.Recommendations[i].ProviderTargetID)
 	}
-	rows, err := db.Query(ctx, `SELECT provider,normalized_value,entity_id::text FROM external_id_claims WHERE entity_kind='movie' AND namespace='movie' AND state='accepted' AND provider=ANY($1) AND normalized_value=ANY($2)`, providers, values)
+	// unnest pairs each provider with its own value so the claims unique index
+	// is probed once per credit; independent ANY() filters probe the
+	// provider × value cross-product instead.
+	rows, err := db.Query(ctx, `SELECT claim.provider,claim.normalized_value,claim.entity_id::text FROM unnest($1::text[],$2::text[]) AS lookup(provider,value) JOIN external_id_claims claim ON claim.entity_kind='movie' AND claim.provider=lookup.provider AND claim.namespace='movie' AND claim.normalized_value=lookup.value AND claim.state='accepted'`, providers, values)
 	if err != nil {
 		return err
 	}
@@ -164,7 +167,7 @@ func hydrateCreditPersonIDs(ctx context.Context, db recommendationQuerier, docum
 		providers = append(providers, credit.Provider)
 		values = append(values, credit.ProviderPersonID)
 	}
-	rows, err := db.Query(ctx, `SELECT provider,normalized_value,entity_id::text FROM external_id_claims WHERE entity_kind='person' AND namespace='person' AND state='accepted' AND provider=ANY($1) AND normalized_value=ANY($2)`, providers, values)
+	rows, err := db.Query(ctx, `SELECT claim.provider,claim.normalized_value,claim.entity_id::text FROM unnest($1::text[],$2::text[]) AS lookup(provider,value) JOIN external_id_claims claim ON claim.entity_kind='person' AND claim.provider=lookup.provider AND claim.namespace='person' AND claim.normalized_value=lookup.value AND claim.state='accepted'`, providers, values)
 	if err != nil {
 		return err
 	}
