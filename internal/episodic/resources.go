@@ -243,12 +243,48 @@ func hydrateResources(ctx context.Context, runtime *platform.Runtime, showID str
 			organization.ResolutionState = "materialized"
 		}
 	}
+	// Resolve recommendation identities in one batched claim lookup, mirroring
+	// hydrateRecommendationIDs for movies: issuing one point read per external
+	// id meant dozens of cold random reads on shows with many recommendations.
+	providers := []string{}
+	namespaces := []string{}
+	values := []string{}
+	for _, recommendation := range doc.Data.Recommendations {
+		if recommendation.EntityID != "" {
+			continue
+		}
+		for _, external := range recommendation.ExternalIDs {
+			providers = append(providers, external.Provider)
+			namespaces = append(namespaces, external.Namespace)
+			values = append(values, strings.ToLower(external.Value))
+		}
+	}
+	resolvedRecommendations := map[string]string{}
+	if len(values) > 0 {
+		claimRows, err := runtime.DB.Query(ctx, `SELECT claim.provider,claim.namespace,claim.normalized_value,claim.entity_id::text FROM external_id_claims claim JOIN entities entity ON entity.id=claim.entity_id AND entity.kind=$1 AND entity.deleted_at IS NULL WHERE claim.entity_kind=$1 AND claim.state='accepted' AND claim.provider=ANY($2) AND claim.namespace=ANY($3) AND claim.normalized_value=ANY($4)`, doc.Kind, providers, namespaces, values)
+		if err != nil {
+			return err
+		}
+		for claimRows.Next() {
+			var provider, namespace, value, entityID string
+			if err := claimRows.Scan(&provider, &namespace, &value, &entityID); err != nil {
+				claimRows.Close()
+				return err
+			}
+			resolvedRecommendations[provider+":"+namespace+":"+value] = entityID
+		}
+		if err := claimRows.Err(); err != nil {
+			claimRows.Close()
+			return err
+		}
+		claimRows.Close()
+	}
 	for index := range doc.Data.Recommendations {
 		recommendation := &doc.Data.Recommendations[index]
 		if recommendation.EntityID == "" {
 			for _, external := range recommendation.ExternalIDs {
-				_ = runtime.DB.QueryRow(ctx, `SELECT claim.entity_id::text FROM external_id_claims claim JOIN entities entity ON entity.id=claim.entity_id AND entity.kind=$1 AND entity.deleted_at IS NULL WHERE claim.entity_kind=$1 AND claim.provider=$2 AND claim.namespace=$3 AND claim.normalized_value=$4 AND claim.state='accepted' LIMIT 1`, doc.Kind, external.Provider, external.Namespace, strings.ToLower(external.Value)).Scan(&recommendation.EntityID)
-				if recommendation.EntityID != "" {
+				if entityID, ok := resolvedRecommendations[external.Provider+":"+external.Namespace+":"+strings.ToLower(external.Value)]; ok {
+					recommendation.EntityID = entityID
 					break
 				}
 			}
