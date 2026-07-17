@@ -21,14 +21,14 @@ const SECTIONS: Section[] = [
   { key: 'recording', kind: 'recording', title: 'Recordings', shape: 'square' },
 ]
 
-const { data, pending } = await useAsyncData('music', async () => {
+const { data, pending } = await useAsyncData(() => `music:${localeSignature.value}`, async () => {
   const lists = await Promise.all(
     SECTIONS.map(section => api.browse({ kind: section.kind, sort: 'updated', limit: 18 }).then(r => r.results ?? []).catch(() => [])),
   )
   const byKey: Record<string, EntitySummary[]> = {}
   SECTIONS.forEach((section, index) => { byKey[section.key] = lists[index] })
   return byKey
-}, { watch: [localeSignature], default: () => ({}) })
+}, { default: () => ({}), getCachedData: sessionCached })
 </script>
 
 <template>

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/buildinfo"
+	"github.com/HeyaMedia/HeyaMetadata/internal/cdn"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/server"
 	"github.com/spf13/cobra"
@@ -44,6 +45,13 @@ func newServeCommand() *cobra.Command {
 				return err
 			}
 			defer runtime.Close()
+
+			purger := cdn.Purger{ZoneID: cfg.Cloudflare.ZoneID, Token: cfg.Cloudflare.PurgeToken, Store: runtime.Redis}
+			purgeCtx, cancelPurge := context.WithTimeout(ctx, 20*time.Second)
+			if err := purger.PurgeOnDeploy(purgeCtx, buildinfo.Version); err != nil {
+				slog.Warn("cloudflare deploy purge failed; edge may serve the previous release briefly", "error", err)
+			}
+			cancelPurge()
 
 			application := server.NewWithRuntimeContext(ctx, buildinfo.Version, runtime)
 			handler := application.Handler()

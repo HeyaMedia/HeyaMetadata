@@ -3993,6 +3993,9 @@ paths:
             Server-Timing:
               schema:
                 type: string
+            Vary:
+              schema:
+                type: string
         default:
           content:
             application/problem+json:

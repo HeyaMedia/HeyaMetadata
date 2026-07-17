@@ -11,9 +11,9 @@ const api = useHeyaApi()
 const { signature } = useLocale()
 const localeSignature = computed(signature)
 const { data, pending } = useAsyncData(
-  `discography:${props.entityId}`,
+  () => `discography:${props.entityId}:${localeSignature.value}`,
   () => api.allEntityRelations(props.entityId, 'discography').then(r => r.relations ?? []).catch(() => [] as Relation[]),
-  { watch: [() => props.entityId, localeSignature], default: () => [] as Relation[] },
+  { default: () => [] as Relation[], getCachedData: sessionCached },
 )
 
 interface Entry { title: string; kind: string; date: string; year: string; to?: string }

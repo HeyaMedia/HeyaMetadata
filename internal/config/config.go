@@ -25,6 +25,15 @@ type Config struct {
 	Providers    ProvidersConfig
 	Captcha      CaptchaConfig
 	Connectivity ConnectivityConfig
+	Cloudflare   CloudflareConfig
+}
+
+// CloudflareConfig enables the deploy-time edge cache purge when both values
+// are set. The token only needs the Zone → Cache Purge permission for the
+// site's zone; never use a broader credential here.
+type CloudflareConfig struct {
+	ZoneID     string
+	PurgeToken string
 }
 
 // ConnectivityConfig defines which immediate reverse proxies may supply the
@@ -383,6 +392,10 @@ func Load() (Config, error) {
 			ImageMaxWorkers: imageMaxWorkers,
 		},
 		Captcha: CaptchaConfig{Secret: env("HEYA_METADATA_CAPTCHA_SECRET", "")},
+		Cloudflare: CloudflareConfig{
+			ZoneID:     env("HEYA_METADATA_CLOUDFLARE_ZONE_ID", ""),
+			PurgeToken: env("HEYA_METADATA_CLOUDFLARE_PURGE_TOKEN", ""),
+		},
 		Connectivity: ConnectivityConfig{
 			TrustedProxyCIDRs: envList(
 				"HEYA_METADATA_CONNECTIVITY_TRUSTED_PROXIES",

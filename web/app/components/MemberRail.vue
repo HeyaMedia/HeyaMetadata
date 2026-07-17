@@ -16,9 +16,9 @@ const props = withDefaults(defineProps<{
 
 const api = useHeyaApi()
 const { data: fetched } = useAsyncData(
-  `collection-members:${props.collectionId || 'none'}`,
+  () => `collection-members:${props.collectionId || 'none'}`,
   () => (props.collectionId ? api.collection(props.collectionId).then(c => c.members ?? []).catch(() => []) : Promise.resolve([] as CollectionMember[])),
-  { watch: [() => props.collectionId], default: () => [] as CollectionMember[] },
+  { default: () => [] as CollectionMember[], getCachedData: sessionCached },
 )
 
 const source = computed(() => (props.collectionId ? (fetched.value ?? []) : (props.members ?? [])))

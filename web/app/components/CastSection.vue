@@ -9,9 +9,9 @@ const props = defineProps<{ entityId: string }>()
 
 const api = useHeyaApi()
 const { data, pending } = useAsyncData(
-  `credits:${props.entityId}`,
+  () => `credits:${props.entityId}`,
   () => api.entityCredits(props.entityId).then(r => r.results ?? []).catch(() => [] as Credit[]),
-  { watch: [() => props.entityId], default: () => [] as Credit[] },
+  { default: () => [] as Credit[], getCachedData: sessionCached },
 )
 
 interface Person { name: string; role: string; imageId?: string; order: number; to?: string }

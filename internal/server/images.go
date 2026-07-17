@@ -34,6 +34,7 @@ type entityImagesInput struct {
 	Limit             int    `query:"limit" minimum:"1" maximum:"100" default:"25" doc:"Maximum candidates returned per artwork class"`
 }
 type entityImagesOutput struct {
+	Vary         string `header:"Vary"`
 	ServerTiming string `header:"Server-Timing"`
 	Body         struct {
 		LanguagePreferences []string                      `json:"language_preferences"`
@@ -140,7 +141,7 @@ func registerImages(api huma.API, runtime *platform.Runtime) {
 		}
 		preferences := images.LanguagePreferences(input.Language, input.FallbackLanguages, input.AcceptLanguage)
 		candidates = images.RankCandidates(candidates, preferences, input.Country)
-		output = &entityImagesOutput{}
+		output = &entityImagesOutput{Vary: "Accept-Language"}
 		output.Body.LanguagePreferences = preferences
 		output.Body.Selections = map[string]string{}
 		perClass := map[string]int{}

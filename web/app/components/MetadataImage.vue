@@ -55,7 +55,10 @@ async function loadImage(id?: string) {
       return
     }
     if (response.status !== 202) break
-    await sleep(Math.min(250 + attempt * 150, 1500))
+    // The 202 carries Retry-After with the server's expected materialization
+    // pace; fall back to local backoff when it is absent or unparsable.
+    const retryAfter = Number(response.headers.get('retry-after'))
+    await sleep(retryAfter > 0 ? Math.min(retryAfter * 1000, 3000) : Math.min(250 + attempt * 150, 1500))
   }
   if (current === generation) state.value = 'missing'
 }

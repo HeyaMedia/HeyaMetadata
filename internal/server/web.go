@@ -2,6 +2,8 @@ package server
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -41,7 +43,6 @@ func WithWebUI(api http.Handler, root string, runtime *platform.Runtime, siteURL
 	if info, err = os.Stat(indexPath); err != nil || info.IsDir() {
 		return nil, fmt.Errorf("web root %s has no index.html", root)
 	}
-	indexModTime := info.ModTime()
 	index, err := os.ReadFile(indexPath)
 	if err != nil {
 		return nil, fmt.Errorf("read web index: %w", err)
@@ -70,6 +71,11 @@ func WithWebUI(api http.Handler, root string, runtime *platform.Runtime, siteURL
 		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
 			if strings.HasPrefix(cleanPath, "/_nuxt/") {
 				writer.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else {
+				// Unhashed public files (favicons, manifest artwork) may change
+				// between releases; a day of caching plus the deploy-time edge
+				// purge keeps them fresh without per-request origin hits.
+				writer.Header().Set("Cache-Control", "public, max-age=86400")
 			}
 			files.ServeHTTP(writer, request)
 			return
@@ -77,16 +83,19 @@ func WithWebUI(api http.Handler, root string, runtime *platform.Runtime, siteURL
 
 		if cleanPath == "/" || strings.Contains(request.Header.Get("Accept"), "text/html") {
 			body := index
-			modTime := indexModTime
 			if injected, ok := seo.render(request.Context(), index, cleanPath); ok {
 				body = injected
-				// The injected variant differs per route, so drop Last-Modified
-				// to avoid a stale conditional match against the shared shell.
-				modTime = time.Time{}
 			}
-			writer.Header().Set("Cache-Control", "no-cache")
+			// The shell is identical for every user (auth state loads client-side)
+			// and varies only by URL, so a shared edge may hold each route's
+			// injected variant briefly while browsers revalidate the body ETag on
+			// every navigation. Deploys purge the edge (internal/cdn), so the
+			// s-maxage window never outlives a release.
+			sum := sha256.Sum256(body)
+			writer.Header().Set("ETag", `"`+hex.EncodeToString(sum[:8])+`"`)
+			writer.Header().Set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600")
 			writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-			http.ServeContent(writer, request, "index.html", modTime, bytes.NewReader(body))
+			http.ServeContent(writer, request, "index.html", time.Time{}, bytes.NewReader(body))
 			return
 		}
 

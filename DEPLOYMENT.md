@@ -25,6 +25,13 @@ docker run --env-file .env -p 3030:3030 ghcr.io/heyamedia/heyametadata:latest
 docker run --env-file .env ghcr.io/heyamedia/heyametadata:latest worker
 ```
 
+When `HEYA_METADATA_CLOUDFLARE_ZONE_ID` and
+`HEYA_METADATA_CLOUDFLARE_PURGE_TOKEN` are set, the API purges the Cloudflare
+zone cache the first time a new build version boots (tracked in Redis), so a
+release replaces edge-cached shells and documents immediately. Scope the token
+to Zone → Cache Purge for the production zone only. Development builds
+(`version=dev`) never purge.
+
 The API and workers must use the same PostgreSQL, Redis, S3, provider, and
 captcha configuration. Supply credentials through the deployment platform's
 secret/environment facility; never bake an environment file into the image.

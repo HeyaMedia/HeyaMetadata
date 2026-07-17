@@ -8,9 +8,9 @@ const props = defineProps<{ recordingId: string }>()
 
 const api = useHeyaApi()
 const { data } = useAsyncData(
-  `lyrics:${props.recordingId}`,
+  () => `lyrics:${props.recordingId}`,
   () => api.recordingLyrics(props.recordingId).then(r => r.items ?? []).catch(() => [] as LyricDocument[]),
-  { watch: [() => props.recordingId], default: () => [] as LyricDocument[] },
+  { default: () => [] as LyricDocument[], getCachedData: sessionCached },
 )
 
 const lyric = computed<LyricDocument | undefined>(() =>

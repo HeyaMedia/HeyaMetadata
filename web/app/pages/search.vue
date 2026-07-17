@@ -22,9 +22,9 @@ const canDiscover = computed(() => !!kindConfig.value?.discoverable)
 const localeSignature = computed(signature)
 
 const { data: searchData, pending } = await useAsyncData(
-  'search',
+  () => `search:${q.value}:${kind.value}:${localeSignature.value}`,
   () => (q.value ? api.search(q.value, kind.value, 30) : Promise.resolve({ results: [] })),
-  { watch: [q, kind, localeSignature], default: () => ({ results: [] }) },
+  { default: () => ({ results: [] }), getCachedData: sessionCached },
 )
 const results = computed(() => searchData.value?.results ?? [])
 

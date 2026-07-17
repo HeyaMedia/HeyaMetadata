@@ -41,7 +41,7 @@ const SHELVES: Shelf[] = [
 // Do not suspend the initial SPA mount on the complete library overview. The
 // hero and loading shelf should paint immediately while these independent
 // reads settle in the background.
-const { data, pending } = useLazyAsyncData('home', async () => {
+const { data, pending } = useLazyAsyncData(() => `home:${localeSignature.value}`, async () => {
   const [shelves, collectionData, stats] = await Promise.all([
     Promise.all(SHELVES.map(shelf => api.latest(shelf.kind, 12).then(r => r.results ?? []).catch(() => []))),
     api.collections().then(r => r.collections ?? []).catch(() => []),
@@ -51,8 +51,8 @@ const { data, pending } = useLazyAsyncData('home', async () => {
   SHELVES.forEach((shelf, index) => { byKey[shelf.key] = shelves[index] })
   return { byKey, collections: collectionData as CollectionCard[], stats: stats as LibraryStats }
 }, {
-  watch: [localeSignature],
   default: () => ({ byKey: {}, collections: [] as CollectionCard[], stats: {} as LibraryStats }),
+  getCachedData: sessionCached,
 })
 
 const visibleShelves = computed(() => SHELVES.filter(shelf => (data.value?.byKey[shelf.key]?.length ?? 0) > 0))

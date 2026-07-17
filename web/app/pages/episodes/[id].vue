@@ -9,7 +9,11 @@ const id = computed(() => route.params.id as string)
 const { languages, signature } = useLocale()
 const localeSignature = computed(signature)
 
-const { data, pending, error } = await useAsyncData('episode', () => api.episode(id.value), { watch: [id, localeSignature] })
+const { data, pending, error } = await useAsyncData(
+  () => `episode:${id.value}:${localeSignature.value}`,
+  () => api.episode(id.value),
+  { getCachedData: sessionCached },
+)
 
 const ep = computed<any>(() => data.value?.data ?? {})
 const show = computed(() => data.value?.show)
@@ -19,10 +23,12 @@ const title = computed(() => preferredText(ep.value.titles, languages()) || form
 // `aired` schemes can disagree (or flatten cours), while season_id is Heya's
 // authoritative parent link.
 const seasonId = computed(() => ep.value.season_id as string | undefined)
+// Keyed like the standalone season page so navigating episode → season (or
+// between episodes of one season) reuses the already-fetched resource.
 const { data: seasonResource } = await useAsyncData(
-  `episode-season-${id.value}`,
+  () => `season:${seasonId.value || 'none'}:${localeSignature.value}`,
   () => seasonId.value ? api.season(seasonId.value) : Promise.resolve(null),
-  { watch: [seasonId] },
+  { getCachedData: sessionCached },
 )
 const canonicalSeason = computed<number | null>(() => {
   const number = Number(seasonResource.value?.data?.number)

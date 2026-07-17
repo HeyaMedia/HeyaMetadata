@@ -7,7 +7,11 @@ const id = computed(() => route.params.id as string)
 const { languages, signature } = useLocale()
 const localeSignature = computed(signature)
 
-const { data, pending, error } = await useAsyncData('season', () => api.season(id.value), { watch: [id, localeSignature] })
+const { data, pending, error } = await useAsyncData(
+  () => `season:${id.value}:${localeSignature.value}`,
+  () => api.season(id.value),
+  { getCachedData: sessionCached },
+)
 
 const season = computed<any>(() => data.value?.data ?? {})
 const show = computed(() => data.value?.show)

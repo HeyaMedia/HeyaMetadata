@@ -12,9 +12,9 @@ const props = withDefaults(defineProps<{
 
 const api = useHeyaApi()
 const { data } = useAsyncData(
-  `relations:${props.type}:${props.entityId}`,
+  () => `relations:${props.type}:${props.entityId}`,
   () => api.allEntityRelations(props.entityId, props.type).then(r => r.relations ?? []).catch(() => [] as Relation[]),
-  { watch: [() => props.entityId, () => props.type], default: () => [] as Relation[] },
+  { default: () => [] as Relation[], getCachedData: sessionCached },
 )
 
 interface Entry { title: string; sub: string; date: string; to?: string }

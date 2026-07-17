@@ -9,14 +9,18 @@ const route = useRoute()
 const api = useHeyaApi()
 const id = computed(() => route.params.id as string)
 
-const { data, pending, error, refresh } = await useAsyncData('person-doc', () => api.person(id.value), { watch: [id] })
+const { data, pending, error, refresh } = await useAsyncData(
+  () => `person-doc:${id.value}`,
+  () => api.person(id.value),
+  { getCachedData: sessionCached },
+)
 
 // Canonical filmography comes from the paginated /persons/{id}/credits endpoint
 // rather than the person document's embedded preview.
 const { data: filmography } = await useAsyncData(
-  'person-credits',
+  () => `person-credits:${id.value}`,
   () => api.allPersonCredits(id.value).catch(() => null),
-  { watch: [id] },
+  { getCachedData: sessionCached },
 )
 
 let polls = 0

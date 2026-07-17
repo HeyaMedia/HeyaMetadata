@@ -11,9 +11,9 @@ const api = useHeyaApi()
 const PAGE = 50
 
 const { data: first, pending } = useAsyncData(
-  `top-tracks:${props.entityId}`,
+  () => `top-tracks:${props.entityId}`,
   () => api.topTracks(props.entityId, { offset: 0, limit: PAGE }).catch(() => null),
-  { watch: [() => props.entityId] },
+  { getCachedData: sessionCached },
 )
 
 // Appended pages accumulate here and reset whenever the artist changes.
