@@ -17,13 +17,24 @@ import (
 )
 
 const (
-	libraryStatsCacheKey         = "heya:metadata:v2:library-stats"
-	libraryStatsRefreshLockKey   = libraryStatsCacheKey + ":refresh"
-	libraryStatsFreshFor         = 5 * time.Minute
-	libraryStatsCacheRetention   = 24 * time.Hour
-	movieCollectionsCacheKey     = "heya:metadata:v2:movie-collections"
-	movieCollectionsCacheRefresh = time.Hour
+	libraryStatsCacheKey           = "heya:metadata:v2:library-stats"
+	libraryStatsRefreshLockKey     = libraryStatsCacheKey + ":refresh"
+	libraryStatsFreshFor           = 5 * time.Minute
+	libraryStatsCacheRetention     = 24 * time.Hour
+	movieCollectionsCacheKey       = "heya:metadata:v2:movie-collections"
+	movieCollectionsRefreshLockKey = movieCollectionsCacheKey + ":refresh"
+	movieCollectionsFreshFor       = time.Hour
+	movieCollectionsCacheRetention = 24 * time.Hour
 )
+
+// cachedMovieCollections wraps the collection cards with their computation
+// time so a stale copy can be served immediately while a background refresh
+// rebuilds it — the recompute scans every movie detail document, which is far
+// too expensive to sit on an unlucky visitor's request.
+type cachedMovieCollections struct {
+	GeneratedAt time.Time        `json:"generated_at"`
+	Values      []collectionCard `json:"values"`
+}
 
 type browseInput struct {
 	Query          string `query:"q" maxLength:"200" doc:"Optional local title/name query"`
@@ -288,11 +299,35 @@ func refreshLibraryStatsAsync(runtime *platform.Runtime) {
 
 func movieCollections(ctx context.Context, runtime *platform.Runtime) ([]collectionCard, error) {
 	if cached, err := runtime.Redis.Get(ctx, movieCollectionsCacheKey).Bytes(); err == nil {
-		var values []collectionCard
-		if json.Unmarshal(cached, &values) == nil {
-			return values, nil
+		var stored cachedMovieCollections
+		if json.Unmarshal(cached, &stored) == nil && stored.Values != nil {
+			if time.Since(stored.GeneratedAt) > movieCollectionsFreshFor {
+				refreshMovieCollectionsAsync(runtime)
+			}
+			return stored.Values, nil
 		}
 	}
+	return computeMovieCollections(ctx, runtime)
+}
+
+func refreshMovieCollectionsAsync(runtime *platform.Runtime) {
+	lockCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	acquired, err := runtime.Redis.SetNX(lockCtx, movieCollectionsRefreshLockKey, "1", time.Minute).Result()
+	if err != nil || !acquired {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		defer runtime.Redis.Del(context.WithoutCancel(ctx), movieCollectionsRefreshLockKey)
+		if _, err := computeMovieCollections(ctx, runtime); err != nil {
+			slog.WarnContext(ctx, "refresh cached movie collections", "error", err)
+		}
+	}()
+}
+
+func computeMovieCollections(ctx context.Context, runtime *platform.Runtime) ([]collectionCard, error) {
 	rows, err := runtime.DB.Query(ctx, `SELECT DISTINCT ON (document->'data'->'collection'->>'provider_id') document->'data'->'collection' FROM api_documents d JOIN entities e ON e.id=d.entity_id WHERE d.document_kind='detail' AND e.kind='movie' AND document->'data'->'collection'->>'provider_id'<>'' ORDER BY document->'data'->'collection'->>'provider_id',d.updated_at DESC`)
 	if err != nil {
 		return nil, err
@@ -368,8 +403,8 @@ func movieCollections(ctx context.Context, runtime *platform.Runtime) ([]collect
 		}
 		return values[i].Name < values[j].Name
 	})
-	if body, marshalErr := json.Marshal(values); marshalErr == nil {
-		if cacheErr := runtime.Redis.Set(ctx, movieCollectionsCacheKey, body, movieCollectionsCacheRefresh).Err(); cacheErr != nil {
+	if body, marshalErr := json.Marshal(cachedMovieCollections{GeneratedAt: time.Now().UTC(), Values: values}); marshalErr == nil {
+		if cacheErr := runtime.Redis.Set(ctx, movieCollectionsCacheKey, body, movieCollectionsCacheRetention).Err(); cacheErr != nil {
 			slog.WarnContext(ctx, "cache movie collections", "error", cacheErr)
 		}
 	}
