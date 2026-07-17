@@ -1,6 +1,8 @@
 package server
 
 import (
+	"compress/gzip"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -92,6 +94,47 @@ func TestWithWebUIShellRevalidatesByETag(t *testing.T) {
 	handler.ServeHTTP(revalidated, conditional)
 	if revalidated.Code != http.StatusNotModified {
 		t.Fatalf("expected 304 for matching ETag, got %d", revalidated.Code)
+	}
+}
+
+func TestWithWebUIShellCompressesAtOrigin(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<main>observatory</main>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := WithWebUI(http.NotFoundHandler(), root, nil, "https://heya.media")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Accept", "text/html")
+	request.Header.Set("Accept-Encoding", "gzip")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Header().Get("Content-Encoding") != "gzip" {
+		t.Fatalf("Content-Encoding=%q", response.Header().Get("Content-Encoding"))
+	}
+	if !strings.Contains(response.Header().Get("Vary"), "Accept-Encoding") {
+		t.Fatalf("Vary=%q", response.Header().Get("Vary"))
+	}
+	reader, err := gzip.NewReader(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decompressed, err := io.ReadAll(reader)
+	if err != nil || !strings.Contains(string(decompressed), "observatory") {
+		t.Fatalf("decompressed=%q err=%v", decompressed, err)
+	}
+
+	conditional := httptest.NewRequest(http.MethodGet, "/", nil)
+	conditional.Header.Set("Accept", "text/html")
+	conditional.Header.Set("Accept-Encoding", "gzip")
+	conditional.Header.Set("If-None-Match", response.Header().Get("ETag"))
+	revalidated := httptest.NewRecorder()
+	handler.ServeHTTP(revalidated, conditional)
+	if revalidated.Code != http.StatusNotModified {
+		t.Fatalf("expected 304 for matching ETag on gzip variant, got %d", revalidated.Code)
 	}
 }
 
