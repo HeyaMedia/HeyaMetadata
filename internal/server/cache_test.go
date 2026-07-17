@@ -24,6 +24,7 @@ func TestCacheControlFor(t *testing.T) {
 		{path: "/api/v2/tv/discoveries", want: "no-store"},
 		{path: "/api/v2/fingerprint-matches/abc", want: "no-store"},
 		{path: "/api/v2/changes", want: "no-store"},
+		{path: "/api/v2/workflow-events", want: "no-store"},
 		{path: "/api/v2/entities/abc/refreshes", want: "no-store"},
 		{path: "/api/v2/latest", want: "public, max-age=60, stale-while-revalidate=600"},
 		{path: "/api/v2/browse", want: "public, max-age=300, stale-while-revalidate=3600"},

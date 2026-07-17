@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
-	"github.com/jackc/pgx/v5"
 	"time"
+
+	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
+	"github.com/HeyaMedia/HeyaMetadata/internal/workflowfeed"
+	"github.com/jackc/pgx/v5"
 )
 
 type Run struct {
@@ -144,9 +146,13 @@ func Complete(ctx context.Context, runtime *platform.Runtime, hash string, resul
 	if err != nil {
 		return err
 	}
+	if err := workflowfeed.Emit(ctx, tx, "discovery", runID, "completed", time.Now().UTC()); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
+	_ = workflowfeed.Sequence(ctx, runtime, 100)
 	if run, getErr := GetRunByHash(ctx, runtime, hash); getErr == nil {
 		cacheRun(ctx, runtime, run)
 	}
@@ -159,7 +165,22 @@ func ResolveCandidate(ctx context.Context, runtime *platform.Runtime, candidateR
 	return result, err
 }
 func Fail(ctx context.Context, runtime *platform.Runtime, hash string, failure error) {
-	_, _ = runtime.DB.Exec(context.WithoutCancel(ctx), `UPDATE discovery_runs SET state='failed',error=$2,completed_at=now(),updated_at=now(),expires_at=now()+interval '10 minutes' WHERE request_hash=$1`, hash, failure.Error())
+	ctx = context.WithoutCancel(ctx)
+	tx, err := runtime.DB.Begin(ctx)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback(ctx)
+	var runID string
+	if err := tx.QueryRow(ctx, `UPDATE discovery_runs SET state='failed',error=$2,completed_at=now(),updated_at=now(),expires_at=now()+interval '10 minutes' WHERE request_hash=$1 RETURNING id`, hash, failure.Error()).Scan(&runID); err != nil {
+		return
+	}
+	if err := workflowfeed.Emit(ctx, tx, "discovery", runID, "failed", time.Now().UTC()); err != nil {
+		return
+	}
+	if tx.Commit(ctx) == nil {
+		_ = workflowfeed.Sequence(ctx, runtime, 100)
+	}
 }
 func discoveryCacheKey(hash string) string { return "heya:metadata:v2:discovery:" + hash }
 func cacheRun(ctx context.Context, runtime *platform.Runtime, run Run) {

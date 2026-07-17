@@ -57,6 +57,8 @@ func cacheControlFor(path string) string {
 		return "no-store"
 	case strings.HasPrefix(path, "/api/v2/changes"):
 		return "no-store"
+	case strings.HasPrefix(path, "/api/v2/workflow-events"):
+		return "no-store"
 	case strings.Contains(path, "/refreshes"):
 		return "no-store"
 	case strings.HasPrefix(path, "/api/v2/latest"):
