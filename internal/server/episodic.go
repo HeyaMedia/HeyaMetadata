@@ -106,6 +106,7 @@ func preferredEpisodicRoot(ctx context.Context, runtime *platform.Runtime, entit
 		SELECT provider, normalized_value
 		FROM external_id_claims
 		WHERE entity_id=$1 AND entity_kind=$2 AND state='accepted'
+		  AND normalized_value ~ '^[1-9][0-9]*$'
 		  AND (
 			(provider='tmdb' AND namespace='tv') OR
 			($2='tv_show' AND provider='tvmaze' AND namespace='show') OR

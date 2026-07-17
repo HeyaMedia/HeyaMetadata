@@ -72,6 +72,29 @@ func TestNormalizeTVDBSeriesRetainsSpecialsAbsoluteNumbersAndChildArtwork(t *tes
 	}
 }
 
+func TestNormalizeTVDBSeriesCanonicalizesTMDBSlugRemoteID(t *testing.T) {
+	payload := providers.Payload{ObservationID: "obs", ObservedAt: time.Unix(1, 0), StatusCode: http.StatusOK, Body: []byte(`{"data":{
+		"id":76081,"name":"Disney's Adventures of the Gummi Bears",
+		"remoteIds":[{"id":"1931-disney-s-adventures-of-the-gummi-bears","type":12,"sourceName":"TheMovieDB.com"}]
+	}}`)}
+	record, err := NormalizeTVDBSeries(payload, "tv_show", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.NormalizerVersion != "tvdb-series/v5" {
+		t.Fatalf("normalizer version: %q", record.NormalizerVersion)
+	}
+	for _, external := range record.ExternalIDs {
+		if external.Provider == "tmdb" && external.Namespace == "tv" {
+			if external.Value != "1931" {
+				t.Fatalf("TMDB ID: %q", external.Value)
+			}
+			return
+		}
+	}
+	t.Fatalf("canonical TMDB ID missing: %+v", record.ExternalIDs)
+}
+
 func TestNormalizeTVDBSeriesRetainsYearNumberedSeason(t *testing.T) {
 	payload := providers.Payload{ObservationID: "obs", ObservedAt: time.Unix(1, 0), StatusCode: http.StatusOK, Body: []byte(`{"data":{
 		"id":73388,"name":"MythBusters","originalLanguage":"eng",

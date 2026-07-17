@@ -167,13 +167,13 @@ func remoteCandidate(remote remoteID) (moviedomain.IdentityCandidate, bool) {
 	case 2:
 		provider, namespace = "imdb", "title"
 	case 12:
-		provider, namespace = "tmdb", "movie"
+		provider, namespace, value = "tmdb", "movie", NormalizeTMDBID(value)
 	case 18:
 		provider, namespace, value = "wikidata", "item", strings.ToUpper(value)
 	case 23:
 		provider, namespace = "anidb", "anime"
 	}
-	if provider == "" {
+	if provider == "" || value == "" {
 		return moviedomain.IdentityCandidate{}, false
 	}
 	return moviedomain.IdentityCandidate{Provider: provider, Namespace: namespace, NormalizedValue: value, Confidence: 1, Evidence: "tvdb.remote_ids"}, true

@@ -13,7 +13,7 @@ func TestNormalizeMoviePreservesClaimsTranslationsCreditsAndArtwork(t *testing.T
 		"aliases":[{"language":"deu","name":"Matrix"}],
 		"translations":{"nameTranslations":[{"language":"dan","name":"The Matrix","isPrimary":true}],"overviewTranslations":[{"language":"eng","overview":"A hacker discovers reality."}]},
 		"genres":[{"id":1,"name":"Science Fiction"}],"tagOptions":[{"id":2,"name":"Cyberpunk","tagName":"Theme"}],
-		"remoteIds":[{"id":"tt0133093","type":2,"sourceName":"IMDB"},{"id":"603","type":12,"sourceName":"TheMovieDB.com"},{"id":"Q83495","type":18,"sourceName":"Wikidata"}],
+		"remoteIds":[{"id":"tt0133093","type":2,"sourceName":"IMDB"},{"id":"603-the-matrix","type":12,"sourceName":"TheMovieDB.com"},{"id":"Q83495","type":18,"sourceName":"Wikidata"}],
 		"releases":[{"country":"usa","date":"1999-03-31","detail":"Theatrical"}],
 		"contentRatings":[{"country":"usa","name":"R"}],
 		"characters":[{"id":7,"peopleId":42,"personName":"Keanu Reeves","peopleType":"Actor","name":"Neo","sort":1,"personImgURL":"/people/keanu.jpg"}],
@@ -26,6 +26,9 @@ func TestNormalizeMoviePreservesClaimsTranslationsCreditsAndArtwork(t *testing.T
 	}
 	if record.ProviderRecord.Value != "123" || len(record.IdentityCandidates) != 4 {
 		t.Fatalf("identity: %+v", record.IdentityCandidates)
+	}
+	if record.ProviderRecord.NormalizerVersion != "tvdb-movie/v2" || record.IdentityCandidates[2].Provider != "tmdb" || record.IdentityCandidates[2].NormalizedValue != "603" {
+		t.Fatalf("TMDB remote identity: version=%s candidates=%+v", record.ProviderRecord.NormalizerVersion, record.IdentityCandidates)
 	}
 	if record.Measurements.RuntimeMinutes == nil || *record.Measurements.RuntimeMinutes != 136 || len(record.Descriptions) != 1 {
 		t.Fatalf("measurements/descriptions: %+v", record)

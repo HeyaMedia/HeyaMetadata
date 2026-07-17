@@ -7,7 +7,7 @@ const (
 	NormalizedSchemaVersion = 1
 	TMDBNormalizerVersion   = "tmdb-movie/v1"
 	OMDBNormalizerVersion   = "omdb-movie/v1"
-	TVDBNormalizerVersion   = "tvdb-movie/v1"
+	TVDBNormalizerVersion   = "tvdb-movie/v2"
 	FanartNormalizerVersion = "fanart-movie/v1"
 	MergeVersion            = "movie-merge/v1"
 	ProjectionSchemaVersion = 2

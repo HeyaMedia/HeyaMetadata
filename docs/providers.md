@@ -152,6 +152,8 @@ and certification evidence, companies, identity claims, people credits, and
 typed artwork. TVDB `score` remains a provider popularity signal and is never
 presented as a rating. Identity candidates from every successful supplemental
 record participate in conflict detection and are attached as durable claims.
+TVDB may represent a TMDB remote ID as `<numeric-id>-<title-slug>`; only the
+numeric prefix is retained as canonical identity and scheduler input.
 
 ## Fanart.tv refinement
 

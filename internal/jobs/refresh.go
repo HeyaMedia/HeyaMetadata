@@ -66,6 +66,7 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 		  )
 		  AND claims.entity_kind = 'movie' AND claims.provider = 'tmdb'
 		  AND claims.namespace = 'movie' AND claims.state = 'accepted'
+		  AND claims.normalized_value ~ '^[1-9][0-9]*$'
 		ORDER BY COALESCE(stats.decayed_score * exp(-EXTRACT(EPOCH FROM (now() - stats.score_updated_at)) / 604800.0), 0) DESC,
 		         refresh.next_eligible_at
 		LIMIT 500`)
@@ -282,6 +283,7 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 		  FROM external_id_claims claim
 		  WHERE claim.entity_id=refresh.entity_id AND claim.entity_kind='tv_show' AND claim.state='accepted'
 		    AND ((claim.provider='tmdb' AND claim.namespace='tv') OR (claim.provider='tvmaze' AND claim.namespace='show'))
+		    AND claim.normalized_value ~ '^[1-9][0-9]*$'
 		  ORDER BY CASE claim.provider WHEN 'tmdb' THEN 1 ELSE 2 END
 		  LIMIT 1
 		  ) root ON true
@@ -325,6 +327,7 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 		  FROM external_id_claims claim
 		  WHERE claim.entity_id=refresh.entity_id AND claim.entity_kind='anime' AND claim.state='accepted'
 		    AND ((claim.provider='tmdb' AND claim.namespace='tv') OR (claim.provider='tvmaze' AND claim.namespace='show') OR (claim.provider='anidb' AND claim.namespace='anime'))
+		    AND claim.normalized_value ~ '^[1-9][0-9]*$'
 		  ORDER BY CASE claim.provider WHEN 'tmdb' THEN 1 WHEN 'tvmaze' THEN 2 ELSE 3 END
 		  LIMIT 1
 		  ) root ON true

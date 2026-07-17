@@ -12,7 +12,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvdb"
 )
 
-const tvdbSeriesNormalizerVersion = "tvdb-series/v4"
+const tvdbSeriesNormalizerVersion = "tvdb-series/v5"
 
 type tvdbEnvelope struct {
 	Data tvdbSeries `json:"data"`
@@ -234,7 +234,9 @@ func NormalizeTVDBSeries(payload providers.Payload, kind string, seasonFilter *i
 		case 2:
 			r.ExternalIDs = append(r.ExternalIDs, episodic.ExternalID{Provider: "imdb", Namespace: "title", Value: x.ID})
 		case 12:
-			r.ExternalIDs = append(r.ExternalIDs, episodic.ExternalID{Provider: "tmdb", Namespace: "tv", Value: x.ID})
+			if value := tvdb.NormalizeTMDBID(x.ID); value != "" {
+				r.ExternalIDs = append(r.ExternalIDs, episodic.ExternalID{Provider: "tmdb", Namespace: "tv", Value: value})
+			}
 		case 18:
 			r.ExternalIDs = append(r.ExternalIDs, episodic.ExternalID{Provider: "wikidata", Namespace: "item", Value: strings.ToUpper(x.ID)})
 		case 23:

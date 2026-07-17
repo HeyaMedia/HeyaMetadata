@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	animeservice "github.com/HeyaMedia/HeyaMetadata/internal/anime"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
@@ -85,6 +87,10 @@ func (w *TVShowIngestWorker) Work(ctx context.Context, job *river.Job[TVShowInge
 	if provider == "" && job.Args.TVMazeID != "" {
 		provider, id = "tvmaze", job.Args.TVMazeID
 	}
+	provider, id = strings.ToLower(strings.TrimSpace(provider)), strings.TrimSpace(id)
+	if isEpisodicProvider(provider) && !validEpisodicProviderID(id) {
+		return river.JobCancel(fmt.Errorf("invalid %s TV ingestion root ID %q", provider, id))
+	}
 	switch provider {
 	case "tmdb":
 		_, err = w.service.IngestTMDBWithCredentials(ctx, id, job.ID, credentials)
@@ -117,6 +123,10 @@ func (w *AnimeIngestWorker) Work(ctx context.Context, job *river.Job[AnimeIngest
 	if provider == "" && job.Args.AniDBID != "" {
 		provider, id = "anidb", job.Args.AniDBID
 	}
+	provider, id = strings.ToLower(strings.TrimSpace(provider)), strings.TrimSpace(id)
+	if isEpisodicProvider(provider) && !validEpisodicProviderID(id) {
+		return river.JobCancel(fmt.Errorf("invalid %s anime ingestion root ID %q", provider, id))
+	}
 	switch provider {
 	case "tmdb":
 		_, err = w.service.IngestTMDBWithCredentials(ctx, id, job.ID, credentials)
@@ -132,6 +142,16 @@ func (w *AnimeIngestWorker) Work(ctx context.Context, job *river.Job[AnimeIngest
 	}
 	return classifyEpisodicError(provider+" anime "+id, err)
 }
+
+func isEpisodicProvider(provider string) bool {
+	return provider == "tmdb" || provider == "tvmaze" || provider == "anidb"
+}
+
+func validEpisodicProviderID(value string) bool {
+	id, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	return err == nil && id > 0
+}
+
 func classifyEpisodicError(label string, err error) error {
 	if err == nil {
 		return nil
