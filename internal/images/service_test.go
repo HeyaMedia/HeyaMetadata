@@ -2,12 +2,23 @@ package images
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/png"
+	"io"
+	"net/http"
 	"net/url"
 	"testing"
+
+	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
 
 func TestValidateSourceURLRejectsProxyAndLocalTargets(t *testing.T) {
 	t.Parallel()
@@ -85,5 +96,80 @@ func TestBuildVariantProducesRequestedServingFormatAndWidth(t *testing.T) {
 	}
 	if variant.Width != 96 || variant.Height != 144 || len(variant.Body) == 0 || variant.Checksum == "" {
 		t.Fatalf("variant was upscaled: %+v", variant)
+	}
+}
+
+func TestBuildBoundedWebPPreservesAspectRatio(t *testing.T) {
+	t.Parallel()
+	source := image.NewNRGBA(image.Rect(0, 0, 300, 200))
+	var original bytes.Buffer
+	if err := png.Encode(&original, source); err != nil {
+		t.Fatal(err)
+	}
+	variant, err := buildBoundedWebP(bytes.NewReader(original.Bytes()), 192, 108)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if variant.MediaType != "image/webp" || variant.Width != 162 || variant.Height != 108 || len(variant.Body) == 0 {
+		t.Fatalf("bounded WebP: %+v", variant)
+	}
+}
+
+func TestOversizedImageBoundsFollowArtworkOrientation(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		width, height       int
+		maxWidth, maxHeight int
+	}{
+		"square":      {4000, 4000, 1200, 1200},
+		"near square": {4000, 3999, 1200, 1200},
+		"landscape":   {3840, 2160, 1920, 1080},
+		"portrait":    {2160, 3840, 1080, 1920},
+	} {
+		t.Run(name, func(t *testing.T) {
+			maxWidth, maxHeight := oversizedImageBounds(test.width, test.height)
+			if maxWidth != test.maxWidth || maxHeight != test.maxHeight {
+				t.Fatalf("bounds: %dx%d, want %dx%d", maxWidth, maxHeight, test.maxWidth, test.maxHeight)
+			}
+		})
+	}
+}
+
+func TestFetchSourceTranscodesAdvertisedOversizedImage(t *testing.T) {
+	t.Parallel()
+	source := image.NewNRGBA(image.Rect(0, 0, 96, 144))
+	var original bytes.Buffer
+	if err := png.Encode(&original, source); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{
+		runtime: &platform.Runtime{},
+		client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Header:        http.Header{"Content-Type": []string{"image/png"}},
+				ContentLength: MaxOriginalBytes + 1,
+				Body:          io.NopCloser(bytes.NewReader(original.Bytes())),
+				Request:       request,
+			}, nil
+		})},
+	}
+	sourceURL, err := url.Parse("https://coverartarchive.org/release/61a8a00a-d726-43e4-ac8d-5719ce4d8101/37005106544.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, mediaType, err := service.fetchSource(context.Background(), "coverartarchive", sourceURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mediaType != "image/webp" {
+		t.Fatalf("media type: %q", mediaType)
+	}
+	width, height, err := inspectImage(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if width != 96 || height != 144 {
+		t.Fatalf("dimensions: %dx%d", width, height)
 	}
 }

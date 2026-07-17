@@ -195,7 +195,12 @@ failed MusicBrainz entity ingestion.
 
 Cover Art Archive URLs and observations use the same immutable evidence and
 lazy materialization pipeline as every other image provider. Its response cache
-never outlives the 48-hour raw evidence blob.
+never outlives the 48-hour raw evidence blob. Provider originals up to 25 MiB
+are retained byte-for-byte. Larger artwork from any provider is streamed
+through a single memory-bounded transform and stored as WebP. Near-square art
+is fitted within 1200x1200, landscape art within 1920x1080, and portrait art
+within 1080x1920, always without cropping or upscaling. Downloads still have a
+100 MiB hard limit and decoded sources retain the 60-megapixel safety limit.
 
 ## MusicBrainz source collection
 

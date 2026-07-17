@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -19,12 +20,29 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const MaxOriginalBytes int64 = 25 * 1024 * 1024
+const (
+	// Sources at or below MaxOriginalBytes are retained byte-for-byte. Larger
+	// sources are streamed through the bounded WebP transform below instead of
+	// being held in every image worker's heap.
+	MaxOriginalBytes         int64 = 25 * 1024 * 1024
+	MaxSourceDownloadBytes   int64 = 100 * 1024 * 1024
+	OversizedSquareEdge            = 1200
+	OversizedLandscapeWidth        = 1920
+	OversizedLandscapeHeight       = 1080
+	OversizedPortraitWidth         = 1080
+	OversizedPortraitHeight        = 1920
+)
+
+// A decoded 60 megapixel image can itself occupy hundreds of MiB. Keep the
+// exceptional oversized transform path serial even when the regular image
+// queue has many workers.
+var oversizedTransformSlot = make(chan struct{}, 1)
 
 var (
-	ErrNotFound   = errors.New("image not found")
-	ErrNotReady   = errors.New("image is not materialized")
-	ErrInProgress = errors.New("image materialization is already in progress")
+	ErrNotFound       = errors.New("image not found")
+	ErrNotReady       = errors.New("image is not materialized")
+	ErrInProgress     = errors.New("image materialization is already in progress")
+	ErrSourceTooLarge = errors.New("image source exceeds the byte limit")
 )
 
 type Service struct {
@@ -99,43 +117,9 @@ func (s *Service) ensureOriginal(ctx context.Context, id string) (asset Asset, b
 	if !providerHostAllowed(provider, parsed.Hostname()) {
 		return Asset{}, nil, fmt.Errorf("image host %q is not allowed for provider %s", parsed.Hostname(), provider)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	body, mediaType, err := s.fetchSource(ctx, provider, parsed)
 	if err != nil {
 		return Asset{}, nil, err
-	}
-	request.Header.Set("Accept", "image/webp,image/png,image/jpeg,image/gif;q=0.8")
-	request.Header.Set("User-Agent", s.runtime.Config.Providers.MusicBrainz.UserAgent)
-	client := *s.client
-	client.CheckRedirect = func(request *http.Request, _ []*http.Request) error {
-		if err := validateSourceURL(request.URL, s.allowHTTP); err != nil {
-			return err
-		}
-		if !providerHostAllowed(provider, request.URL.Hostname()) {
-			return fmt.Errorf("redirected image host %q is not allowed for provider %s", request.URL.Hostname(), provider)
-		}
-		return nil
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return Asset{}, nil, fmt.Errorf("fetch image: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return Asset{}, nil, fmt.Errorf("image source returned HTTP %d", response.StatusCode)
-	}
-	body, err = io.ReadAll(io.LimitReader(response.Body, MaxOriginalBytes+1))
-	if err != nil {
-		return Asset{}, nil, fmt.Errorf("read image: %w", err)
-	}
-	if int64(len(body)) > MaxOriginalBytes {
-		return Asset{}, nil, fmt.Errorf("image exceeds %d byte limit", MaxOriginalBytes)
-	}
-	mediaType := normalizedImageType(http.DetectContentType(body))
-	if mediaType == "" {
-		return Asset{}, nil, fmt.Errorf("source is not a supported image")
-	}
-	if declared := strings.ToLower(strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0])); declared != "" && !strings.HasPrefix(declared, "image/") {
-		return Asset{}, nil, fmt.Errorf("source declared non-image content type %s", declared)
 	}
 	sourceWidth, sourceHeight, err := inspectImage(body)
 	if err != nil {
@@ -158,6 +142,95 @@ func (s *Service) ensureOriginal(ctx context.Context, id string) (asset Asset, b
 		return Asset{}, nil, fmt.Errorf("finish image materialization: %w", err)
 	}
 	return asset, body, nil
+}
+
+func (s *Service) fetchSource(ctx context.Context, provider string, source *url.URL) ([]byte, string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source.String(), nil)
+	if err != nil {
+		return nil, "", err
+	}
+	request.Header.Set("Accept", "image/webp,image/png,image/jpeg,image/gif;q=0.8")
+	request.Header.Set("User-Agent", s.runtime.Config.Providers.MusicBrainz.UserAgent)
+	client := *s.client
+	client.CheckRedirect = func(request *http.Request, _ []*http.Request) error {
+		if err := validateSourceURL(request.URL, s.allowHTTP); err != nil {
+			return err
+		}
+		if !providerHostAllowed(provider, request.URL.Hostname()) {
+			return fmt.Errorf("redirected image host %q is not allowed for provider %s", request.URL.Hostname(), provider)
+		}
+		return nil
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, "", fmt.Errorf("fetch image: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("image source returned HTTP %d", response.StatusCode)
+	}
+	if declared := strings.ToLower(strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0])); declared != "" && !strings.HasPrefix(declared, "image/") {
+		return nil, "", fmt.Errorf("source declared non-image content type %s", declared)
+	}
+	if response.ContentLength > MaxSourceDownloadBytes {
+		return nil, "", fmt.Errorf("image exceeds %d byte hard limit: %w", MaxSourceDownloadBytes, ErrSourceTooLarge)
+	}
+	if response.ContentLength > MaxOriginalBytes {
+		return transcodeOversizedSource(ctx, nil, response.Body)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, MaxOriginalBytes+1))
+	if err != nil {
+		return nil, "", fmt.Errorf("read image: %w", err)
+	}
+	if int64(len(body)) > MaxOriginalBytes {
+		return transcodeOversizedSource(ctx, body, response.Body)
+	}
+	mediaType := normalizedImageType(http.DetectContentType(body))
+	if mediaType == "" {
+		return nil, "", fmt.Errorf("source is not a supported image")
+	}
+	return body, mediaType, nil
+}
+
+func transcodeOversizedSource(ctx context.Context, prefix []byte, remainder io.Reader) ([]byte, string, error) {
+	temporary, err := os.CreateTemp("", "heya-image-source-*")
+	if err != nil {
+		return nil, "", fmt.Errorf("create oversized image spool: %w", err)
+	}
+	defer func() {
+		_ = temporary.Close()
+		_ = os.Remove(temporary.Name())
+	}()
+	if len(prefix) > 0 {
+		if _, err := temporary.Write(prefix); err != nil {
+			return nil, "", fmt.Errorf("spool oversized image prefix: %w", err)
+		}
+	}
+	remainingLimit := MaxSourceDownloadBytes - int64(len(prefix)) + 1
+	if remainingLimit < 1 {
+		return nil, "", fmt.Errorf("image exceeds %d byte hard limit: %w", MaxSourceDownloadBytes, ErrSourceTooLarge)
+	}
+	written, err := io.Copy(temporary, io.LimitReader(remainder, remainingLimit))
+	if err != nil {
+		return nil, "", fmt.Errorf("spool oversized image: %w", err)
+	}
+	if int64(len(prefix))+written > MaxSourceDownloadBytes {
+		return nil, "", fmt.Errorf("image exceeds %d byte hard limit: %w", MaxSourceDownloadBytes, ErrSourceTooLarge)
+	}
+	if _, err := temporary.Seek(0, io.SeekStart); err != nil {
+		return nil, "", fmt.Errorf("rewind oversized image: %w", err)
+	}
+	select {
+	case oversizedTransformSlot <- struct{}{}:
+		defer func() { <-oversizedTransformSlot }()
+	case <-ctx.Done():
+		return nil, "", ctx.Err()
+	}
+	variant, err := buildStoredWebP(temporary)
+	if err != nil {
+		return nil, "", fmt.Errorf("transform oversized image: %w", err)
+	}
+	return variant.Body, variant.MediaType, nil
 }
 
 func (s *Service) MaterializeVariant(ctx context.Context, id string, requestedWidth int) (Asset, error) {
