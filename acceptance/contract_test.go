@@ -38,6 +38,7 @@ var publicOperations = map[string]struct {
 	"refresh-entity":              {http.MethodPost, "/api/v2/entities/{id}/refreshes"},
 	"job-status":                  {http.MethodGet, "/api/v2/jobs/{id}"},
 	"public-changes":              {http.MethodGet, "/api/v2/changes"},
+	"workflow-events":             {http.MethodGet, "/api/v2/workflow-events"},
 	"entity-credits":              {http.MethodGet, "/api/v2/entities/{id}/credits"},
 	"entity-ratings":              {http.MethodGet, "/api/v2/entities/{id}/ratings"},
 	"entity-images":               {http.MethodGet, "/api/v2/entities/{id}/images"},
