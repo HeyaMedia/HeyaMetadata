@@ -33,6 +33,7 @@ type browseInput struct {
 	Limit          int    `query:"limit" minimum:"1" maximum:"100" default:"24"`
 	AcceptLanguage string `header:"Accept-Language" doc:"Preferred presentation languages for compact titles and names"`
 	primaryOnly    bool
+	skipTotal      bool
 }
 type browseOutput struct {
 	Vary string `header:"Vary"`
@@ -100,7 +101,7 @@ func registerLibrary(api huma.API, runtime *platform.Runtime) {
 		if runtime == nil {
 			return nil, huma.Error503ServiceUnavailable("runtime is unavailable")
 		}
-		return browseLibrary(ctx, runtime, &browseInput{Kind: input.Kind, Sort: "updated", Limit: input.Limit, AcceptLanguage: input.AcceptLanguage, primaryOnly: input.Kind == ""})
+		return browseLibrary(ctx, runtime, &browseInput{Kind: input.Kind, Sort: "updated", Limit: input.Limit, AcceptLanguage: input.AcceptLanguage, primaryOnly: input.Kind == "", skipTotal: true})
 	})
 	huma.Register(api, huma.Operation{OperationID: "library-stats", Method: http.MethodGet, Path: "/api/v2/stats", Summary: "Canonical library coverage statistics", Tags: []string{"Library"}}, func(ctx context.Context, _ *struct{}) (*statsOutput, error) {
 		if runtime == nil {
@@ -166,8 +167,13 @@ func browseLibrary(ctx context.Context, runtime *platform.Runtime, input *browse
 	out.Body.Offset = offset
 	out.Body.Limit = limit
 	out.Body.Results = []json.RawMessage{}
-	if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM search_entities se WHERE `+where, kind, query).Scan(&out.Body.Total); err != nil {
-		return nil, err
+	// The exact count walks every index entry for the kind — a cold-cache table
+	// scan that took double-digit seconds for release_group in production.
+	// latest is a shelf, not a paginator, so it never displays the total.
+	if !input.skipTotal {
+		if err := runtime.DB.QueryRow(ctx, `SELECT count(*) FROM search_entities se WHERE `+where, kind, query).Scan(&out.Body.Total); err != nil {
+			return nil, err
+		}
 	}
 	rows, err := runtime.DB.Query(ctx, `SELECT se.summary FROM search_entities se WHERE `+where+` ORDER BY `+order+` OFFSET $3 LIMIT $4`, kind, query, offset, limit)
 	if err != nil {
@@ -183,6 +189,9 @@ func browseLibrary(ctx context.Context, runtime *platform.Runtime, input *browse
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	if input.skipTotal {
+		out.Body.Total = int64(len(out.Body.Results))
 	}
 	preferences := images.LanguagePreferences("", "", input.AcceptLanguage)
 	out.Body.Results, err = localizeSummaries(ctx, runtime, out.Body.Results, preferences)
