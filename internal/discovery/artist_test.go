@@ -26,6 +26,65 @@ func TestRecommendationRequiresMargin(t *testing.T) {
 		t.Fatalf("recommendation: %s", got)
 	}
 }
+
+func TestWeakPartialArtistCandidatesAreNotExposedForReview(t *testing.T) {
+	request := NormalizeRequest(Request{Kind: KindArtist, Query: "Above & Beyond ft Zoe Johnston"})
+	partial := Candidate{ProviderScore: 100, Display: Display{Name: "Above"}}
+	canonicalCredit := Candidate{ProviderScore: 95, Display: Display{Name: "Above & Beyond feat. Zoe Johnston"}}
+	scoreCandidate(request, &partial)
+	scoreCandidate(request, &canonicalCredit)
+	filtered := filterWeakArtistCandidates(request, []Candidate{partial, canonicalCredit})
+	if len(filtered) != 1 || filtered[0].Display.Name != canonicalCredit.Display.Name {
+		t.Fatalf("weak partial artist was exposed: partial=%+v canonical=%+v filtered=%+v", partial, canonicalCredit, filtered)
+	}
+}
+
+func TestWeakExactArtistCandidateRemainsReviewable(t *testing.T) {
+	request := NormalizeRequest(Request{Kind: KindArtist, Query: "Ado"})
+	candidate := Candidate{Display: Display{Name: "Ado"}}
+	scoreCandidate(request, &candidate)
+	if candidate.Match != "weak" {
+		t.Fatalf("fixture stopped exercising weak exact candidate: %+v", candidate)
+	}
+	filtered := filterWeakArtistCandidates(request, []Candidate{candidate})
+	if len(filtered) != 1 {
+		t.Fatalf("exact low-provider-score candidate was lost: %+v", filtered)
+	}
+}
+
+func TestIdentifiedReleaseOverlapConsolidatesCrossProviderArtistCandidates(t *testing.T) {
+	release := ReleaseHint{Title: "Take It as a Lesson", Year: 2020, Type: "single", Identifiers: []Identifier{
+		{Scheme: "musicbrainz", Value: "936fbd6e-abfa-450b-8ec2-68b3aac37a6c"},
+	}}
+	request := NormalizeRequest(Request{Kind: KindArtist, Query: "Badject", Hints: Hints{Releases: []ReleaseHint{release}}})
+	values := []Candidate{
+		{ProviderScore: 100, Identity: ExternalID{Provider: "apple", Namespace: "artist", Value: "1"}, Display: Display{Name: "Badject"}, MatchedReleases: request.Hints.Releases},
+		{ProviderScore: 100, Identity: ExternalID{Provider: "musicbrainz", Namespace: "artist", Value: "53dbf112-864c-4a77-8c37-e53bcb0c36fd"}, Display: Display{Name: "Badject"}, MatchedReleases: request.Hints.Releases},
+		{ProviderScore: 100, Identity: ExternalID{Provider: "deezer", Namespace: "artist", Value: "2"}, Display: Display{Name: "Badject"}, MatchedReleases: request.Hints.Releases},
+	}
+	for index := range values {
+		scoreCandidate(request, &values[index])
+	}
+	got := consolidateCorroboratedArtistCandidates(request, values)
+	if len(got) != 1 || got[0].Identity.Provider != "musicbrainz" {
+		t.Fatalf("cross-provider release overlap was not consolidated: %+v", got)
+	}
+	if recommendation(got) != "strong_match" {
+		t.Fatalf("consolidated candidate was not decisive: %+v", got[0])
+	}
+}
+
+func TestNameAndUnidentifiedReleaseAloneDoNotConsolidateArtists(t *testing.T) {
+	release := ReleaseHint{Title: "Greatest Hits", Year: 2020}
+	request := NormalizeRequest(Request{Kind: KindArtist, Query: "Example", Hints: Hints{Releases: []ReleaseHint{release}}})
+	values := []Candidate{
+		{Identity: ExternalID{Provider: "musicbrainz", Namespace: "artist", Value: "one"}, Display: Display{Name: "Example"}, MatchedReleases: request.Hints.Releases},
+		{Identity: ExternalID{Provider: "apple", Namespace: "artist", Value: "two"}, Display: Display{Name: "Example"}, MatchedReleases: request.Hints.Releases},
+	}
+	if got := consolidateCorroboratedArtistCandidates(request, values); len(got) != 2 {
+		t.Fatalf("unidentified release/name evidence collapsed identities: %+v", got)
+	}
+}
 func TestNormalizeRequestMakesHintOrderDeterministic(t *testing.T) {
 	left := NormalizeRequest(Request{Kind: " ARTIST ", Query: " Ado ", Hints: Hints{Aliases: []string{"アド", "Ado", "アド"}, Releases: []ReleaseHint{{Title: "残夢", Year: 2024}, {Title: "狂言", Year: 2022}}}})
 	right := NormalizeRequest(Request{Kind: "artist", Query: "Ado", Hints: Hints{Aliases: []string{"Ado", "アド"}, Releases: []ReleaseHint{{Title: "狂言", Year: 2022}, {Title: "残夢", Year: 2024}}}})

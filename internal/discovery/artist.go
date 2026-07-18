@@ -240,6 +240,8 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 		providersUsed = append(providersUsed, storefrontProviders...)
 	}
 	candidates = dedupeExistingArtistCandidates(candidates)
+	candidates = filterWeakArtistCandidates(request, candidates)
+	candidates = consolidateCorroboratedArtistCandidates(request, candidates)
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].Confidence != candidates[j].Confidence {
 			return candidates[i].Confidence > candidates[j].Confidence
@@ -554,6 +556,110 @@ func dedupeExistingArtistCandidates(values []Candidate) []Candidate {
 	}
 	return result
 }
+
+// Provider full-text searches can return high provider scores for a single
+// token in a longer credited artist (for example a dozen distinct artists
+// named "Above" for "Above & Beyond ft Zoe Johnston"). Those are useful
+// upstream recall but not plausible identity candidates and used to flood the
+// consumer's review queue. Keep exact names/aliases and structured release
+// matches even when a provider supplies a poor score; otherwise expose only
+// candidates that reached at least the service's "possible" evidence tier.
+func filterWeakArtistCandidates(request Request, values []Candidate) []Candidate {
+	query := normalizedText(request.Query)
+	result := make([]Candidate, 0, len(values))
+	for _, candidate := range values {
+		exact := query != "" && query == normalizedText(candidate.Display.Name)
+		for _, alias := range candidate.Display.Aliases {
+			exact = exact || (query != "" && query == normalizedText(alias))
+		}
+		if candidate.Match != "weak" || exact || len(candidate.MatchedReleases) > 0 {
+			result = append(result, candidate)
+		}
+	}
+	return result
+}
+
+// consolidateCorroboratedArtistCandidates selects one resolution root when
+// independent catalogs prove they describe the same submitted release. This
+// is deliberately narrower than name-based deduplication: the query name must
+// be exact, every submitted release hint must match, an exact release/catalog
+// identifier must be present, and MusicBrainz plus another provider must
+// agree. Resolution still ingests the selected MusicBrainz root and performs
+// normal claim reconciliation; discovery does not merge identities here.
+func consolidateCorroboratedArtistCandidates(request Request, values []Candidate) []Candidate {
+	if len(request.Hints.Releases) == 0 || !releaseHintsHaveIdentifiers(request.Hints.Releases) {
+		return values
+	}
+	query := normalizedText(request.Query)
+	if query == "" {
+		return values
+	}
+	var eligible []int
+	providers := map[string]struct{}{}
+	for index, candidate := range values {
+		if normalizedText(candidate.Display.Name) != query || len(candidate.MatchedReleases) < len(request.Hints.Releases) {
+			continue
+		}
+		provider := strings.ToLower(strings.TrimSpace(candidate.Identity.Provider))
+		if provider == "" {
+			continue
+		}
+		eligible = append(eligible, index)
+		providers[provider] = struct{}{}
+	}
+	if len(providers) < 2 {
+		return values
+	}
+	if _, hasMusicBrainz := providers["musicbrainz"]; !hasMusicBrainz {
+		return values
+	}
+
+	preferred := eligible[0]
+	for _, index := range eligible[1:] {
+		if artistCandidateResolutionPriority(values[index]) > artistCandidateResolutionPriority(values[preferred]) ||
+			(artistCandidateResolutionPriority(values[index]) == artistCandidateResolutionPriority(values[preferred]) && values[index].Confidence > values[preferred].Confidence) {
+			preferred = index
+		}
+	}
+	chosen := values[preferred]
+	chosen.Evidence = append(chosen.Evidence, Evidence{
+		Field: "cross_provider_releases", Outcome: fmt.Sprintf("%d_providers", len(providers)), Weight: 0,
+		Detail: "exact name and complete identified release overlap",
+	})
+
+	result := make([]Candidate, 0, len(values)-len(eligible)+1)
+	for index, candidate := range values {
+		if index == preferred {
+			result = append(result, chosen)
+			continue
+		}
+		if containsInt(eligible, index) {
+			continue
+		}
+		result = append(result, candidate)
+	}
+	return result
+}
+
+func releaseHintsHaveIdentifiers(hints []ReleaseHint) bool {
+	for _, hint := range hints {
+		if len(hint.Identifiers) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func artistCandidateResolutionPriority(candidate Candidate) int {
+	if candidate.ExistingEntityID != "" {
+		return 3
+	}
+	if strings.EqualFold(candidate.Identity.Provider, "musicbrainz") {
+		return 2
+	}
+	return 1
+}
+
 func recommendation(values []Candidate) string {
 	if len(values) == 0 {
 		return "no_match"
