@@ -85,6 +85,23 @@ func TestNameAndUnidentifiedReleaseAloneDoNotConsolidateArtists(t *testing.T) {
 		t.Fatalf("unidentified release/name evidence collapsed identities: %+v", got)
 	}
 }
+
+func TestThreeProviderDatedReleaseOverlapConsolidatesArtists(t *testing.T) {
+	release := ReleaseHint{Title: "Ethereal", Year: 2022, Type: "album"}
+	request := NormalizeRequest(Request{Kind: KindArtist, Query: "$Not", Hints: Hints{Releases: []ReleaseHint{release}}})
+	values := []Candidate{
+		{ProviderScore: 100, Identity: ExternalID{Provider: "deezer", Namespace: "artist", Value: "1"}, Display: Display{Name: "$Not"}, MatchedReleases: request.Hints.Releases},
+		{ProviderScore: 64, Identity: ExternalID{Provider: "musicbrainz", Namespace: "artist", Value: "two"}, Display: Display{Name: "$NOT"}, MatchedReleases: request.Hints.Releases},
+		{ProviderScore: 100, Identity: ExternalID{Provider: "apple", Namespace: "artist", Value: "3"}, Display: Display{Name: "$NOT"}, MatchedReleases: request.Hints.Releases},
+	}
+	for index := range values {
+		scoreCandidate(request, &values[index])
+	}
+	got := consolidateCorroboratedArtistCandidates(request, values)
+	if len(got) != 1 || got[0].Identity.Provider != "musicbrainz" {
+		t.Fatalf("three-provider dated release overlap was not consolidated: %+v", got)
+	}
+}
 func TestNormalizeRequestMakesHintOrderDeterministic(t *testing.T) {
 	left := NormalizeRequest(Request{Kind: " ARTIST ", Query: " Ado ", Hints: Hints{Aliases: []string{"アド", "Ado", "アド"}, Releases: []ReleaseHint{{Title: "残夢", Year: 2024}, {Title: "狂言", Year: 2022}}}})
 	right := NormalizeRequest(Request{Kind: "artist", Query: "Ado", Hints: Hints{Aliases: []string{"Ado", "アド"}, Releases: []ReleaseHint{{Title: "狂言", Year: 2022}, {Title: "残夢", Year: 2024}}}})
@@ -174,6 +191,9 @@ func TestReleaseHintSearchHandlesColloquialTitles(t *testing.T) {
 	}
 	if releaseHintGroupMatches(ReleaseHint{Title: "Cross", Year: 2007, Type: "album"}, "Cross", false, "A Cross the Universe", "2008-11-24", "Album") {
 		t.Fatal("a fuzzy Lucene result was treated as invisible alias evidence")
+	}
+	if !releaseHintGroupMatches(ReleaseHint{Title: "Torture Me (feat. Skrillex)", Year: 2022, Type: "album"}, "Torture Me (feat. Skrillex)", false, "Torture Me (feat. Skrillex)", "2022-12-02", "Single") {
+		t.Fatal("an exact title/year was discarded because the local release type was wrong")
 	}
 }
 

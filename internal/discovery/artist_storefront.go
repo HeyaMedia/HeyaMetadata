@@ -155,13 +155,11 @@ func (s *Service) discoverDeezerArtists(ctx context.Context, request Request, jo
 func matchedCatalogReleaseHints(hints []ReleaseHint, catalog []musiccatalog.IdentityRelease) []ReleaseHint {
 	result := []ReleaseHint{}
 	for _, hint := range hints {
-		date := ""
-		if hint.Year > 0 {
-			date = strconv.Itoa(hint.Year)
-		}
-		probe := []musiccatalog.IdentityRelease{{Title: hint.Title, Date: date, Kind: hint.Type}}
-		if musiccatalog.IdentityCatalogOverlap(probe, catalog) > 0 {
-			result = appendUniqueReleaseHint(result, hint)
+		for _, release := range catalog {
+			if releaseHintGroupMatches(hint, hint.Title, false, release.Title, release.Date, release.Kind) {
+				result = appendUniqueReleaseHint(result, hint)
+				break
+			}
 		}
 	}
 	return result

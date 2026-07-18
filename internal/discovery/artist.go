@@ -128,12 +128,15 @@ func releaseHintGroupMatches(hint ReleaseHint, searchedTitle string, fallback bo
 		return false
 	}
 	wantType, gotType := normalizeType(hint.Type), normalizeType(primaryType)
-	if (wantType == "album" || wantType == "single" || wantType == "ep") && gotType != "" && wantType != gotType {
-		return false
-	}
 	if !fallback {
 		if normalizedText(groupTitle) == normalizedText(hint.Title) {
+			// Local downloaders and tags frequently label one-track singles as
+			// albums. Exact title plus compatible year is stronger discovery
+			// evidence than that advisory release type.
 			return true
+		}
+		if (wantType == "album" || wantType == "single" || wantType == "ep") && gotType != "" && wantType != gotType {
+			return false
 		}
 		// The search may have matched a release-group alias or one of its
 		// issued release titles, neither of which MusicBrainz includes in
@@ -141,6 +144,9 @@ func releaseHintGroupMatches(hint ReleaseHint, searchedTitle string, fallback bo
 		// that otherwise invisible evidence; Lucene phrase search can also
 		// return a longer title which merely contains the requested words.
 		return hint.Year > 0 && y == hint.Year
+	}
+	if (wantType == "album" || wantType == "single" || wantType == "ep") && gotType != "" && wantType != gotType {
+		return false
 	}
 	group, searched := normalizedText(groupTitle), normalizedText(searchedTitle)
 	return group == searched || (len([]rune(searched)) >= 4 && strings.Contains(group, searched))
@@ -582,12 +588,13 @@ func filterWeakArtistCandidates(request Request, values []Candidate) []Candidate
 // consolidateCorroboratedArtistCandidates selects one resolution root when
 // independent catalogs prove they describe the same submitted release. This
 // is deliberately narrower than name-based deduplication: the query name must
-// be exact, every submitted release hint must match, an exact release/catalog
-// identifier must be present, and MusicBrainz plus another provider must
-// agree. Resolution still ingests the selected MusicBrainz root and performs
-// normal claim reconciliation; discovery does not merge identities here.
+// be exact, every submitted release hint must match, and MusicBrainz plus
+// independent storefronts must agree. One exact identifier is sufficient; in
+// its absence require either multiple dated releases or three providers on one
+// dated release. Resolution still ingests the selected MusicBrainz root and
+// performs normal claim reconciliation; discovery does not merge identities.
 func consolidateCorroboratedArtistCandidates(request Request, values []Candidate) []Candidate {
-	if len(request.Hints.Releases) == 0 || !releaseHintsHaveIdentifiers(request.Hints.Releases) {
+	if len(request.Hints.Releases) == 0 {
 		return values
 	}
 	query := normalizedText(request.Query)
@@ -611,6 +618,9 @@ func consolidateCorroboratedArtistCandidates(request Request, values []Candidate
 		return values
 	}
 	if _, hasMusicBrainz := providers["musicbrainz"]; !hasMusicBrainz {
+		return values
+	}
+	if !releaseHintsHaveIdentifiers(request.Hints.Releases) && !unidentifiedReleaseCorroborationIsStrong(request.Hints.Releases, len(providers)) {
 		return values
 	}
 
@@ -639,6 +649,18 @@ func consolidateCorroboratedArtistCandidates(request Request, values []Candidate
 		result = append(result, candidate)
 	}
 	return result
+}
+
+func unidentifiedReleaseCorroborationIsStrong(hints []ReleaseHint, providerCount int) bool {
+	if len(hints) == 0 {
+		return false
+	}
+	for _, hint := range hints {
+		if hint.Year <= 0 || len([]rune(normalizedText(hint.Title))) < 4 {
+			return false
+		}
+	}
+	return len(hints) >= 2 || providerCount >= 3
 }
 
 func releaseHintsHaveIdentifiers(hints []ReleaseHint) bool {
