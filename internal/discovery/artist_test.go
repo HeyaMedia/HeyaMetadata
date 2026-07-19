@@ -110,32 +110,32 @@ func TestPersistedReleaseClaimsAnchorMusicBrainzToExistingArtist(t *testing.T) {
 	}
 }
 
-func TestArtistReleaseBridgeBuildsMissingEvidenceBeforeSecondProof(t *testing.T) {
+func TestArtistReleaseBridgeUsesBoundedFallbackProof(t *testing.T) {
 	checks := 0
-	builds := 0
-	checker := artistReleaseBridgeWithEvidence(func(context.Context, artistReleaseBridge) (bool, error) {
+	fallbacks := 0
+	checker := artistReleaseBridgeWithFallback(func(context.Context, artistReleaseBridge) (bool, error) {
 		checks++
-		return checks > 1, nil
-	}, func(context.Context, artistReleaseBridge) error {
-		builds++
-		return nil
+		return false, nil
+	}, func(context.Context, artistReleaseBridge) (bool, error) {
+		fallbacks++
+		return true, nil
 	})
 	matched, err := checker(t.Context(), artistReleaseBridge{})
-	if err != nil || !matched || checks != 2 || builds != 1 {
-		t.Fatalf("matched=%v checks=%d builds=%d err=%v", matched, checks, builds, err)
+	if err != nil || !matched || checks != 1 || fallbacks != 1 {
+		t.Fatalf("matched=%v checks=%d fallbacks=%d err=%v", matched, checks, fallbacks, err)
 	}
 
-	checks, builds = 0, 0
-	checker = artistReleaseBridgeWithEvidence(func(context.Context, artistReleaseBridge) (bool, error) {
+	checks, fallbacks = 0, 0
+	checker = artistReleaseBridgeWithFallback(func(context.Context, artistReleaseBridge) (bool, error) {
 		checks++
 		return true, nil
-	}, func(context.Context, artistReleaseBridge) error {
-		builds++
-		return nil
+	}, func(context.Context, artistReleaseBridge) (bool, error) {
+		fallbacks++
+		return true, nil
 	})
 	matched, err = checker(t.Context(), artistReleaseBridge{})
-	if err != nil || !matched || checks != 1 || builds != 0 {
-		t.Fatalf("existing proof rebuilt: matched=%v checks=%d builds=%d err=%v", matched, checks, builds, err)
+	if err != nil || !matched || checks != 1 || fallbacks != 0 {
+		t.Fatalf("existing proof fell through: matched=%v checks=%d fallbacks=%d err=%v", matched, checks, fallbacks, err)
 	}
 }
 

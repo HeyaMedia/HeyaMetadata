@@ -8,11 +8,11 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 )
 
-// ArtistIdentityBridge is the minimal persisted proof that one unclaimed
-// MusicBrainz artist root belongs on an existing storefront-backed canonical
-// artist. Names, titles, dates, and unclaimed provider roots are deliberately
-// absent: both provider releases must already resolve to the same canonical
-// release group related to the accepted storefront artist root.
+// ArtistIdentityBridge identifies the exact release evidence capable of
+// proving that one unclaimed MusicBrainz artist root belongs on an existing
+// storefront-backed canonical artist. Persisted canonical release claims are
+// preferred; a bounded direct provider check can establish the same bridge
+// before catalog enrichment has materialized those claims.
 type ArtistIdentityBridge struct {
 	ArtistEntityID             string
 	MusicBrainzArtistID        string

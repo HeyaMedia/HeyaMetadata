@@ -145,9 +145,9 @@ func (w *DiscoverySearchWorker) Work(ctx context.Context, job *river.Job[Discove
 			StorefrontArtistID:         convergence.StorefrontArtistID,
 			StorefrontReleaseNamespace: convergence.StorefrontReleaseNamespace,
 			StorefrontReleaseID:        convergence.StorefrontReleaseID,
-		})
+		}, job.ID)
 		if materializeErr != nil {
-			return discoveryWorkError(fmt.Errorf("materialize persisted artist convergence: %w", materializeErr))
+			return discoveryWorkError(fmt.Errorf("materialize artist convergence: %w", materializeErr))
 		}
 		if materialized.EntityID != result.EntityID {
 			return fmt.Errorf("materialized MusicBrainz artist on %s, expected %s", materialized.EntityID, result.EntityID)

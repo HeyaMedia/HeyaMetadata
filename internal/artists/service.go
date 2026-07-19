@@ -87,10 +87,12 @@ func (s *Service) MaterializeMusicBrainzIdentity(ctx context.Context, mbid strin
 }
 
 // MaterializeMusicBrainzIdentityOn attaches a new MusicBrainz root to an
-// existing canonical artist. Callers must already have hard, persisted
-// identity evidence for the preferred entity; merge still rejects a competing
-// MusicBrainz owner or any incompatible canonical root.
-func (s *Service) MaterializeMusicBrainzIdentityOn(ctx context.Context, mbid, preferredEntityID string, proof musiccatalog.ArtistIdentityBridge) (Result, error) {
+// existing canonical artist. Callers must provide hard release identity
+// evidence for the preferred entity; merge still rejects a competing
+// MusicBrainz owner or any incompatible canonical root. Persisted catalog
+// evidence is preferred, with a bounded exact-release provider proof available
+// while background catalog enrichment is still pending.
+func (s *Service) MaterializeMusicBrainzIdentityOn(ctx context.Context, mbid, preferredEntityID string, proof musiccatalog.ArtistIdentityBridge, jobID int64) (Result, error) {
 	mbid = strings.ToLower(strings.TrimSpace(mbid))
 	preferredEntityID = strings.TrimSpace(preferredEntityID)
 	if mbid == "" || preferredEntityID == "" {
@@ -99,12 +101,12 @@ func (s *Service) MaterializeMusicBrainzIdentityOn(ctx context.Context, mbid, pr
 	if proof.ArtistEntityID != preferredEntityID || !strings.EqualFold(proof.MusicBrainzArtistID, mbid) {
 		return Result{}, fmt.Errorf("MusicBrainz artist convergence proof does not describe the requested roots")
 	}
-	proved, err := musiccatalog.PersistedArtistIdentityBridge(ctx, s.runtime, proof)
+	proved, err := musiccatalog.VerifyArtistIdentityBridge(ctx, s.runtime, proof, jobID)
 	if err != nil {
 		return Result{}, err
 	}
 	if !proved {
-		return Result{}, fmt.Errorf("persisted release and credit claims do not prove MusicBrainz artist convergence")
+		return Result{}, fmt.Errorf("release and credit evidence does not prove MusicBrainz artist convergence")
 	}
 	if claimedEntityID, err := s.Resolve(ctx, "musicbrainz", "artist", mbid); err == nil {
 		canonicalID, canonicalErr := s.CanonicalID(ctx, claimedEntityID)
@@ -117,10 +119,10 @@ func (s *Service) MaterializeMusicBrainzIdentityOn(ctx context.Context, mbid, pr
 	} else if !errors.Is(err, ErrNotFound) {
 		return Result{}, err
 	}
-	return s.materializeMusicBrainzIdentity(ctx, mbid, preferredEntityID, &proof)
+	return s.materializeMusicBrainzIdentity(ctx, mbid, preferredEntityID, &proof, jobID)
 }
 
-func (s *Service) materializeMusicBrainzIdentity(ctx context.Context, mbid, preferredEntityID string, proof *musiccatalog.ArtistIdentityBridge) (Result, error) {
+func (s *Service) materializeMusicBrainzIdentity(ctx context.Context, mbid, preferredEntityID string, proof *musiccatalog.ArtistIdentityBridge, proofJobID ...int64) (Result, error) {
 	mbid = strings.ToLower(strings.TrimSpace(mbid))
 	spine, err := s.collectMusicBrainzSpine(ctx, mbid, 0)
 	if err != nil {
@@ -131,12 +133,16 @@ func (s *Service) materializeMusicBrainzIdentity(ctx context.Context, mbid, pref
 		return Result{}, err
 	}
 	if proof != nil {
-		proved, proofErr := musiccatalog.PersistedArtistIdentityBridge(ctx, s.runtime, *proof)
+		jobID := int64(0)
+		if len(proofJobID) > 0 {
+			jobID = proofJobID[0]
+		}
+		proved, proofErr := musiccatalog.VerifyArtistIdentityBridge(ctx, s.runtime, *proof, jobID)
 		if proofErr != nil {
 			return Result{}, proofErr
 		}
 		if !proved {
-			return Result{}, fmt.Errorf("persisted artist convergence proof expired before materialization")
+			return Result{}, fmt.Errorf("artist convergence proof expired before materialization")
 		}
 	}
 	var result Result
