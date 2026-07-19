@@ -1,7 +1,9 @@
 package discovery
 
 import (
+	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -24,6 +26,20 @@ func TestRecommendationRequiresMargin(t *testing.T) {
 	values[1].Confidence = .70
 	if got := recommendation(values); got != "strong_match" {
 		t.Fatalf("recommendation: %s", got)
+	}
+}
+
+func TestPresentCandidatesUsesFullSetForRecommendation(t *testing.T) {
+	values := []Candidate{
+		{Confidence: .91, Identity: ExternalID{Value: "first"}},
+		{Confidence: .90, Identity: ExternalID{Value: "second"}},
+	}
+	recommended, presented := presentCandidates(values, 1)
+	if recommended != "ambiguous" {
+		t.Fatalf("recommendation with hidden runner-up = %q, want ambiguous", recommended)
+	}
+	if len(presented) != 1 || presented[0].Rank != 1 || presented[0].Identity.Value != "first" {
+		t.Fatalf("presented candidates = %+v", presented)
 	}
 }
 
@@ -52,54 +68,77 @@ func TestWeakExactArtistCandidateRemainsReviewable(t *testing.T) {
 	}
 }
 
-func TestIdentifiedReleaseOverlapConsolidatesCrossProviderArtistCandidates(t *testing.T) {
-	release := ReleaseHint{Title: "Take It as a Lesson", Year: 2020, Type: "single", Identifiers: []Identifier{
-		{Scheme: "musicbrainz", Value: "936fbd6e-abfa-450b-8ec2-68b3aac37a6c"},
-	}}
-	request := NormalizeRequest(Request{Kind: KindArtist, Query: "Badject", Hints: Hints{Releases: []ReleaseHint{release}}})
+func TestPersistedReleaseClaimsAnchorMusicBrainzToExistingArtist(t *testing.T) {
+	hint := ReleaseHint{Title: "Revelations", Year: 2005, Type: "album"}
+	request := NormalizeRequest(Request{Kind: KindArtist, Query: "Audioslave", Hints: Hints{Releases: []ReleaseHint{hint}}})
+	hintKey := releaseHintIdentityKey(request.Hints.Releases[0])
+	mbid := "53dbf112-864c-4a77-8c37-e53bcb0c36fd"
 	values := []Candidate{
-		{ProviderScore: 100, Identity: ExternalID{Provider: "apple", Namespace: "artist", Value: "1"}, Display: Display{Name: "Badject"}, MatchedReleases: request.Hints.Releases},
-		{ProviderScore: 100, Identity: ExternalID{Provider: "musicbrainz", Namespace: "artist", Value: "53dbf112-864c-4a77-8c37-e53bcb0c36fd"}, Display: Display{Name: "Badject"}, MatchedReleases: request.Hints.Releases},
-		{ProviderScore: 100, Identity: ExternalID{Provider: "deezer", Namespace: "artist", Value: "2"}, Display: Display{Name: "Badject"}, MatchedReleases: request.Hints.Releases},
+		{Confidence: .85, Identity: ExternalID{Provider: "apple", Namespace: "artist", Value: "new-root"}, Display: Display{Name: "Audioslave"}, MatchedReleases: request.Hints.Releases, artistReleaseMatches: []artistReleaseMatch{{HintKey: hintKey, Artist: ExternalID{Provider: "apple", Namespace: "artist", Value: "new-root"}, Release: ExternalID{Provider: "apple", Namespace: "album", Value: "new-album"}}}},
+		{Confidence: .85, Identity: ExternalID{Provider: "musicbrainz", Namespace: "artist", Value: mbid}, Display: Display{Name: "Audioslave"}, MatchedReleases: request.Hints.Releases, artistReleaseMatches: []artistReleaseMatch{{HintKey: hintKey, Artist: ExternalID{Provider: "musicbrainz", Namespace: "artist", Value: mbid}, Release: ExternalID{Provider: "musicbrainz", Namespace: "release_group", Value: "mb-release"}}}},
+		{Confidence: .80, Identity: ExternalID{Provider: "deezer", Namespace: "artist", Value: "existing-root"}, ExistingEntityID: "canonical-artist", Display: Display{Name: "Audioslave"}, MatchedReleases: request.Hints.Releases, artistReleaseMatches: []artistReleaseMatch{{HintKey: hintKey, Artist: ExternalID{Provider: "deezer", Namespace: "artist", Value: "existing-root"}, Release: ExternalID{Provider: "deezer", Namespace: "album", Value: "existing-album"}}}},
 	}
-	for index := range values {
-		scoreCandidate(request, &values[index])
+	checkerCalls := 0
+	got, convergence, err := consolidateArtistCandidatesWithBridge(t.Context(), request, values, func(_ context.Context, bridge artistReleaseBridge) (bool, error) {
+		checkerCalls++
+		return bridge.EntityID == "canonical-artist" && bridge.MusicBrainz.Release.Value == "mb-release" && bridge.Storefront.Release.Value == "existing-album", nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	got := consolidateCorroboratedArtistCandidates(request, values)
-	if len(got) != 1 || got[0].Identity.Provider != "musicbrainz" {
-		t.Fatalf("cross-provider release overlap was not consolidated: %+v", got)
+	if checkerCalls != 1 || convergence == nil || convergence.EntityID != "canonical-artist" || convergence.MusicBrainzID != mbid {
+		t.Fatalf("convergence=%+v calls=%d", convergence, checkerCalls)
 	}
-	if recommendation(got) != "strong_match" {
-		t.Fatalf("consolidated candidate was not decisive: %+v", got[0])
+	if len(got) != 2 {
+		t.Fatalf("new storefront root was incorrectly merged: %+v", got)
+	}
+	var anchored Candidate
+	for _, candidate := range got {
+		if candidate.ExistingEntityID == "canonical-artist" {
+			anchored = candidate
+		}
+	}
+	if anchored.Confidence != .99 || anchored.Match != "strong" {
+		t.Fatalf("persisted bridge did not outrank search-only roots: %+v", anchored)
+	}
+	sort.Slice(got, func(i, j int) bool { return got[i].Confidence > got[j].Confidence })
+	recommended, presented := presentCandidates(got, 10)
+	result := Result{Kind: KindArtist, Recommendation: recommended, Candidates: presented, ArtistConvergence: convergence}
+	FinalizeSearchResult(&result)
+	if result.EntityID != "canonical-artist" || result.Status != "completed" || result.ArtistConvergence != convergence {
+		t.Fatalf("hard convergence did not return the existing canonical: %+v", result)
 	}
 }
 
-func TestNameAndUnidentifiedReleaseAloneDoNotConsolidateArtists(t *testing.T) {
-	release := ReleaseHint{Title: "Greatest Hits", Year: 2020}
-	request := NormalizeRequest(Request{Kind: KindArtist, Query: "Example", Hints: Hints{Releases: []ReleaseHint{release}}})
+func TestTitleYearAndNewRootsNeverConsolidateArtists(t *testing.T) {
+	hint := ReleaseHint{Title: "Greatest Hits", Year: 2020}
+	request := NormalizeRequest(Request{Kind: KindArtist, Query: "Example", Hints: Hints{Releases: []ReleaseHint{hint}}})
+	hintKey := releaseHintIdentityKey(request.Hints.Releases[0])
 	values := []Candidate{
-		{Identity: ExternalID{Provider: "musicbrainz", Namespace: "artist", Value: "one"}, Display: Display{Name: "Example"}, MatchedReleases: request.Hints.Releases},
-		{Identity: ExternalID{Provider: "apple", Namespace: "artist", Value: "two"}, Display: Display{Name: "Example"}, MatchedReleases: request.Hints.Releases},
+		{Identity: ExternalID{Provider: "musicbrainz", Namespace: "artist", Value: "one"}, Display: Display{Name: "Example"}, MatchedReleases: request.Hints.Releases, artistReleaseMatches: []artistReleaseMatch{{HintKey: hintKey, Release: ExternalID{Provider: "musicbrainz", Namespace: "release_group", Value: "release"}}}},
+		{Identity: ExternalID{Provider: "apple", Namespace: "artist", Value: "two"}, Display: Display{Name: "Example"}, MatchedReleases: request.Hints.Releases, artistReleaseMatches: []artistReleaseMatch{{HintKey: hintKey, Release: ExternalID{Provider: "apple", Namespace: "album", Value: "album"}}}},
 	}
-	if got := consolidateCorroboratedArtistCandidates(request, values); len(got) != 2 {
-		t.Fatalf("unidentified release/name evidence collapsed identities: %+v", got)
+	called := false
+	got, convergence, err := consolidateArtistCandidatesWithBridge(t.Context(), request, values, func(context.Context, artistReleaseBridge) (bool, error) {
+		called = true
+		return true, nil
+	})
+	if err != nil || called || convergence != nil || len(got) != 2 {
+		t.Fatalf("two new roots consolidated: got=%+v convergence=%+v called=%v err=%v", got, convergence, called, err)
 	}
 }
 
-func TestThreeProviderDatedReleaseOverlapConsolidatesArtists(t *testing.T) {
-	release := ReleaseHint{Title: "Ethereal", Year: 2022, Type: "album"}
-	request := NormalizeRequest(Request{Kind: KindArtist, Query: "$Not", Hints: Hints{Releases: []ReleaseHint{release}}})
+func TestStorefrontOnlyAmbiguityRemainsUnresolved(t *testing.T) {
+	hint := ReleaseHint{Title: "Spinning Around", Year: 2023}
+	request := NormalizeRequest(Request{Kind: KindArtist, Query: "MINNIE", Hints: Hints{Releases: []ReleaseHint{hint}}})
+	hintKey := releaseHintIdentityKey(request.Hints.Releases[0])
 	values := []Candidate{
-		{ProviderScore: 100, Identity: ExternalID{Provider: "deezer", Namespace: "artist", Value: "1"}, Display: Display{Name: "$Not"}, MatchedReleases: request.Hints.Releases},
-		{ProviderScore: 64, Identity: ExternalID{Provider: "musicbrainz", Namespace: "artist", Value: "two"}, Display: Display{Name: "$NOT"}, MatchedReleases: request.Hints.Releases},
-		{ProviderScore: 100, Identity: ExternalID{Provider: "apple", Namespace: "artist", Value: "3"}, Display: Display{Name: "$NOT"}, MatchedReleases: request.Hints.Releases},
+		{Identity: ExternalID{Provider: "apple", Namespace: "artist", Value: "one"}, ExistingEntityID: "canonical", Display: Display{Name: "MINNIE"}, artistReleaseMatches: []artistReleaseMatch{{HintKey: hintKey, Release: ExternalID{Provider: "apple", Namespace: "album", Value: "one"}}}},
+		{Identity: ExternalID{Provider: "deezer", Namespace: "artist", Value: "two"}, Display: Display{Name: "MINNIE"}, artistReleaseMatches: []artistReleaseMatch{{HintKey: hintKey, Release: ExternalID{Provider: "deezer", Namespace: "album", Value: "two"}}}},
 	}
-	for index := range values {
-		scoreCandidate(request, &values[index])
-	}
-	got := consolidateCorroboratedArtistCandidates(request, values)
-	if len(got) != 1 || got[0].Identity.Provider != "musicbrainz" {
-		t.Fatalf("three-provider dated release overlap was not consolidated: %+v", got)
+	got, convergence, err := consolidateArtistCandidatesWithBridge(t.Context(), request, values, func(context.Context, artistReleaseBridge) (bool, error) { return true, nil })
+	if err != nil || convergence != nil || len(got) != len(values) {
+		t.Fatalf("storefront-only ambiguity collapsed: got=%+v convergence=%+v err=%v", got, convergence, err)
 	}
 }
 func TestNormalizeRequestMakesHintOrderDeterministic(t *testing.T) {

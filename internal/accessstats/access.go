@@ -139,6 +139,7 @@ const recalculateRefreshCadenceSQL = `
 			FROM provider_refresh_states prs
 			LEFT JOIN entity_access_stats stats ON stats.entity_id = prs.entity_id
 			WHERE prs.last_success_at IS NOT NULL
+			  AND prs.failure_class IS NULL
 		), locked AS (
 			SELECT prs.entity_id, prs.provider, cadence.desired_next_eligible_at
 			FROM provider_refresh_states prs

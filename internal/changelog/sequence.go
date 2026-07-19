@@ -3,12 +3,22 @@ package changelog
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 )
 
 const sequencerLock int64 = 0x4845594143484745
+
+// SequenceBestEffort keeps the low-latency after-commit sequencing attempt
+// without turning an outbox availability problem into a retry of canonical
+// ingestion. The independent River drainer owns eventual delivery.
+func SequenceBestEffort(ctx context.Context, runtime *platform.Runtime, limit int) {
+	if err := Sequence(ctx, runtime, limit); err != nil {
+		slog.WarnContext(ctx, "change outbox sequencing deferred", "error", err)
+	}
+}
 
 func Sequence(ctx context.Context, runtime *platform.Runtime, limit int) error {
 	if limit < 1 {

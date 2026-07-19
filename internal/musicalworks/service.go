@@ -80,9 +80,7 @@ func (s *Service) IngestOpenOpus(ctx context.Context, workID string, jobID int64
 	if err != nil {
 		return result, err
 	}
-	if err := changelog.Sequence(ctx, s.runtime, 100); err != nil {
-		return result, err
-	}
+	changelog.SequenceBestEffort(ctx, s.runtime, 100)
 	return result, nil
 }
 

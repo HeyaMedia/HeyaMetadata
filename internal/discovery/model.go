@@ -149,17 +149,35 @@ type Candidate struct {
 	Evidence         []Evidence    `json:"evidence"`
 	ExistingEntityID string        `json:"-"`
 	Resolution       Resolution    `json:"-"`
+	// artistReleaseMatches is private provider evidence retained only long
+	// enough to reconcile artist discovery candidates. Public candidates keep
+	// the caller's matched hints, never the provider routing identifiers.
+	artistReleaseMatches []artistReleaseMatch
+}
+
+// ArtistIdentityConvergence is an internal hand-off from discovery to the
+// durable worker. The worker materializes the newly proven MusicBrainz root on
+// the already existing canonical artist before returning that entity ID.
+type ArtistIdentityConvergence struct {
+	EntityID                   string
+	MusicBrainzID              string
+	MusicBrainzReleaseGroupID  string
+	StorefrontProvider         string
+	StorefrontArtistID         string
+	StorefrontReleaseNamespace string
+	StorefrontReleaseID        string
 }
 type Result struct {
-	SchemaVersion      int                  `json:"schema_version"`
-	Kind               string               `json:"kind"`
-	Query              string               `json:"query,omitempty"`
-	Status             string               `json:"status" enum:"completed,needs_selection"`
-	Recommendation     string               `json:"recommendation"`
-	EntityID           string               `json:"entity_id,omitempty" format:"uuid"`
-	Candidates         []Candidate          `json:"candidates,omitempty"`
-	IdentifierEvidence []IdentifierEvidence `json:"identifier_evidence,omitempty"`
-	Providers          []string             `json:"-"`
-	ObservedAt         time.Time            `json:"observed_at"`
-	Warnings           []string             `json:"warnings,omitempty"`
+	SchemaVersion      int                        `json:"schema_version"`
+	Kind               string                     `json:"kind"`
+	Query              string                     `json:"query,omitempty"`
+	Status             string                     `json:"status" enum:"completed,needs_selection"`
+	Recommendation     string                     `json:"recommendation"`
+	EntityID           string                     `json:"entity_id,omitempty" format:"uuid"`
+	Candidates         []Candidate                `json:"candidates,omitempty"`
+	IdentifierEvidence []IdentifierEvidence       `json:"identifier_evidence,omitempty"`
+	Providers          []string                   `json:"-"`
+	ObservedAt         time.Time                  `json:"observed_at"`
+	Warnings           []string                   `json:"warnings,omitempty"`
+	ArtistConvergence  *ArtistIdentityConvergence `json:"-"`
 }

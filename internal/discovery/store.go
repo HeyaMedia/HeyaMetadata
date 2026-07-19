@@ -152,7 +152,7 @@ func Complete(ctx context.Context, runtime *platform.Runtime, hash string, resul
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	_ = workflowfeed.Sequence(ctx, runtime, 100)
+	workflowfeed.SequenceBestEffort(ctx, runtime, 100)
 	if run, getErr := GetRunByHash(ctx, runtime, hash); getErr == nil {
 		cacheRun(ctx, runtime, run)
 	}
@@ -179,7 +179,7 @@ func Fail(ctx context.Context, runtime *platform.Runtime, hash string, failure e
 		return
 	}
 	if tx.Commit(ctx) == nil {
-		_ = workflowfeed.Sequence(ctx, runtime, 100)
+		workflowfeed.SequenceBestEffort(ctx, runtime, 100)
 	}
 }
 func discoveryCacheKey(hash string) string { return "heya:metadata:v2:discovery:" + hash }

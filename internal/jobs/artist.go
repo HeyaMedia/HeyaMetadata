@@ -97,6 +97,7 @@ func (w *ArtistIngestWorker) Work(ctx context.Context, job *river.Job[ArtistInge
 	if err != nil {
 		return fmt.Errorf("load artist MusicBrainz identity: %w", err)
 	}
+	enqueueRecordingsAwaitingArtist(ctx, w.runtime, client, provider, providerID, result.EntityID)
 	if err := InsertArtistCatalog(ctx, client, result.EntityID, mbid); err != nil {
 		return fmt.Errorf("enqueue artist catalog: %w", err)
 	}

@@ -422,6 +422,58 @@ func TestIntegrationAppleAndDeezerArtistsDoNotRequireMusicBrainzOrNameMerge(t *t
 	}
 }
 
+func TestIntegrationRequiredPreferredArtistReceivesMusicBrainzRoot(t *testing.T) {
+	runtime := integrationRuntime(t)
+	ctx := context.Background()
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	observedAt := time.Now().UTC()
+	service := NewService(runtime)
+	deezerID := "preferred-deezer-" + suffix
+	mbid := "25000000-0000-4000-8000-" + suffix[len(suffix)-12:]
+	deezerObservation := testObservation(t, runtime, "deezer", deezerID)
+	mbObservation := testObservation(t, runtime, "musicbrainz", mbid)
+	storefront := artistdomain.NormalizedRecordV1{
+		ProviderRecord:     artistdomain.ProviderRecord{Provider: "deezer", Namespace: "artist", Value: deezerID, PrimaryObservationID: deezerObservation, ObservedAt: observedAt, NormalizerVersion: "integration", SchemaVersion: 1},
+		IdentityCandidates: []artistdomain.IdentityCandidate{{Provider: "deezer", Namespace: "artist", NormalizedValue: deezerID, Confidence: 1, Evidence: "provider_record"}},
+		Names:              []artistdomain.Name{{Value: "Preferred Artist " + suffix, Type: "display", Primary: true}},
+	}
+	storefrontNormalized, err := service.recordNormalized(ctx, storefront)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := service.merge(ctx, []string{storefrontNormalized}, []artistdomain.NormalizedRecordV1{storefront}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupArtist(t, runtime, []string{canonical.EntityID}, []string{deezerObservation, mbObservation})
+	})
+
+	spine := artistdomain.NormalizedRecordV1{
+		ProviderRecord:     artistdomain.ProviderRecord{Provider: "musicbrainz", Namespace: "artist", Value: mbid, PrimaryObservationID: mbObservation, ObservedAt: observedAt.Add(time.Minute), NormalizerVersion: "integration", SchemaVersion: 1},
+		IdentityCandidates: []artistdomain.IdentityCandidate{{Provider: "musicbrainz", Namespace: "artist", NormalizedValue: mbid, Confidence: 1, Evidence: "provider_record"}},
+		Names:              []artistdomain.Name{{Value: "Preferred Artist " + suffix, Type: "display", Primary: true}},
+	}
+	spineNormalized, err := service.recordNormalized(ctx, spine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	materialized, err := service.mergeRequiredPreferred(ctx, []string{spineNormalized}, []artistdomain.NormalizedRecordV1{spine}, 0, canonical.EntityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if materialized.EntityID != canonical.EntityID {
+		t.Fatalf("MusicBrainz root created %s instead of using %s", materialized.EntityID, canonical.EntityID)
+	}
+	var owner string
+	if err := runtime.DB.QueryRow(ctx, `SELECT entity_id::text FROM external_id_claims WHERE entity_kind='artist' AND provider='musicbrainz' AND namespace='artist' AND normalized_value=$1 AND state='accepted'`, mbid).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	if owner != canonical.EntityID {
+		t.Fatalf("MusicBrainz claim owner=%s want=%s", owner, canonical.EntityID)
+	}
+}
+
 func TestIntegrationArtistMergeDoesNotCollapseDistinctMusicBrainzArtistsThroughAliases(t *testing.T) {
 	runtime := integrationRuntime(t)
 	ctx := context.Background()
@@ -542,6 +594,10 @@ func TestIntegrationArtistTopTracksPersistAndLinkWithoutInventingRecordings(t *t
 	recordingMBID := "20000000-0000-4000-8000-" + suffix[len(suffix)-12:]
 	mbObservation := testObservation(t, runtime, "musicbrainz", artistMBID)
 	lastFMObservation := testObservation(t, runtime, "lastfm", artistMBID)
+	newerObservation := testObservation(t, runtime, "lastfm", artistMBID)
+	identicalObservation := testObservation(t, runtime, "lastfm", artistMBID)
+	olderObservation := testObservation(t, runtime, "lastfm", artistMBID)
+	failureObservation := testObservation(t, runtime, "lastfm", artistMBID)
 
 	var recordingID string
 	if err := runtime.DB.QueryRow(ctx, `INSERT INTO entities(kind,slug)VALUES('recording',$1)RETURNING id`, "integration-recording-"+suffix).Scan(&recordingID); err != nil {
@@ -581,7 +637,7 @@ func TestIntegrationArtistTopTracksPersistAndLinkWithoutInventingRecordings(t *t
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		cleanupArtist(t, runtime, []string{result.EntityID, recordingID}, []string{mbObservation, lastFMObservation})
+		cleanupArtist(t, runtime, []string{result.EntityID, recordingID}, []string{mbObservation, lastFMObservation, newerObservation, identicalObservation, olderObservation, failureObservation})
 	})
 
 	page, err := service.TopTracks(ctx, result.EntityID, 0, 50)
@@ -603,5 +659,88 @@ func TestIntegrationArtistTopTracksPersistAndLinkWithoutInventingRecordings(t *t
 	preserved, err := service.TopTracks(ctx, result.EntityID, 0, 50)
 	if err != nil || preserved.Total != 1 {
 		t.Fatalf("preserved=%+v err=%v", preserved, err)
+	}
+
+	newer := lastFM
+	newer.ProviderRecord.PrimaryObservationID = newerObservation
+	newer.ProviderRecord.ObservedAt = observedAt.Add(time.Hour)
+	newer.TopTracksObservationID = newerObservation
+	newer.TopTracksObservedAt = observedAt.Add(time.Hour)
+	newer.TopTracks = []artistdomain.TopTrack{{Rank: 1, Title: "New Ranking", Playcount: 2000}}
+	newerID, err := service.recordNormalized(ctx, newer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.merge(ctx, []string{spineID, newerID}, []artistdomain.NormalizedRecordV1{spine, newer}, 0); err != nil {
+		t.Fatal(err)
+	}
+	var contentVersion int64
+	if err := runtime.DB.QueryRow(ctx, `SELECT projection_version FROM artist_top_track_snapshots WHERE artist_entity_id=$1 AND provider='lastfm'`, result.EntityID).Scan(&contentVersion); err != nil {
+		t.Fatal(err)
+	}
+
+	identical := newer
+	identical.ProviderRecord.PrimaryObservationID = identicalObservation
+	identical.ProviderRecord.ObservedAt = observedAt.Add(2 * time.Hour)
+	identical.TopTracksObservationID = identicalObservation
+	identical.TopTracksObservedAt = observedAt.Add(2 * time.Hour)
+	identicalID, err := service.recordNormalized(ctx, identical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.merge(ctx, []string{spineID, identicalID}, []artistdomain.NormalizedRecordV1{spine, identical}, 0); err != nil {
+		t.Fatal(err)
+	}
+	var identicalVersion int64
+	var refreshedAt time.Time
+	if err := runtime.DB.QueryRow(ctx, `SELECT projection_version,observed_at FROM artist_top_track_snapshots WHERE artist_entity_id=$1 AND provider='lastfm'`, result.EntityID).Scan(&identicalVersion, &refreshedAt); err != nil {
+		t.Fatal(err)
+	}
+	if identicalVersion != contentVersion || !refreshedAt.Equal(identical.TopTracksObservedAt) {
+		t.Fatalf("identical snapshot version=%d want=%d observed_at=%s", identicalVersion, contentVersion, refreshedAt)
+	}
+
+	older := lastFM
+	older.ProviderRecord.PrimaryObservationID = olderObservation
+	older.ProviderRecord.ObservedAt = observedAt.Add(-time.Hour)
+	older.TopTracksObservationID = olderObservation
+	older.TopTracksObservedAt = observedAt.Add(-time.Hour)
+	older.TopTracks = []artistdomain.TopTrack{{Rank: 1, Title: "Stale Ranking", Playcount: 1}}
+	olderID, err := service.recordNormalized(ctx, older)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.merge(ctx, []string{spineID, olderID}, []artistdomain.NormalizedRecordV1{spine, older}, 0); err != nil {
+		t.Fatal(err)
+	}
+	current, err := service.TopTracks(ctx, result.EntityID, 0, 50)
+	if err != nil || len(current.Results) != 1 || current.Results[0].Title != "New Ranking" {
+		t.Fatalf("older snapshot replaced current ranking: page=%+v err=%v", current, err)
+	}
+
+	failed := lastFM
+	failed.ProviderRecord.PrimaryObservationID = failureObservation
+	failed.ProviderRecord.ObservedAt = observedAt.Add(3 * time.Hour)
+	failed.TopTracks = nil
+	failed.TopTracksObserved = false
+	failed.TopTracksObservationID = ""
+	failed.TopTracksObservedAt = time.Time{}
+	failed.TopTracksAttemptedAt = observedAt.Add(3 * time.Hour)
+	failed.TopTracksFailureClass = "transient"
+	failed.TopTracksFailure = "integration failure"
+	failedID, err := service.recordNormalized(ctx, failed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.merge(ctx, []string{spineID, failedID}, []artistdomain.NormalizedRecordV1{spine, failed}, 0); err != nil {
+		t.Fatal(err)
+	}
+	var failureClass string
+	var lastSuccess, nextEligible time.Time
+	if err := runtime.DB.QueryRow(ctx, `SELECT failure_class,last_success_at,next_eligible_at FROM provider_refresh_states WHERE entity_id=$1 AND provider=$2`, result.EntityID, lastFMTopTracksRefreshProvider).Scan(&failureClass, &lastSuccess, &nextEligible); err != nil {
+		t.Fatal(err)
+	}
+	if failureClass != "transient" || !lastSuccess.Equal(identical.TopTracksObservedAt) || !nextEligible.After(failed.ProviderRecord.ObservedAt) {
+		t.Fatalf("top-track failure state class=%q success=%s next=%s", failureClass, lastSuccess, nextEligible)
 	}
 }

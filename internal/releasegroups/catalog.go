@@ -88,9 +88,7 @@ func (s *Service) PromoteCatalogCluster(ctx context.Context, artistEntityID stri
 	if err := s.cache(ctx, result); err != nil {
 		return Result{}, err
 	}
-	if err := changelog.Sequence(ctx, s.runtime, 100); err != nil {
-		return Result{}, err
-	}
+	changelog.SequenceBestEffort(ctx, s.runtime, 100)
 	return result, nil
 }
 

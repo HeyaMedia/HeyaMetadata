@@ -71,21 +71,24 @@ func (s *Service) discoverAppleArtists(ctx context.Context, request Request, job
 		}
 		seen[id] = true
 		matched := []ReleaseHint{}
+		matchedIdentities := []artistReleaseMatch{}
+		artistIdentity := ExternalID{Provider: "apple", Namespace: "artist", Value: id}
 		if len(request.Hints.Releases) > 0 && normalizedText(hit.ArtistName) == normalizedText(request.Query) && catalogLookups < 5 {
 			catalogLookups++
 			payloads, collectErr := client.Collect(ctx, providers.Identifier{Provider: "apple", Namespace: "artist", Value: id})
 			if collectErr == nil && len(payloads) > 0 && payloads[0].StatusCode == http.StatusOK {
 				catalog, _ := musiccatalog.AppleIdentityCatalog(payloads[0].Body, id)
-				matched = matchedCatalogReleaseHints(request.Hints.Releases, catalog)
+				matched, matchedIdentities = matchedCatalogReleaseHints(request.Hints.Releases, catalog, artistIdentity)
 			}
 		}
 		providerScore := int(similarity(normalizedText(request.Query), normalizedText(hit.ArtistName))*100 + .5)
 		candidate := Candidate{
-			ProviderScore:   providerScore,
-			Identity:        ExternalID{Provider: "apple", Namespace: "artist", Value: id},
-			Display:         Display{Name: hit.ArtistName, Type: normalizeType(hit.ArtistType)},
-			MatchedReleases: matched,
-			Resolution:      Resolution{Kind: KindArtist, Provider: "apple", Namespace: "artist", Value: id},
+			ProviderScore:        providerScore,
+			Identity:             artistIdentity,
+			Display:              Display{Name: hit.ArtistName, Type: normalizeType(hit.ArtistType)},
+			MatchedReleases:      matched,
+			Resolution:           Resolution{Kind: KindArtist, Provider: "apple", Namespace: "artist", Value: id},
+			artistReleaseMatches: matchedIdentities,
 		}
 		scoreCandidate(request, &candidate)
 		if err := s.lookupExistingArtistCandidate(ctx, &candidate); err != nil {
@@ -127,21 +130,24 @@ func (s *Service) discoverDeezerArtists(ctx context.Context, request Request, jo
 		}
 		id := strconv.FormatInt(hit.ID, 10)
 		matched := []ReleaseHint{}
+		matchedIdentities := []artistReleaseMatch{}
+		artistIdentity := ExternalID{Provider: "deezer", Namespace: "artist", Value: id}
 		if len(request.Hints.Releases) > 0 && normalizedText(hit.Name) == normalizedText(request.Query) && catalogLookups < 5 {
 			catalogLookups++
 			albumPayload, collectErr := client.ArtistAlbums(ctx, id, 200, 0)
 			if collectErr == nil && albumPayload.StatusCode == http.StatusOK {
 				catalog, _, _ := musiccatalog.DeezerIdentityCatalog(albumPayload.Body, id)
-				matched = matchedCatalogReleaseHints(request.Hints.Releases, catalog)
+				matched, matchedIdentities = matchedCatalogReleaseHints(request.Hints.Releases, catalog, artistIdentity)
 			}
 		}
 		providerScore := int(similarity(normalizedText(request.Query), normalizedText(hit.Name))*100 + .5)
 		candidate := Candidate{
-			ProviderScore:   providerScore,
-			Identity:        ExternalID{Provider: "deezer", Namespace: "artist", Value: id},
-			Display:         Display{Name: hit.Name},
-			MatchedReleases: matched,
-			Resolution:      Resolution{Kind: KindArtist, Provider: "deezer", Namespace: "artist", Value: id},
+			ProviderScore:        providerScore,
+			Identity:             artistIdentity,
+			Display:              Display{Name: hit.Name},
+			MatchedReleases:      matched,
+			Resolution:           Resolution{Kind: KindArtist, Provider: "deezer", Namespace: "artist", Value: id},
+			artistReleaseMatches: matchedIdentities,
 		}
 		scoreCandidate(request, &candidate)
 		if err := s.lookupExistingArtistCandidate(ctx, &candidate); err != nil {
@@ -152,17 +158,24 @@ func (s *Service) discoverDeezerArtists(ctx context.Context, request Request, jo
 	return result, nil
 }
 
-func matchedCatalogReleaseHints(hints []ReleaseHint, catalog []musiccatalog.IdentityRelease) []ReleaseHint {
+func matchedCatalogReleaseHints(hints []ReleaseHint, catalog []musiccatalog.IdentityRelease, artist ExternalID) ([]ReleaseHint, []artistReleaseMatch) {
 	result := []ReleaseHint{}
+	matches := []artistReleaseMatch{}
 	for _, hint := range hints {
 		for _, release := range catalog {
 			if releaseHintGroupMatches(hint, hint.Title, false, release.Title, release.Date, release.Kind) {
 				result = appendUniqueReleaseHint(result, hint)
-				break
+				if strings.TrimSpace(release.Provider) != "" && strings.TrimSpace(release.Namespace) != "" && strings.TrimSpace(release.ID) != "" {
+					matches = appendUniqueArtistReleaseMatch(matches, artistReleaseMatch{
+						HintKey: releaseHintIdentityKey(hint),
+						Artist:  artist,
+						Release: ExternalID{Provider: strings.ToLower(strings.TrimSpace(release.Provider)), Namespace: strings.ToLower(strings.TrimSpace(release.Namespace)), Value: strings.ToLower(strings.TrimSpace(release.ID))},
+					})
+				}
 			}
 		}
 	}
-	return result
+	return result, matches
 }
 
 func (s *Service) lookupExistingArtistCandidate(ctx context.Context, candidate *Candidate) error {

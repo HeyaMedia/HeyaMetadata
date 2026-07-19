@@ -1157,7 +1157,12 @@ func (s *Service) ingestRoot(ctx context.Context, root ingestionRoot, jobID int6
 		result, err := releasegroups.NewService(s.runtime).IngestMusicBrainz(ctx, root.Value, jobID, credentials)
 		return result.EntityID, err
 	case KindRecording:
-		result, err := recordings.NewService(s.runtime).IngestMusicBrainz(ctx, root.Value, jobID)
+		artistService := artists.NewService(s.runtime)
+		materialize := recordings.WithArtistCreditMaterializer(func(ctx context.Context, mbid string) error {
+			_, err := artistService.EnsureMusicBrainzIdentity(ctx, mbid)
+			return err
+		})
+		result, err := recordings.NewService(s.runtime, materialize).IngestMusicBrainz(ctx, root.Value, jobID)
 		return result.EntityID, err
 	case KindMusicalWork:
 		result, err := musicalworks.NewService(s.runtime).IngestOpenOpus(ctx, root.Value, jobID)

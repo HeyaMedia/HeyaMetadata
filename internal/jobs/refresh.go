@@ -107,7 +107,7 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 	}
 	artistRows, err := w.runtime.DB.Query(ctx, `
 		WITH candidates AS (
-			SELECT refresh.provider,claims.normalized_value,refresh.entity_id,refresh.next_eligible_at,
+			SELECT refresh.provider,claims.normalized_value,refresh.entity_id,refresh.provider AS refresh_provider,refresh.next_eligible_at,
 			       CASE refresh.provider WHEN 'musicbrainz' THEN 1 WHEN 'apple' THEN 2 ELSE 3 END provider_priority,
 			       COALESCE(stats.decayed_score * exp(-EXTRACT(EPOCH FROM (now() - stats.score_updated_at)) / 604800.0),0) access_score
 			FROM provider_refresh_states refresh
@@ -116,22 +116,31 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 			WHERE refresh.provider IN('musicbrainz','apple','deezer') AND refresh.next_eligible_at<=now()
 			  AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN('available','pending','retryable','running','scheduled'))
 			  AND claims.entity_kind='artist' AND claims.provider=refresh.provider AND claims.namespace='artist' AND claims.state='accepted'
+			UNION ALL
+			SELECT 'musicbrainz',claims.normalized_value,refresh.entity_id,refresh.provider,refresh.next_eligible_at,0,
+			       COALESCE(stats.decayed_score * exp(-EXTRACT(EPOCH FROM (now() - stats.score_updated_at)) / 604800.0),0)
+			FROM provider_refresh_states refresh
+			JOIN external_id_claims claims ON claims.entity_id=refresh.entity_id
+			LEFT JOIN entity_access_stats stats ON stats.entity_id=refresh.entity_id
+			WHERE refresh.provider='lastfm:top_tracks' AND refresh.next_eligible_at<=now()
+			  AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN('available','pending','retryable','running','scheduled'))
+			  AND claims.entity_kind='artist' AND claims.provider='musicbrainz' AND claims.namespace='artist' AND claims.state='accepted'
 		), chosen AS (
-			SELECT DISTINCT ON(entity_id) provider,normalized_value,entity_id,next_eligible_at,access_score
+			SELECT DISTINCT ON(entity_id) provider,normalized_value,entity_id,refresh_provider,next_eligible_at,access_score
 			FROM candidates
-			ORDER BY entity_id,provider_priority
+			ORDER BY entity_id,provider_priority,next_eligible_at
 		)
-		SELECT provider,normalized_value,entity_id FROM chosen
+		SELECT provider,normalized_value,entity_id,refresh_provider FROM chosen
 		ORDER BY access_score DESC,next_eligible_at
 		LIMIT 500`)
 	if err != nil {
 		return fmt.Errorf("select adaptive artist refreshes: %w", err)
 	}
-	type dueArtist struct{ provider, providerID, entityID string }
+	type dueArtist struct{ provider, providerID, entityID, refreshProvider string }
 	var artists []dueArtist
 	for artistRows.Next() {
 		var artist dueArtist
-		if err := artistRows.Scan(&artist.provider, &artist.providerID, &artist.entityID); err != nil {
+		if err := artistRows.Scan(&artist.provider, &artist.providerID, &artist.entityID, &artist.refreshProvider); err != nil {
 			artistRows.Close()
 			return err
 		}
@@ -147,7 +156,7 @@ func (w *RefreshSchedulerWorker) Work(ctx context.Context, _ *river.Job[RefreshS
 		if err != nil {
 			return fmt.Errorf("enqueue adaptive refresh for %s artist %s: %w", artist.provider, artist.providerID, err)
 		}
-		_, _ = w.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET current_job_id=$3 WHERE entity_id=$1 AND provider=$2`, artist.entityID, artist.provider, inserted.Job.ID)
+		_, _ = w.runtime.DB.Exec(ctx, `UPDATE provider_refresh_states SET current_job_id=$3 WHERE entity_id=$1 AND provider=$2`, artist.entityID, artist.refreshProvider, inserted.Job.ID)
 	}
 	releaseRows, err := w.runtime.DB.Query(ctx, `SELECT claims.normalized_value,refresh.entity_id FROM provider_refresh_states refresh JOIN external_id_claims claims ON claims.entity_id=refresh.entity_id LEFT JOIN entity_access_stats stats ON stats.entity_id=refresh.entity_id WHERE refresh.provider='musicbrainz' AND refresh.next_eligible_at<=now() AND NOT EXISTS(SELECT 1 FROM river_job active WHERE active.id=refresh.current_job_id AND active.state IN ('available','pending','retryable','running','scheduled')) AND claims.entity_kind='release_group' AND claims.provider='musicbrainz' AND claims.namespace='release_group' AND claims.state='accepted' ORDER BY COALESCE(stats.decayed_score * exp(-EXTRACT(EPOCH FROM (now()-stats.score_updated_at))/604800.0),0) DESC,refresh.next_eligible_at LIMIT 500`)
 	if err != nil {

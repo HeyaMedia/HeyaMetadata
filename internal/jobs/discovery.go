@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/artists"
 	"github.com/HeyaMedia/HeyaMetadata/internal/discovery"
 	"github.com/HeyaMedia/HeyaMetadata/internal/musiccatalog"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
@@ -90,9 +91,13 @@ func (w *DiscoverySearchWorker) Work(ctx context.Context, job *river.Job[Discove
 			if lookupErr != nil {
 				return lookupErr
 			}
+			enqueueRecordingsAwaitingArtist(ctx, w.runtime, river.ClientFromContext[pgx.Tx](ctx), "musicbrainz", mbid, identifierResult.EntityID)
 			if enqueueErr := InsertArtistCatalog(ctx, river.ClientFromContext[pgx.Tx](ctx), identifierResult.EntityID, mbid, ArtistCatalogReleaseEvidence(run.Request)...); enqueueErr != nil {
 				return fmt.Errorf("enqueue discovered artist catalog: %w", enqueueErr)
 			}
+		}
+		if identifierResult.Kind == discovery.KindRecording && identifierResult.EntityID != "" {
+			enqueueUnresolvedRecordingArtists(ctx, w.runtime, river.ClientFromContext[pgx.Tx](ctx), identifierResult.EntityID)
 		}
 		if err = discovery.Complete(ctx, w.runtime, run.RequestHash, identifierResult); err != nil {
 			return err
@@ -127,14 +132,39 @@ func (w *DiscoverySearchWorker) Work(ctx context.Context, job *river.Job[Discove
 	}
 	result.IdentifierEvidence = identifierResult.IdentifierEvidence
 	discovery.FinalizeSearchResult(&result)
+	if result.Kind == discovery.KindArtist && result.EntityID != "" && result.ArtistConvergence != nil {
+		convergence := result.ArtistConvergence
+		if convergence.EntityID != result.EntityID {
+			return fmt.Errorf("artist discovery convergence selected %s but finalized %s", convergence.EntityID, result.EntityID)
+		}
+		materialized, materializeErr := artists.NewService(w.runtime).MaterializeMusicBrainzIdentityOn(ctx, convergence.MusicBrainzID, convergence.EntityID, musiccatalog.ArtistIdentityBridge{
+			ArtistEntityID:             convergence.EntityID,
+			MusicBrainzArtistID:        convergence.MusicBrainzID,
+			MusicBrainzReleaseGroupID:  convergence.MusicBrainzReleaseGroupID,
+			StorefrontProvider:         convergence.StorefrontProvider,
+			StorefrontArtistID:         convergence.StorefrontArtistID,
+			StorefrontReleaseNamespace: convergence.StorefrontReleaseNamespace,
+			StorefrontReleaseID:        convergence.StorefrontReleaseID,
+		})
+		if materializeErr != nil {
+			return discoveryWorkError(fmt.Errorf("materialize persisted artist convergence: %w", materializeErr))
+		}
+		if materialized.EntityID != result.EntityID {
+			return fmt.Errorf("materialized MusicBrainz artist on %s, expected %s", materialized.EntityID, result.EntityID)
+		}
+	}
 	if result.Kind == discovery.KindArtist && result.EntityID != "" {
 		mbid, lookupErr := AcceptedMusicBrainzArtistID(ctx, w.runtime, result.EntityID)
 		if lookupErr != nil {
 			return lookupErr
 		}
+		enqueueRecordingsAwaitingArtist(ctx, w.runtime, river.ClientFromContext[pgx.Tx](ctx), "musicbrainz", mbid, result.EntityID)
 		if enqueueErr := InsertArtistCatalog(ctx, river.ClientFromContext[pgx.Tx](ctx), result.EntityID, mbid, ArtistCatalogReleaseEvidence(run.Request)...); enqueueErr != nil {
 			return fmt.Errorf("enqueue discovered artist catalog: %w", enqueueErr)
 		}
+	}
+	if result.Kind == discovery.KindRecording && result.EntityID != "" {
+		enqueueUnresolvedRecordingArtists(ctx, w.runtime, river.ClientFromContext[pgx.Tx](ctx), result.EntityID)
 	}
 	if err = discovery.Complete(ctx, w.runtime, run.RequestHash, result); err != nil {
 		return err

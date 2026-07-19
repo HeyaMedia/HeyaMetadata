@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/artists"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/recordings"
@@ -39,15 +40,22 @@ func InsertRecording(ctx context.Context, runtime *platform.Runtime, client *riv
 type RecordingIngestWorker struct {
 	river.WorkerDefaults[RecordingIngestArgs]
 	service *recordings.Service
+	runtime *platform.Runtime
 }
 
 func NewRecordingIngestWorker(runtime *platform.Runtime) *RecordingIngestWorker {
-	return &RecordingIngestWorker{service: recordings.NewService(runtime)}
+	artistService := artists.NewService(runtime)
+	materialize := recordings.WithArtistCreditMaterializer(func(ctx context.Context, mbid string) error {
+		_, err := artistService.EnsureMusicBrainzIdentity(ctx, mbid)
+		return err
+	})
+	return &RecordingIngestWorker{service: recordings.NewService(runtime, materialize), runtime: runtime}
 }
 
 func (w *RecordingIngestWorker) Work(ctx context.Context, job *river.Job[RecordingIngestArgs]) error {
-	_, err := w.service.IngestMusicBrainz(ctx, job.Args.MusicBrainzID, job.ID)
+	result, err := w.service.IngestMusicBrainz(ctx, job.Args.MusicBrainzID, job.ID)
 	if err == nil {
+		enqueueUnresolvedRecordingArtists(ctx, w.runtime, river.ClientFromContext[pgx.Tx](ctx), result.EntityID)
 		return nil
 	}
 	var status *providers.StatusError

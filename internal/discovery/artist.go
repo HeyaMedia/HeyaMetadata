@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/musiccatalog"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
@@ -48,6 +49,7 @@ type mbArtistSearch struct {
 }
 type mbReleaseSearch struct {
 	ReleaseGroups []struct {
+		ID               string `json:"id"`
 		Title            string `json:"title"`
 		FirstReleaseDate string `json:"first-release-date"`
 		PrimaryType      string `json:"primary-type"`
@@ -57,6 +59,12 @@ type mbReleaseSearch struct {
 			} `json:"artist"`
 		} `json:"artist-credit"`
 	} `json:"release-groups"`
+}
+
+type artistReleaseMatch struct {
+	HintKey string
+	Artist  ExternalID
+	Release ExternalID
 }
 
 func releaseHintArtistIDs(query string, source mbArtistSearch) []string {
@@ -179,6 +187,7 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 		return Result{}, fmt.Errorf("decode MusicBrainz artist search: %w", err)
 	}
 	releaseMatches := map[string][]ReleaseHint{}
+	releaseIdentityMatches := map[string][]artistReleaseMatch{}
 	releaseArtistIDs := releaseHintArtistIDs(request.Query, source)
 	for _, hint := range request.Hints.Releases {
 		for searchIndex, searchTitle := range releaseHintSearchTitles(hint.Title) {
@@ -199,10 +208,18 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 				if !releaseHintGroupMatches(hint, searchTitle, searchIndex > 0, group.Title, group.FirstReleaseDate, group.PrimaryType) {
 					continue
 				}
+				releaseGroupID := strings.ToLower(strings.TrimSpace(group.ID))
 				for _, credit := range group.ArtistCredit {
 					if credit.Artist.ID != "" {
 						id := strings.ToLower(credit.Artist.ID)
 						releaseMatches[id] = appendUniqueReleaseHint(releaseMatches[id], hint)
+						if releaseGroupID != "" {
+							releaseIdentityMatches[id] = appendUniqueArtistReleaseMatch(releaseIdentityMatches[id], artistReleaseMatch{
+								HintKey: releaseHintIdentityKey(hint),
+								Artist:  ExternalID{Provider: "musicbrainz", Namespace: "artist", Value: id},
+								Release: ExternalID{Provider: "musicbrainz", Namespace: "release_group", Value: releaseGroupID},
+							})
+						}
 						matched = true
 					}
 				}
@@ -226,7 +243,7 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 		if value.Area != nil {
 			display.Area = value.Area.Name
 		}
-		candidate := Candidate{ProviderScore: value.Score, Identity: ExternalID{Provider: "musicbrainz", Namespace: "artist", Value: id}, Display: display, MatchedReleases: releaseMatches[id], Resolution: Resolution{Kind: KindArtist, Provider: "musicbrainz", Namespace: "artist", Value: id}}
+		candidate := Candidate{ProviderScore: value.Score, Identity: ExternalID{Provider: "musicbrainz", Namespace: "artist", Value: id}, Display: display, MatchedReleases: releaseMatches[id], Resolution: Resolution{Kind: KindArtist, Provider: "musicbrainz", Namespace: "artist", Value: id}, artistReleaseMatches: releaseIdentityMatches[id]}
 		scoreCandidate(request, &candidate)
 		var entityID string
 		e := s.runtime.DB.QueryRow(ctx, `SELECT entity_id FROM external_id_claims WHERE entity_kind='artist' AND provider='musicbrainz' AND namespace='artist' AND normalized_value=$1 AND state='accepted'`, id).Scan(&entityID)
@@ -247,7 +264,11 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 	}
 	candidates = dedupeExistingArtistCandidates(candidates)
 	candidates = filterWeakArtistCandidates(request, candidates)
-	candidates = consolidateCorroboratedArtistCandidates(request, candidates)
+	var convergence *ArtistIdentityConvergence
+	candidates, convergence, err = s.consolidatePersistedArtistCandidates(ctx, request, candidates)
+	if err != nil {
+		return Result{}, err
+	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].Confidence != candidates[j].Confidence {
 			return candidates[i].Confidence > candidates[j].Confidence
@@ -257,13 +278,8 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 		}
 		return candidates[i].Identity.Value < candidates[j].Identity.Value
 	})
-	if len(candidates) > request.Limit {
-		candidates = candidates[:request.Limit]
-	}
-	for i := range candidates {
-		candidates[i].Rank = i + 1
-	}
-	result := Result{SchemaVersion: SchemaVersion, Kind: KindArtist, Query: request.Query, Status: "completed", Recommendation: recommendation(candidates), Candidates: candidates, Providers: providersUsed, ObservedAt: time.Now().UTC()}
+	recommended, candidates := presentCandidates(candidates, request.Limit)
+	result := Result{SchemaVersion: SchemaVersion, Kind: KindArtist, Query: request.Query, Status: "completed", Recommendation: recommended, Candidates: candidates, Providers: providersUsed, ObservedAt: time.Now().UTC(), ArtistConvergence: convergence}
 	return result, nil
 }
 
@@ -556,9 +572,16 @@ func dedupeExistingArtistCandidates(values []Candidate) []Candidate {
 			result = append(result, value)
 			continue
 		}
+		matches := appendUniqueArtistReleaseMatches(result[index].artistReleaseMatches, value.artistReleaseMatches...)
+		hints := result[index].MatchedReleases
+		for _, hint := range value.MatchedReleases {
+			hints = appendUniqueReleaseHint(hints, hint)
+		}
 		if value.Confidence > result[index].Confidence {
 			result[index] = value
 		}
+		result[index].artistReleaseMatches = matches
+		result[index].MatchedReleases = hints
 	}
 	return result
 }
@@ -585,101 +608,194 @@ func filterWeakArtistCandidates(request Request, values []Candidate) []Candidate
 	return result
 }
 
-// consolidateCorroboratedArtistCandidates selects one resolution root when
-// independent catalogs prove they describe the same submitted release. This
-// is deliberately narrower than name-based deduplication: the query name must
-// be exact, every submitted release hint must match, and MusicBrainz plus
-// independent storefronts must agree. One exact identifier is sufficient; in
-// its absence require either multiple dated releases or three providers on one
-// dated release. Resolution still ingests the selected MusicBrainz root and
-// performs normal claim reconciliation; discovery does not merge identities.
-func consolidateCorroboratedArtistCandidates(request Request, values []Candidate) []Candidate {
-	if len(request.Hints.Releases) == 0 {
-		return values
+type artistReleaseBridge struct {
+	EntityID    string
+	MusicBrainz artistReleaseMatch
+	Storefront  artistReleaseMatch
+}
+
+type artistReleaseBridgeChecker func(context.Context, artistReleaseBridge) (bool, error)
+
+// consolidatePersistedArtistCandidates can anchor one new MusicBrainz root to
+// one existing storefront artist, but only when persisted canonical evidence
+// joins both sides through the same release-group UUID. Search names and
+// title/year matches only select which hard evidence to inspect; they never
+// establish identity, and no two unclaimed roots are collapsed here.
+func (s *Service) consolidatePersistedArtistCandidates(ctx context.Context, request Request, values []Candidate) ([]Candidate, *ArtistIdentityConvergence, error) {
+	return consolidateArtistCandidatesWithBridge(ctx, request, values, s.persistedArtistReleaseBridge)
+}
+
+func consolidateArtistCandidatesWithBridge(ctx context.Context, request Request, values []Candidate, check artistReleaseBridgeChecker) ([]Candidate, *ArtistIdentityConvergence, error) {
+	if len(request.Hints.Releases) == 0 || normalizedText(request.Query) == "" || check == nil {
+		return values, nil, nil
 	}
-	query := normalizedText(request.Query)
-	if query == "" {
-		return values
-	}
-	var eligible []int
-	providers := map[string]struct{}{}
+
+	anchorByEntity := map[string][]int{}
+	var musicBrainz []int
 	for index, candidate := range values {
-		if normalizedText(candidate.Display.Name) != query || len(candidate.MatchedReleases) < len(request.Hints.Releases) {
+		if !artistCandidateExact(request.Query, candidate) || !artistReleaseMatchesCoverHints(candidate.artistReleaseMatches, request.Hints.Releases) {
 			continue
 		}
 		provider := strings.ToLower(strings.TrimSpace(candidate.Identity.Provider))
-		if provider == "" {
-			continue
+		switch {
+		case provider == "musicbrainz" && candidate.ExistingEntityID == "":
+			musicBrainz = append(musicBrainz, index)
+		case (provider == "apple" || provider == "deezer") && candidate.ExistingEntityID != "":
+			anchorByEntity[candidate.ExistingEntityID] = append(anchorByEntity[candidate.ExistingEntityID], index)
 		}
-		eligible = append(eligible, index)
-		providers[provider] = struct{}{}
 	}
-	if len(providers) < 2 {
-		return values
+	if len(anchorByEntity) != 1 || len(musicBrainz) != 1 {
+		return values, nil, nil
 	}
-	if _, hasMusicBrainz := providers["musicbrainz"]; !hasMusicBrainz {
-		return values
+	var entityID string
+	var anchorIndices []int
+	for id, indices := range anchorByEntity {
+		entityID, anchorIndices = id, indices
 	}
-	if !releaseHintsHaveIdentifiers(request.Hints.Releases) && !unidentifiedReleaseCorroborationIsStrong(request.Hints.Releases, len(providers)) {
-		return values
+	anchorIndex := anchorIndices[0]
+	for _, index := range anchorIndices[1:] {
+		if values[index].Confidence > values[anchorIndex].Confidence {
+			anchorIndex = index
+		}
+	}
+	mbIndex := musicBrainz[0]
+	mbCandidate := values[mbIndex]
+	anchor := values[anchorIndex]
+	var materializationBridge artistReleaseBridge
+
+	for _, hint := range request.Hints.Releases {
+		hintKey := releaseHintIdentityKey(hint)
+		proved := false
+		for _, mbMatch := range mbCandidate.artistReleaseMatches {
+			if mbMatch.HintKey != hintKey || mbMatch.Release.Provider != "musicbrainz" || mbMatch.Release.Namespace != "release_group" {
+				continue
+			}
+			for _, storefrontMatch := range anchor.artistReleaseMatches {
+				provider := strings.ToLower(strings.TrimSpace(storefrontMatch.Release.Provider))
+				if storefrontMatch.HintKey != hintKey || (provider != "apple" && provider != "deezer") || storefrontMatch.Artist.Provider != provider {
+					continue
+				}
+				matched, err := check(ctx, artistReleaseBridge{EntityID: entityID, MusicBrainz: mbMatch, Storefront: storefrontMatch})
+				if err != nil {
+					return nil, nil, err
+				}
+				if matched {
+					proved = true
+					if materializationBridge.EntityID == "" {
+						materializationBridge = artistReleaseBridge{EntityID: entityID, MusicBrainz: mbMatch, Storefront: storefrontMatch}
+					}
+					break
+				}
+			}
+			if proved {
+				break
+			}
+		}
+		if !proved {
+			return values, nil, nil
+		}
 	}
 
-	preferred := eligible[0]
-	for _, index := range eligible[1:] {
-		if artistCandidateResolutionPriority(values[index]) > artistCandidateResolutionPriority(values[preferred]) ||
-			(artistCandidateResolutionPriority(values[index]) == artistCandidateResolutionPriority(values[preferred]) && values[index].Confidence > values[preferred].Confidence) {
-			preferred = index
-		}
-	}
-	chosen := values[preferred]
+	chosen := anchor
+	chosen.Confidence = .99
+	chosen.Match = "strong"
 	chosen.Evidence = append(chosen.Evidence, Evidence{
-		Field: "cross_provider_releases", Outcome: fmt.Sprintf("%d_providers", len(providers)), Weight: 0,
-		Detail: "exact name and complete identified release overlap",
+		Field:   "canonical_release_claims",
+		Outcome: "persisted_cross_provider_bridge",
+		Detail:  "accepted storefront artist and release claims converge with the MusicBrainz credit on the same canonical release group",
 	})
-
-	result := make([]Candidate, 0, len(values)-len(eligible)+1)
+	result := make([]Candidate, 0, len(values)-1)
 	for index, candidate := range values {
-		if index == preferred {
-			result = append(result, chosen)
+		if index == mbIndex {
 			continue
 		}
-		if containsInt(eligible, index) {
-			continue
+		if index == anchorIndex {
+			candidate = chosen
 		}
 		result = append(result, candidate)
 	}
-	return result
+	return result, &ArtistIdentityConvergence{
+		EntityID:                   entityID,
+		MusicBrainzID:              mbCandidate.Identity.Value,
+		MusicBrainzReleaseGroupID:  materializationBridge.MusicBrainz.Release.Value,
+		StorefrontProvider:         materializationBridge.Storefront.Release.Provider,
+		StorefrontArtistID:         materializationBridge.Storefront.Artist.Value,
+		StorefrontReleaseNamespace: materializationBridge.Storefront.Release.Namespace,
+		StorefrontReleaseID:        materializationBridge.Storefront.Release.Value,
+	}, nil
 }
 
-func unidentifiedReleaseCorroborationIsStrong(hints []ReleaseHint, providerCount int) bool {
-	if len(hints) == 0 {
+func (s *Service) persistedArtistReleaseBridge(ctx context.Context, bridge artistReleaseBridge) (bool, error) {
+	storefrontProvider := strings.ToLower(strings.TrimSpace(bridge.Storefront.Release.Provider))
+	if bridge.EntityID == "" || storefrontProvider == "" || storefrontProvider != strings.ToLower(strings.TrimSpace(bridge.Storefront.Artist.Provider)) {
+		return false, nil
+	}
+	return musiccatalog.PersistedArtistIdentityBridge(ctx, s.runtime, musiccatalog.ArtistIdentityBridge{
+		ArtistEntityID:             bridge.EntityID,
+		MusicBrainzArtistID:        bridge.MusicBrainz.Artist.Value,
+		MusicBrainzReleaseGroupID:  bridge.MusicBrainz.Release.Value,
+		StorefrontProvider:         storefrontProvider,
+		StorefrontArtistID:         bridge.Storefront.Artist.Value,
+		StorefrontReleaseNamespace: bridge.Storefront.Release.Namespace,
+		StorefrontReleaseID:        bridge.Storefront.Release.Value,
+	})
+}
+
+func artistCandidateExact(query string, candidate Candidate) bool {
+	want := normalizedText(query)
+	if want == "" {
 		return false
 	}
-	for _, hint := range hints {
-		if hint.Year <= 0 || len([]rune(normalizedText(hint.Title))) < 4 {
-			return false
-		}
+	if normalizedText(candidate.Display.Name) == want {
+		return true
 	}
-	return len(hints) >= 2 || providerCount >= 3
-}
-
-func releaseHintsHaveIdentifiers(hints []ReleaseHint) bool {
-	for _, hint := range hints {
-		if len(hint.Identifiers) > 0 {
+	for _, alias := range candidate.Display.Aliases {
+		if normalizedText(alias) == want {
 			return true
 		}
 	}
 	return false
 }
 
-func artistCandidateResolutionPriority(candidate Candidate) int {
-	if candidate.ExistingEntityID != "" {
-		return 3
+func artistReleaseMatchesCoverHints(matches []artistReleaseMatch, hints []ReleaseHint) bool {
+	covered := map[string]bool{}
+	for _, match := range matches {
+		if strings.TrimSpace(match.Release.Value) != "" {
+			covered[match.HintKey] = true
+		}
 	}
-	if strings.EqualFold(candidate.Identity.Provider, "musicbrainz") {
-		return 2
+	for _, hint := range hints {
+		if !covered[releaseHintIdentityKey(hint)] {
+			return false
+		}
 	}
-	return 1
+	return len(hints) > 0
+}
+
+func releaseHintIdentityKey(hint ReleaseHint) string {
+	return normalizedText(hint.Title) + "\x00" + strconv.Itoa(hint.Year) + "\x00" + normalizeType(hint.Type)
+}
+
+func appendUniqueArtistReleaseMatch(values []artistReleaseMatch, value artistReleaseMatch) []artistReleaseMatch {
+	return appendUniqueArtistReleaseMatches(values, value)
+}
+
+func appendUniqueArtistReleaseMatches(values []artistReleaseMatch, additions ...artistReleaseMatch) []artistReleaseMatch {
+	for _, addition := range additions {
+		key := addition.HintKey + "\x00" + addition.Artist.Provider + "\x00" + addition.Artist.Namespace + "\x00" + addition.Artist.Value + "\x00" + addition.Release.Provider + "\x00" + addition.Release.Namespace + "\x00" + addition.Release.Value
+		duplicate := false
+		for _, existing := range values {
+			existingKey := existing.HintKey + "\x00" + existing.Artist.Provider + "\x00" + existing.Artist.Namespace + "\x00" + existing.Artist.Value + "\x00" + existing.Release.Provider + "\x00" + existing.Release.Namespace + "\x00" + existing.Release.Value
+			if existingKey == key {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			values = append(values, addition)
+		}
+	}
+	return values
 }
 
 func recommendation(values []Candidate) string {
@@ -697,6 +813,20 @@ func recommendation(values []Candidate) string {
 		return "likely_match"
 	}
 	return "ambiguous"
+}
+
+// presentCandidates keeps the identity decision independent from the caller's
+// presentation limit. In particular, limit=1 must not hide a tied runner-up
+// and turn an ambiguous result into a strong match.
+func presentCandidates(values []Candidate, limit int) (string, []Candidate) {
+	recommended := recommendation(values)
+	if len(values) > limit {
+		values = values[:limit]
+	}
+	for index := range values {
+		values[index].Rank = index + 1
+	}
+	return recommended, values
 }
 func normalizedText(value string) string {
 	var out strings.Builder

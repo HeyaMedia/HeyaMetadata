@@ -280,9 +280,7 @@ func (s *Service) IngestTMDBWithCredentials(ctx context.Context, tmdbID int64, r
 	if err := s.cache(ctx, result); err != nil {
 		return Result{}, err
 	}
-	if err := s.SequenceChanges(ctx, 100); err != nil {
-		return Result{}, err
-	}
+	changelog.SequenceBestEffort(ctx, s.runtime, 100)
 	return result, nil
 }
 
@@ -687,10 +685,6 @@ func (s *Service) cache(ctx context.Context, result Result) error {
 		return fmt.Errorf("publish movie invalidation: %w", err)
 	}
 	return nil
-}
-
-func (s *Service) SequenceChanges(ctx context.Context, limit int) error {
-	return changelog.Sequence(ctx, s.runtime, limit)
 }
 
 func preferredTitle(record moviedomain.NormalizedRecordV1) string {

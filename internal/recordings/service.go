@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -32,9 +34,26 @@ type Result struct {
 	Detail            releasedomain.RecordingDocument
 }
 
-type Service struct{ runtime *platform.Runtime }
+type ArtistCreditMaterializer func(context.Context, string) error
 
-func NewService(runtime *platform.Runtime) *Service { return &Service{runtime: runtime} }
+type Service struct {
+	runtime           *platform.Runtime
+	materializeArtist ArtistCreditMaterializer
+}
+
+type Option func(*Service)
+
+func WithArtistCreditMaterializer(materialize ArtistCreditMaterializer) Option {
+	return func(service *Service) { service.materializeArtist = materialize }
+}
+
+func NewService(runtime *platform.Runtime, options ...Option) *Service {
+	service := &Service{runtime: runtime}
+	for _, option := range options {
+		option(service)
+	}
+	return service
+}
 
 func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int64) (result Result, returnErr error) {
 	mbid = strings.ToLower(strings.TrimSpace(mbid))
@@ -68,13 +87,14 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, jobID int6
 	if err != nil {
 		return result, err
 	}
+	if err := s.materializeArtistCredits(ctx, record.Recording.ArtistCredits); err != nil {
+		return result, err
+	}
 	result, err = s.persist(ctx, record, jobID)
 	if err != nil {
 		return result, err
 	}
-	if err := changelog.Sequence(ctx, s.runtime, 100); err != nil {
-		return result, err
-	}
+	changelog.SequenceBestEffort(ctx, s.runtime, 100)
 	return result, nil
 }
 
@@ -96,21 +116,49 @@ func (s *Service) persist(ctx context.Context, record releasedomain.NormalizedRe
 	if _, err := tx.Exec(ctx, `UPDATE normalized_records SET entity_id=$1 WHERE id=$2`, entityID, normalizedID); err != nil {
 		return Result{}, err
 	}
+	var existing releasedomain.RecordingDocument
+	var existingBody []byte
+	if err := tx.QueryRow(ctx, `SELECT document FROM canonical_recordings WHERE entity_id=$1`, entityID).Scan(&existingBody); err == nil {
+		if err := json.Unmarshal(existingBody, &existing); err != nil {
+			return Result{}, fmt.Errorf("decode existing recording projection: %w", err)
+		}
+	} else if err != pgx.ErrNoRows {
+		return Result{}, err
+	}
+	snapshotCurrent, err := recordingSnapshotIsCurrent(ctx, tx, entityID, record.ProviderRecord)
+	if err != nil {
+		return Result{}, err
+	}
+	if !snapshotCurrent {
+		// resolveOrCreate holds the canonical entity row lock. If a newer
+		// normalized observation committed while this job was waiting, retain
+		// its complete canonical snapshot. The older observation remains useful
+		// historical evidence, but cannot regress claims, relationships,
+		// freshness, provenance, or provider refresh state.
+		if existing.ID == "" {
+			return Result{}, fmt.Errorf("newer normalized recording exists without a canonical projection")
+		}
+		if jobID > 0 {
+			if _, err := tx.Exec(ctx, `UPDATE recording_ingestion_runs SET entity_id=$2,state='completed',completed_at=now(),error=NULL WHERE river_job_id=$1`, jobID, entityID); err != nil {
+				return Result{}, err
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return Result{}, err
+		}
+		return Result{EntityID: entityID, NormalizedID: normalizedID, ProjectionVersion: existing.ProjectionVersion, Detail: existing}, nil
+	}
 	if err := persistClaims(ctx, tx, entityID, record); err != nil {
 		return Result{}, err
 	}
 	if err := PersistWorkRelations(ctx, tx, entityID, record.WorkRelations, record.ProviderRecord); err != nil {
 		return Result{}, err
 	}
-	var existing releasedomain.RecordingDocument
-	var existingBody []byte
-	if err := tx.QueryRow(ctx, `SELECT document FROM canonical_recordings WHERE entity_id=$1`, entityID).Scan(&existingBody); err == nil {
-		_ = json.Unmarshal(existingBody, &existing)
-	} else if err != pgx.ErrNoRows {
-		return Result{}, err
-	}
 	recording := MergeData(existing.Data, record.Recording)
 	if err := hydrateCanonicalIDs(ctx, tx, &recording); err != nil {
+		return Result{}, err
+	}
+	if err := persistArtistCreditRelations(ctx, tx, entityID, recording.ArtistCredits, record.ProviderRecord); err != nil {
 		return Result{}, err
 	}
 	var version int64
@@ -123,7 +171,8 @@ func (s *Service) persist(ctx context.Context, record releasedomain.NormalizedRe
 	for _, isrc := range recording.ISRCs {
 		external = append(external, releasedomain.ExternalID{Provider: "isrc", Namespace: "recording", Value: isrc, Evidence: "provider_assertion"})
 	}
-	doc := releasedomain.RecordingDocument{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: "recording", Slug: slug, Display: releasedomain.Display{Title: recording.Title}, ExternalIDs: external, Data: recording, Freshness: fresh, Provenance: map[string][]releasedomain.SourceRef{"identity": {{Provider: "musicbrainz", ObservationID: record.ProviderRecord.PrimaryObservationID}}, "data": {{Provider: "musicbrainz", ObservationID: record.ProviderRecord.PrimaryObservationID}}}}
+	creditProvenance := []releasedomain.SourceRef{{Provider: record.ProviderRecord.Provider, ObservationID: record.ProviderRecord.PrimaryObservationID}}
+	doc := releasedomain.RecordingDocument{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: "recording", Slug: slug, Display: releasedomain.Display{Title: recording.Title}, ExternalIDs: external, Data: recording, Freshness: fresh, Provenance: map[string][]releasedomain.SourceRef{"identity": {{Provider: "musicbrainz", ObservationID: record.ProviderRecord.PrimaryObservationID}}, "data": {{Provider: "musicbrainz", ObservationID: record.ProviderRecord.PrimaryObservationID}}, "credits": creditProvenance}}
 	docBody, _ := json.Marshal(doc)
 	sum := sha256.Sum256(normalizedBody)
 	if _, err := tx.Exec(ctx, `INSERT INTO canonical_recordings(entity_id,merge_version,source_fingerprint,document)VALUES($1,$2,$3,$4)ON CONFLICT(entity_id)DO UPDATE SET merge_version=EXCLUDED.merge_version,source_fingerprint=EXCLUDED.source_fingerprint,document=EXCLUDED.document,updated_at=now()`, entityID, releasedomain.RecordingMergeVersion, hex.EncodeToString(sum[:]), docBody); err != nil {
@@ -150,7 +199,8 @@ func (s *Service) persist(ctx context.Context, record releasedomain.NormalizedRe
 	if created {
 		change = "created"
 	}
-	_, _ = tx.Exec(ctx, `INSERT INTO change_outbox(entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id)VALUES($1,'recording',$2,$3,$4,$5,$6,NULLIF($7,0))`, entityID, slug, change, []string{"identity", "detail", "search"}, version, record.ProviderRecord.PrimaryObservationID, jobID)
+	changedScopes := []string{"identity", "detail", "credits", "relations", "search"}
+	_, _ = tx.Exec(ctx, `INSERT INTO change_outbox(entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id)VALUES($1,'recording',$2,$3,$4,$5,$6,NULLIF($7,0))`, entityID, slug, change, changedScopes, version, record.ProviderRecord.PrimaryObservationID, jobID)
 	if jobID > 0 {
 		_, _ = tx.Exec(ctx, `UPDATE recording_ingestion_runs SET entity_id=$2,state='completed',completed_at=now(),error=NULL WHERE river_job_id=$1`, jobID, entityID)
 	}
@@ -158,6 +208,84 @@ func (s *Service) persist(ctx context.Context, record releasedomain.NormalizedRe
 		return Result{}, err
 	}
 	return Result{EntityID: entityID, NormalizedID: normalizedID, ProjectionVersion: version, Detail: doc}, nil
+}
+
+func (s *Service) materializeArtistCredits(ctx context.Context, credits []releasedomain.ArtistCredit) error {
+	if s.materializeArtist == nil {
+		return nil
+	}
+	for _, mbid := range musicBrainzArtistCreditIDs(credits) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err := s.materializeArtist(ctx, mbid); err != nil {
+			// A recording remains useful even when one credited artist is gone or
+			// temporarily unavailable. The recording/artist workers enqueue the
+			// unresolved credit for a normal retry after this projection commits.
+			slog.WarnContext(ctx, "recording artist credit remains unresolved", "musicbrainz_artist_id", mbid, "error", err)
+		}
+	}
+	return nil
+}
+
+func musicBrainzArtistCreditIDs(credits []releasedomain.ArtistCredit) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(credits))
+	for _, credit := range credits {
+		if !strings.EqualFold(strings.TrimSpace(credit.ArtistProvider), "musicbrainz") || !strings.EqualFold(strings.TrimSpace(credit.ArtistNamespace), "artist") {
+			continue
+		}
+		value := strings.ToLower(strings.TrimSpace(credit.ArtistID))
+		if _, err := uuid.Parse(value); err != nil || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
+}
+
+func recordingSnapshotIsCurrent(ctx context.Context, tx pgx.Tx, recordingID string, source releasedomain.ProviderRecord) (bool, error) {
+	var current bool
+	err := tx.QueryRow(ctx, `
+		SELECT NOT EXISTS(
+			SELECT 1
+			FROM normalized_records
+			WHERE entity_id=$1 AND entity_kind='recording'
+			  AND lower(provider)=lower($2)
+			  AND lower(provider_namespace)=lower($3)
+			  AND lower(provider_record_id)=lower($4)
+			  AND observed_at>$5
+		)`, recordingID, source.Provider, source.Namespace, source.Value, source.ObservedAt).Scan(&current)
+	if err != nil {
+		return false, fmt.Errorf("check authoritative recording snapshot freshness: %w", err)
+	}
+	return current, nil
+}
+
+func persistArtistCreditRelations(ctx context.Context, tx pgx.Tx, recordingID string, credits []releasedomain.ArtistCredit, source releasedomain.ProviderRecord) error {
+	if _, err := tx.Exec(ctx, `UPDATE entity_relations SET state='superseded',last_observed_at=$2 WHERE source_entity_id=$1 AND source_kind='recording' AND target_kind='artist' AND relation_type='artist_credit' AND state='accepted'`, recordingID, source.ObservedAt); err != nil {
+		return err
+	}
+	for _, credit := range credits {
+		provider := strings.ToLower(strings.TrimSpace(credit.ArtistProvider))
+		namespace := strings.ToLower(strings.TrimSpace(credit.ArtistNamespace))
+		value := strings.ToLower(strings.TrimSpace(credit.ArtistID))
+		if provider == "" || namespace == "" || value == "" {
+			continue
+		}
+		metadata, err := json.Marshal(map[string]any{
+			"name": credit.Name, "artist_name": credit.ArtistName,
+			"join_phrase": credit.JoinPhrase, "role": credit.Role,
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO entity_relations(source_entity_id,target_entity_id,source_kind,target_kind,relation_type,provider,namespace,provider_value,position,metadata,state,source_observation_id,first_observed_at,last_observed_at)VALUES($1,NULLIF($2,'')::uuid,'recording','artist','artist_credit',$3,$4,$5,$6,$7,'accepted',NULLIF($8,'')::uuid,$9,$9)ON CONFLICT(source_entity_id,relation_type,provider,namespace,provider_value)DO UPDATE SET target_entity_id=EXCLUDED.target_entity_id,position=EXCLUDED.position,metadata=EXCLUDED.metadata,state='accepted',source_observation_id=EXCLUDED.source_observation_id,last_observed_at=EXCLUDED.last_observed_at`, recordingID, credit.ArtistEntityID, provider, namespace, value, credit.Position, metadata, source.PrimaryObservationID, source.ObservedAt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // PersistWorkRelations records MusicBrainz's explicit recording-to-work
@@ -291,9 +419,6 @@ func (s *Service) Detail(ctx context.Context, id string) (releasedomain.Recordin
 	}
 	var doc releasedomain.RecordingDocument
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return doc, false, err
-	}
-	if err := hydrateCanonicalIDs(ctx, s.runtime.DB, &doc.Data); err != nil {
 		return doc, false, err
 	}
 	return doc, time.Now().Before(fresh), nil

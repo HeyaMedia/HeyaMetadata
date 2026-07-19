@@ -95,13 +95,8 @@ func (s *Service) DiscoverRecording(ctx context.Context, request Request, jobID 
 		candidates = append(candidates, candidate)
 	}
 	sortCandidates(candidates)
-	if len(candidates) > request.Limit {
-		candidates = candidates[:request.Limit]
-	}
-	for i := range candidates {
-		candidates[i].Rank = i + 1
-	}
-	return Result{SchemaVersion: SchemaVersion, Kind: KindRecording, Query: request.Query, Status: "completed", Recommendation: recommendation(candidates), Candidates: candidates, Providers: []string{"musicbrainz"}, ObservedAt: time.Now().UTC()}, nil
+	recommended, candidates := presentCandidates(candidates, request.Limit)
+	return Result{SchemaVersion: SchemaVersion, Kind: KindRecording, Query: request.Query, Status: "completed", Recommendation: recommended, Candidates: candidates, Providers: []string{"musicbrainz"}, ObservedAt: time.Now().UTC()}, nil
 }
 
 func scoreRecordingCandidate(request Request, candidate *Candidate) {

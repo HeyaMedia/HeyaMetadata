@@ -38,6 +38,7 @@ func Workers(runtime *platform.Runtime) *river.Workers {
 	river.AddWorker(workers, NewBlobRetentionWorker(runtime))
 	river.AddWorker(workers, NewRefreshSchedulerWorker(runtime))
 	river.AddWorker(workers, NewSourceCollectWorker(runtime))
+	river.AddWorker(workers, NewOutboxDrainWorker(runtime))
 	return workers
 }
 
@@ -46,6 +47,11 @@ func NewClient(runtime *platform.Runtime, maxWorkers int, work bool) (*river.Cli
 		Workers:                     Workers(runtime),
 		CompletedJobRetentionPeriod: CompletedJobRetention,
 		PeriodicJobs: []*river.PeriodicJob{
+			river.NewPeriodicJob(
+				river.PeriodicInterval(time.Minute),
+				func() (river.JobArgs, *river.InsertOpts) { return OutboxDrainArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "transactional-outbox-drain", RunOnStart: true},
+			),
 			river.NewPeriodicJob(
 				river.PeriodicInterval(time.Hour),
 				func() (river.JobArgs, *river.InsertOpts) { return BlobRetentionArgs{}, nil },

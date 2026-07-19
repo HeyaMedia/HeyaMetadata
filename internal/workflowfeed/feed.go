@@ -9,6 +9,7 @@ package workflowfeed
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
@@ -16,6 +17,15 @@ import (
 )
 
 const sequencerLock int64 = 0x48455941574f524b
+
+// SequenceBestEffort keeps terminal workflow writes independent from the
+// low-latency sequencing attempt. Emit has already staged the durable outbox
+// row in the workflow transaction; the River drainer owns eventual delivery.
+func SequenceBestEffort(ctx context.Context, runtime *platform.Runtime, limit int) {
+	if err := Sequence(ctx, runtime, limit); err != nil {
+		slog.WarnContext(ctx, "workflow outbox sequencing deferred", "error", err)
+	}
+}
 
 // Event is one finished workflow. Kind names the workflow family so more
 // families can join the feed without a schema change.

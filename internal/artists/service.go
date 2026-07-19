@@ -19,6 +19,7 @@ import (
 	artistdomain "github.com/HeyaMedia/HeyaMetadata/internal/domains/artist"
 	"github.com/HeyaMedia/HeyaMetadata/internal/ingest"
 	"github.com/HeyaMedia/HeyaMetadata/internal/mixer"
+	"github.com/HeyaMedia/HeyaMetadata/internal/musiccatalog"
 	"github.com/HeyaMedia/HeyaMetadata/internal/platform"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercredentials"
@@ -38,6 +39,8 @@ import (
 
 var nonSlug = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 
+const lastFMTopTracksRefreshProvider = "lastfm:top_tracks"
+
 type Result struct {
 	EntityID          string
 	NormalizedID      string
@@ -48,34 +51,117 @@ type Service struct{ runtime *platform.Runtime }
 
 func NewService(runtime *platform.Runtime) *Service { return &Service{runtime: runtime} }
 
+func (s *Service) EnsureMusicBrainzIdentity(ctx context.Context, mbid string) (Result, error) {
+	mbid = strings.ToLower(strings.TrimSpace(mbid))
+	entityID, err := s.Resolve(ctx, "musicbrainz", "artist", mbid)
+	if err == nil {
+		canonicalID, canonicalErr := s.CanonicalID(ctx, entityID)
+		if canonicalErr != nil {
+			return Result{}, canonicalErr
+		}
+		var materialized bool
+		if queryErr := s.runtime.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM canonical_artists WHERE entity_id=$1)`, canonicalID).Scan(&materialized); queryErr != nil {
+			return Result{}, queryErr
+		}
+		if materialized {
+			return Result{EntityID: canonicalID}, nil
+		}
+		// An accepted claim without a projection is a legitimate legacy or
+		// interrupted state. Reusing the claim lets merge fill that canonical
+		// entity instead of manufacturing a duplicate artist.
+		return s.MaterializeMusicBrainzIdentity(ctx, mbid)
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return Result{}, err
+	}
+	return s.MaterializeMusicBrainzIdentity(ctx, mbid)
+}
+
+// MaterializeMusicBrainzIdentity creates the canonical artist identity and its
+// basic projection from MusicBrainz without running the much wider
+// supplemental-provider refresh. Recording ingestion uses this bounded path so
+// authoritative MusicBrainz credits can point at canonical artists immediately;
+// the regular artist job can enrich the identity afterwards.
+func (s *Service) MaterializeMusicBrainzIdentity(ctx context.Context, mbid string) (Result, error) {
+	return s.materializeMusicBrainzIdentity(ctx, mbid, "", nil)
+}
+
+// MaterializeMusicBrainzIdentityOn attaches a new MusicBrainz root to an
+// existing canonical artist. Callers must already have hard, persisted
+// identity evidence for the preferred entity; merge still rejects a competing
+// MusicBrainz owner or any incompatible canonical root.
+func (s *Service) MaterializeMusicBrainzIdentityOn(ctx context.Context, mbid, preferredEntityID string, proof musiccatalog.ArtistIdentityBridge) (Result, error) {
+	mbid = strings.ToLower(strings.TrimSpace(mbid))
+	preferredEntityID = strings.TrimSpace(preferredEntityID)
+	if mbid == "" || preferredEntityID == "" {
+		return Result{}, fmt.Errorf("materialize MusicBrainz artist on canonical entity requires both identities")
+	}
+	if proof.ArtistEntityID != preferredEntityID || !strings.EqualFold(proof.MusicBrainzArtistID, mbid) {
+		return Result{}, fmt.Errorf("MusicBrainz artist convergence proof does not describe the requested roots")
+	}
+	proved, err := musiccatalog.PersistedArtistIdentityBridge(ctx, s.runtime, proof)
+	if err != nil {
+		return Result{}, err
+	}
+	if !proved {
+		return Result{}, fmt.Errorf("persisted release and credit claims do not prove MusicBrainz artist convergence")
+	}
+	if claimedEntityID, err := s.Resolve(ctx, "musicbrainz", "artist", mbid); err == nil {
+		canonicalID, canonicalErr := s.CanonicalID(ctx, claimedEntityID)
+		if canonicalErr != nil {
+			return Result{}, canonicalErr
+		}
+		if canonicalID != preferredEntityID {
+			return Result{}, fmt.Errorf("MusicBrainz artist %s already belongs to canonical artist %s", mbid, canonicalID)
+		}
+	} else if !errors.Is(err, ErrNotFound) {
+		return Result{}, err
+	}
+	return s.materializeMusicBrainzIdentity(ctx, mbid, preferredEntityID, &proof)
+}
+
+func (s *Service) materializeMusicBrainzIdentity(ctx context.Context, mbid, preferredEntityID string, proof *musiccatalog.ArtistIdentityBridge) (Result, error) {
+	mbid = strings.ToLower(strings.TrimSpace(mbid))
+	spine, err := s.collectMusicBrainzSpine(ctx, mbid, 0)
+	if err != nil {
+		return Result{}, err
+	}
+	normalizedID, err := s.recordNormalized(ctx, spine)
+	if err != nil {
+		return Result{}, err
+	}
+	if proof != nil {
+		proved, proofErr := musiccatalog.PersistedArtistIdentityBridge(ctx, s.runtime, *proof)
+		if proofErr != nil {
+			return Result{}, proofErr
+		}
+		if !proved {
+			return Result{}, fmt.Errorf("persisted artist convergence proof expired before materialization")
+		}
+	}
+	var result Result
+	if preferredEntityID == "" {
+		result, err = s.merge(ctx, []string{normalizedID}, []artistdomain.NormalizedRecordV1{spine}, 0)
+	} else {
+		result, err = s.mergeRequiredPreferred(ctx, []string{normalizedID}, []artistdomain.NormalizedRecordV1{spine}, 0, preferredEntityID)
+	}
+	if err != nil {
+		return Result{}, err
+	}
+	if err := s.cache(ctx, result); err != nil {
+		return result, err
+	}
+	changelog.SequenceBestEffort(ctx, s.runtime, 100)
+	return result, nil
+}
+
 func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID int64, credentials providercredentials.Credentials) (result Result, returnErr error) {
 	mbid = strings.ToLower(strings.TrimSpace(mbid))
 	if err := s.startIngestionRun(ctx, "musicbrainz", mbid, riverJobID); err != nil {
 		return Result{}, err
 	}
 	defer s.finishFailedIngestionRun(ctx, riverJobID, &returnErr)
-	mbCapability := musicbrainz.New(s.runtime.Config.Providers.MusicBrainz).Capability()
-	mbResolver, err := providercache.New(s.runtime, artistdomain.MusicBrainzNormalizerVersion, mbCapability.RawRetention, mbCapability.ResponseCache, riverJobID)
-	if err != nil {
-		return Result{}, err
-	}
-	mbCollector := musicbrainz.NewCached(s.runtime.Config.Providers.MusicBrainz, mbResolver)
-	payloads, err := mbCollector.Collect(ctx, providers.Identifier{Provider: "musicbrainz", Namespace: "artist", Value: mbid})
-	if err != nil {
-		return Result{}, err
-	}
-	observations, err := s.recordPayloads(ctx, payloads, artistdomain.MusicBrainzNormalizerVersion, mbCapability, riverJobID)
-	if err != nil {
-		return Result{}, err
-	}
-	if len(observations) == 0 {
-		return Result{}, fmt.Errorf("MusicBrainz collector returned no observations")
-	}
-	primary := observations[0]
-	if primary.Payload.StatusCode != http.StatusOK {
-		return Result{}, &providers.StatusError{Provider: "musicbrainz", StatusCode: primary.Payload.StatusCode}
-	}
-	spine, err := musicbrainz.NormalizeArtist(primary.Payload.Body, primary.ID, primary.Payload.ObservedAt)
+	spine, err := s.collectMusicBrainzSpine(ctx, mbid, riverJobID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -216,6 +302,9 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 				}
 				if topErr != nil {
 					normalized.PartialFailure = true
+					normalized.TopTracksAttemptedAt = time.Now().UTC()
+					normalized.TopTracksFailureClass = topTrackFailureClass(topErr)
+					normalized.TopTracksFailure = topErr.Error()
 					normalized.Warnings = append(normalized.Warnings, "lastfm.top_tracks: "+topErr.Error())
 					if providers.HasHTTPStatus(topErr, http.StatusNotFound) {
 						slog.Debug("artist top tracks provider has no matching record", "provider", "lastfm", "mbid", mbid)
@@ -262,6 +351,11 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 	}
 	if len(failures) > 0 {
 		spine.PartialFailure = true
+		if lastFMErr := failures["lastfm"]; lastFMErr != nil {
+			spine.TopTracksAttemptedAt = time.Now().UTC()
+			spine.TopTracksFailureClass = topTrackFailureClass(lastFMErr)
+			spine.TopTracksFailure = lastFMErr.Error()
+		}
 		keys := make([]string, 0, len(failures))
 		for key := range failures {
 			keys = append(keys, key)
@@ -292,10 +386,33 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 	if err := s.cache(ctx, result); err != nil {
 		return Result{}, err
 	}
-	if err := changelog.Sequence(ctx, s.runtime, 100); err != nil {
-		return Result{}, err
-	}
+	changelog.SequenceBestEffort(ctx, s.runtime, 100)
 	return result, nil
+}
+
+func (s *Service) collectMusicBrainzSpine(ctx context.Context, mbid string, riverJobID int64) (artistdomain.NormalizedRecordV1, error) {
+	mbCapability := musicbrainz.New(s.runtime.Config.Providers.MusicBrainz).Capability()
+	mbResolver, err := providercache.New(s.runtime, artistdomain.MusicBrainzNormalizerVersion, mbCapability.RawRetention, mbCapability.ResponseCache, riverJobID)
+	if err != nil {
+		return artistdomain.NormalizedRecordV1{}, err
+	}
+	mbCollector := musicbrainz.NewCached(s.runtime.Config.Providers.MusicBrainz, mbResolver)
+	payloads, err := mbCollector.Collect(ctx, providers.Identifier{Provider: "musicbrainz", Namespace: "artist", Value: mbid})
+	if err != nil {
+		return artistdomain.NormalizedRecordV1{}, err
+	}
+	observations, err := s.recordPayloads(ctx, payloads, artistdomain.MusicBrainzNormalizerVersion, mbCapability, riverJobID)
+	if err != nil {
+		return artistdomain.NormalizedRecordV1{}, err
+	}
+	if len(observations) == 0 {
+		return artistdomain.NormalizedRecordV1{}, fmt.Errorf("MusicBrainz collector returned no observations")
+	}
+	primary := observations[0]
+	if primary.Payload.StatusCode != http.StatusOK {
+		return artistdomain.NormalizedRecordV1{}, &providers.StatusError{Provider: "musicbrainz", StatusCode: primary.Payload.StatusCode}
+	}
+	return musicbrainz.NormalizeArtist(primary.Payload.Body, primary.ID, primary.Payload.ObservedAt)
 }
 
 func (s *Service) startIngestionRun(ctx context.Context, provider, providerID string, riverJobID int64) error {
@@ -538,6 +655,17 @@ func (s *Service) collectLastFMTopTracks(ctx context.Context, client *lastfm.Cli
 	return lastfm.TopTracksSnapshot{}, ingest.RecordedObservation{}, lastErr
 }
 
+func topTrackFailureClass(err error) string {
+	switch {
+	case providers.HasHTTPStatus(err, http.StatusNotFound):
+		return "not_found"
+	case providers.HasHTTPStatus(err, http.StatusTooManyRequests):
+		return "rate_limited"
+	default:
+		return "transient"
+	}
+}
+
 func lastFMNameCandidates(names []string) []string {
 	result := make([]string, 0, min(len(names), 8))
 	seen := map[string]bool{}
@@ -608,6 +736,14 @@ func (s *Service) recordNormalized(ctx context.Context, record artistdomain.Norm
 }
 
 func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful []artistdomain.NormalizedRecordV1, jobID int64, preferredEntityIDs ...string) (Result, error) {
+	return s.mergeWithPreferred(ctx, normalizedIDs, successful, jobID, false, preferredEntityIDs...)
+}
+
+func (s *Service) mergeRequiredPreferred(ctx context.Context, normalizedIDs []string, successful []artistdomain.NormalizedRecordV1, jobID int64, preferredEntityID string) (Result, error) {
+	return s.mergeWithPreferred(ctx, normalizedIDs, successful, jobID, true, preferredEntityID)
+}
+
+func (s *Service) mergeWithPreferred(ctx context.Context, normalizedIDs []string, successful []artistdomain.NormalizedRecordV1, jobID int64, requirePreferred bool, preferredEntityIDs ...string) (Result, error) {
 	if len(normalizedIDs) == 0 || len(successful) == 0 || len(normalizedIDs) != len(successful) {
 		return Result{}, fmt.Errorf("artist merge requires aligned normalized records")
 	}
@@ -662,6 +798,8 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 		}
 		if compatible {
 			entityIDs[preferredEntityID] = true
+		} else if requirePreferred {
+			return Result{}, fmt.Errorf("canonical artist %s is incompatible with MusicBrainz root %s", preferredEntityID, spineMusicBrainzID)
 		}
 	}
 	if len(entityIDs) > 1 && spineMusicBrainzID != "" {
@@ -904,6 +1042,9 @@ func (s *Service) merge(ctx context.Context, normalizedIDs []string, successful 
 		if err != nil {
 			return Result{}, err
 		}
+	}
+	if err := updateTopTrackRefreshState(ctx, tx, entityID, mergedSuccessful, jobID); err != nil {
+		return Result{}, err
 	}
 	changeType := "updated"
 	if created {
@@ -1292,14 +1433,75 @@ func artistIdentityKey(provider, namespace, value string) string {
 	return strings.ToLower(strings.TrimSpace(provider)) + "\x00" + strings.ToLower(strings.TrimSpace(namespace)) + "\x00" + strings.TrimSpace(value)
 }
 
+func updateTopTrackRefreshState(ctx context.Context, tx pgx.Tx, entityID string, records []artistdomain.NormalizedRecordV1, jobID int64) error {
+	type outcome struct {
+		success       bool
+		at            time.Time
+		observationID string
+		failureClass  string
+		failure       string
+	}
+	var latest *outcome
+	for _, record := range records {
+		var candidate *outcome
+		if record.TopTracksObserved && strings.EqualFold(record.ProviderRecord.Provider, "lastfm") {
+			observedAt := record.TopTracksObservedAt
+			if observedAt.IsZero() {
+				observedAt = record.ProviderRecord.ObservedAt
+			}
+			observationID := record.TopTracksObservationID
+			if observationID == "" {
+				observationID = record.ProviderRecord.PrimaryObservationID
+			}
+			candidate = &outcome{success: true, at: observedAt, observationID: observationID}
+		} else if record.TopTracksFailure != "" {
+			attemptedAt := record.TopTracksAttemptedAt
+			if attemptedAt.IsZero() {
+				attemptedAt = record.ProviderRecord.ObservedAt
+			}
+			if attemptedAt.IsZero() {
+				attemptedAt = time.Now().UTC()
+			}
+			candidate = &outcome{at: attemptedAt, failureClass: record.TopTracksFailureClass, failure: record.TopTracksFailure}
+		}
+		if candidate != nil && (latest == nil || candidate.at.After(latest.at) || candidate.at.Equal(latest.at) && candidate.success) {
+			latest = candidate
+		}
+	}
+	if latest == nil {
+		return nil
+	}
+	if latest.success {
+		nextEligible := latest.at.Add(7 * 24 * time.Hour)
+		_, err := tx.Exec(ctx, `INSERT INTO provider_refresh_states(entity_id,provider,last_attempt_at,last_success_at,last_observation_id,current_job_id,next_eligible_at)VALUES($1,$2,$3,$3,NULLIF($4,'')::uuid,NULL,$5)ON CONFLICT(entity_id,provider)DO UPDATE SET last_attempt_at=GREATEST(COALESCE(provider_refresh_states.last_attempt_at,'-infinity'::timestamptz),EXCLUDED.last_attempt_at),last_success_at=CASE WHEN EXCLUDED.last_attempt_at>=COALESCE(provider_refresh_states.last_attempt_at,'-infinity'::timestamptz) THEN EXCLUDED.last_success_at ELSE provider_refresh_states.last_success_at END,last_observation_id=CASE WHEN EXCLUDED.last_attempt_at>=COALESCE(provider_refresh_states.last_attempt_at,'-infinity'::timestamptz) THEN EXCLUDED.last_observation_id ELSE provider_refresh_states.last_observation_id END,failure_class=CASE WHEN EXCLUDED.last_attempt_at>=COALESCE(provider_refresh_states.last_attempt_at,'-infinity'::timestamptz) THEN NULL ELSE provider_refresh_states.failure_class END,failure_message=CASE WHEN EXCLUDED.last_attempt_at>=COALESCE(provider_refresh_states.last_attempt_at,'-infinity'::timestamptz) THEN NULL ELSE provider_refresh_states.failure_message END,current_job_id=CASE WHEN provider_refresh_states.current_job_id=NULLIF($6,0) THEN NULL ELSE provider_refresh_states.current_job_id END,next_eligible_at=CASE WHEN EXCLUDED.last_attempt_at>=COALESCE(provider_refresh_states.last_attempt_at,'-infinity'::timestamptz) THEN EXCLUDED.next_eligible_at ELSE provider_refresh_states.next_eligible_at END`, entityID, lastFMTopTracksRefreshProvider, latest.at, latest.observationID, nextEligible, jobID)
+		return err
+	}
+	retryAfter := 6 * time.Hour
+	switch latest.failureClass {
+	case "rate_limited":
+		retryAfter = 2 * time.Hour
+	case "not_found":
+		retryAfter = 24 * time.Hour
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO provider_refresh_states(entity_id,provider,last_attempt_at,failure_class,failure_message,current_job_id,next_eligible_at)VALUES($1,$2,$3,$4,$5,NULL,$6)ON CONFLICT(entity_id,provider)DO UPDATE SET last_attempt_at=GREATEST(COALESCE(provider_refresh_states.last_attempt_at,'-infinity'::timestamptz),EXCLUDED.last_attempt_at),failure_class=CASE WHEN EXCLUDED.last_attempt_at>=COALESCE(provider_refresh_states.last_attempt_at,'-infinity'::timestamptz) THEN EXCLUDED.failure_class ELSE provider_refresh_states.failure_class END,failure_message=CASE WHEN EXCLUDED.last_attempt_at>=COALESCE(provider_refresh_states.last_attempt_at,'-infinity'::timestamptz) THEN EXCLUDED.failure_message ELSE provider_refresh_states.failure_message END,current_job_id=CASE WHEN provider_refresh_states.current_job_id=NULLIF($7,0) THEN NULL ELSE provider_refresh_states.current_job_id END,next_eligible_at=CASE WHEN EXCLUDED.last_attempt_at>=COALESCE(provider_refresh_states.last_attempt_at,'-infinity'::timestamptz) THEN EXCLUDED.next_eligible_at ELSE provider_refresh_states.next_eligible_at END`, entityID, lastFMTopTracksRefreshProvider, latest.at, latest.failureClass, latest.failure, latest.at.Add(retryAfter), jobID)
+	return err
+}
+
 func replaceTopTracks(ctx context.Context, tx pgx.Tx, entityID string, records []artistdomain.NormalizedRecordV1, projectionVersion int64) (bool, error) {
+	// Snapshot rows do not exist on the first observation, so lock the parent
+	// entity to serialize first-writer races as well as subsequent replacements.
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM entities WHERE id=$1 FOR UPDATE`, entityID); err != nil {
+		return false, fmt.Errorf("lock artist for top-track replacement: %w", err)
+	}
 	changed := false
 	for _, record := range records {
 		if !record.TopTracksObserved {
 			continue
 		}
-		changed = true
-		provider := record.ProviderRecord.Provider
+		provider := strings.ToLower(strings.TrimSpace(record.ProviderRecord.Provider))
+		if provider == "" {
+			continue
+		}
 		observationID := record.TopTracksObservationID
 		if observationID == "" {
 			observationID = record.ProviderRecord.PrimaryObservationID
@@ -1307,6 +1509,31 @@ func replaceTopTracks(ctx context.Context, tx pgx.Tx, entityID string, records [
 		observedAt := record.TopTracksObservedAt
 		if observedAt.IsZero() {
 			observedAt = record.ProviderRecord.ObservedAt
+		}
+		var existingObservedAt time.Time
+		var existingTotal int
+		snapshotErr := tx.QueryRow(ctx, `SELECT observed_at,reported_total FROM artist_top_track_snapshots WHERE artist_entity_id=$1 AND provider=$2 FOR UPDATE`, entityID, provider).Scan(&existingObservedAt, &existingTotal)
+		if snapshotErr != nil && snapshotErr != pgx.ErrNoRows {
+			return false, fmt.Errorf("lock %s artist top-track snapshot: %w", provider, snapshotErr)
+		}
+		if snapshotErr == nil {
+			// An older (or timestamp-identical) concurrent provider observation
+			// must never overwrite the newer accepted ranking.
+			if !observedAt.After(existingObservedAt) {
+				continue
+			}
+			existing, err := loadTopTracks(ctx, tx, entityID, provider)
+			if err != nil {
+				return false, err
+			}
+			if existingTotal == record.TopTracksTotal && sameTopTrackContent(existing, record.TopTracks) {
+				// Refresh observation/freshness evidence without manufacturing a
+				// top_tracks projection change for identical content.
+				if _, err := tx.Exec(ctx, `UPDATE artist_top_track_snapshots SET item_count=$3,reported_total=$4,source_observation_id=NULLIF($5,'')::uuid,observed_at=$6 WHERE artist_entity_id=$1 AND provider=$2 AND observed_at<$6`, entityID, provider, len(record.TopTracks), record.TopTracksTotal, observationID, observedAt); err != nil {
+					return false, fmt.Errorf("refresh %s artist top-track snapshot: %w", provider, err)
+				}
+				continue
+			}
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM artist_top_tracks WHERE artist_entity_id=$1 AND provider=$2`, entityID, provider); err != nil {
 			return false, fmt.Errorf("replace %s artist top tracks: %w", provider, err)
@@ -1316,11 +1543,54 @@ func replaceTopTracks(ctx context.Context, tx pgx.Tx, entityID string, records [
 				return false, fmt.Errorf("persist %s artist top track rank %d: %w", provider, track.Rank, err)
 			}
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO artist_top_track_snapshots(artist_entity_id,provider,item_count,reported_total,source_observation_id,observed_at,projection_version)VALUES($1,$2,$3,$4,NULLIF($5,'')::uuid,$6,$7)ON CONFLICT(artist_entity_id,provider)DO UPDATE SET item_count=EXCLUDED.item_count,reported_total=EXCLUDED.reported_total,source_observation_id=EXCLUDED.source_observation_id,observed_at=EXCLUDED.observed_at,projection_version=EXCLUDED.projection_version`, entityID, provider, len(record.TopTracks), record.TopTracksTotal, observationID, observedAt, projectionVersion); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO artist_top_track_snapshots(artist_entity_id,provider,item_count,reported_total,source_observation_id,observed_at,projection_version)VALUES($1,$2,$3,$4,NULLIF($5,'')::uuid,$6,$7)ON CONFLICT(artist_entity_id,provider)DO UPDATE SET item_count=EXCLUDED.item_count,reported_total=EXCLUDED.reported_total,source_observation_id=EXCLUDED.source_observation_id,observed_at=EXCLUDED.observed_at,projection_version=EXCLUDED.projection_version WHERE artist_top_track_snapshots.observed_at<EXCLUDED.observed_at`, entityID, provider, len(record.TopTracks), record.TopTracksTotal, observationID, observedAt, projectionVersion); err != nil {
 			return false, fmt.Errorf("persist %s artist top-track snapshot: %w", provider, err)
 		}
+		changed = true
 	}
 	return changed, nil
+}
+
+func loadTopTracks(ctx context.Context, tx pgx.Tx, entityID, provider string) ([]artistdomain.TopTrack, error) {
+	rows, err := tx.Query(ctx, `SELECT rank,title,provider_track_id,recording_mbid,playcount,listeners,url FROM artist_top_tracks WHERE artist_entity_id=$1 AND provider=$2 ORDER BY rank,lower(title),provider_track_id`, entityID, provider)
+	if err != nil {
+		return nil, fmt.Errorf("load %s artist top tracks: %w", provider, err)
+	}
+	defer rows.Close()
+	tracks := []artistdomain.TopTrack{}
+	for rows.Next() {
+		var track artistdomain.TopTrack
+		if err := rows.Scan(&track.Rank, &track.Title, &track.ProviderTrackID, &track.RecordingMBID, &track.Playcount, &track.Listeners, &track.URL); err != nil {
+			return nil, err
+		}
+		tracks = append(tracks, track)
+	}
+	return tracks, rows.Err()
+}
+
+func sameTopTrackContent(left, right []artistdomain.TopTrack) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	left = append([]artistdomain.TopTrack(nil), left...)
+	right = append([]artistdomain.TopTrack(nil), right...)
+	less := func(values []artistdomain.TopTrack, i, j int) bool {
+		if values[i].Rank != values[j].Rank {
+			return values[i].Rank < values[j].Rank
+		}
+		if values[i].Title != values[j].Title {
+			return values[i].Title < values[j].Title
+		}
+		return values[i].ProviderTrackID < values[j].ProviderTrackID
+	}
+	sort.Slice(left, func(i, j int) bool { return less(left, i, j) })
+	sort.Slice(right, func(i, j int) bool { return less(right, i, j) })
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) cache(ctx context.Context, result Result) error {

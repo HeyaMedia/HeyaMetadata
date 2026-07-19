@@ -172,6 +172,9 @@ type NormalizedRecordV1 struct {
 	TopTracksTotal         int                 `json:"top_tracks_total,omitempty"`
 	TopTracksObservationID string              `json:"top_tracks_observation_id,omitempty"`
 	TopTracksObservedAt    time.Time           `json:"top_tracks_observed_at,omitempty"`
+	TopTracksAttemptedAt   time.Time           `json:"top_tracks_attempted_at,omitempty"`
+	TopTracksFailureClass  string              `json:"top_tracks_failure_class,omitempty"`
+	TopTracksFailure       string              `json:"top_tracks_failure,omitempty"`
 	Warnings               []string            `json:"warnings"`
 	PartialFailure         bool                `json:"partial_failure"`
 }
