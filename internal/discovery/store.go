@@ -34,7 +34,7 @@ func RequestHash(request Request) (string, []byte, error) {
 	// deployment can keep serving an old completed decision for six hours after
 	// reconciliation logic changes, even though the normalized request is the
 	// same.
-	hashInput := append([]byte("discovery-request/v15\x00"), body...)
+	hashInput := append([]byte("discovery-request/v16\x00"), body...)
 	sum := sha256.Sum256(hashInput)
 	return hex.EncodeToString(sum[:]), body, nil
 }

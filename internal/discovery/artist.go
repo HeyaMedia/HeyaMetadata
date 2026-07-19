@@ -18,6 +18,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/openlibrary"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -322,6 +323,8 @@ func NormalizeRequest(request Request) Request {
 	request.Hints.Catalogue = strings.TrimSpace(request.Hints.Catalogue)
 	request.Hints.Tracks = cleanSorted(request.Hints.Tracks)
 	request.Hints.ISRCs = cleanSortedUpper(request.Hints.ISRCs)
+	request.Hints.Authors = cleanSorted(request.Hints.Authors)
+	request.Hints.ISBNs = cleanSortedUpper(request.Hints.ISBNs)
 	request.Hints.Network = strings.TrimSpace(request.Hints.Network)
 	request.Hints.Status = normalizeType(request.Hints.Status)
 	request.Hints.Season = normalizeType(request.Hints.Season)
@@ -394,6 +397,10 @@ func normalizeIdentifier(identifier Identifier) Identifier {
 		identifier.Value = strings.ToLower(identifier.Value)
 	case "isbn":
 		identifier.Value = strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(identifier.Value))
+	case "openlibrary":
+		if key, valid := openlibrary.CanonicalKey(identifier.Value); valid {
+			identifier.Value = key
+		}
 	case "anidb", "anilist", "apple", "deezer", "discogs", "googlebooks", "kitsu", "myanimelist", "tmdb", "tvdb", "tvmaze", "tvrage":
 		if value, err := strconv.ParseInt(identifier.Value, 10, 64); err == nil && value > 0 {
 			identifier.Value = strconv.FormatInt(value, 10)

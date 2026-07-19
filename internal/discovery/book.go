@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
@@ -16,21 +17,28 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+type openLibraryBookDoc struct {
+	Key              string   `json:"key"`
+	Title            string   `json:"title"`
+	Subtitle         string   `json:"subtitle"`
+	AuthorKey        []string `json:"author_key"`
+	AuthorName       []string `json:"author_name"`
+	FirstPublishYear int      `json:"first_publish_year"`
+	EditionCount     int      `json:"edition_count"`
+	ISBN             []string `json:"isbn"`
+	Language         []string `json:"language"`
+	Subject          []string `json:"subject"`
+	RatingsAverage   float64  `json:"ratings_average"`
+	RatingsCount     int      `json:"ratings_count"`
+}
+
 type openLibrarySearch struct {
-	Docs []struct {
-		Key              string   `json:"key"`
-		Title            string   `json:"title"`
-		Subtitle         string   `json:"subtitle"`
-		AuthorKey        []string `json:"author_key"`
-		AuthorName       []string `json:"author_name"`
-		FirstPublishYear int      `json:"first_publish_year"`
-		EditionCount     int      `json:"edition_count"`
-		ISBN             []string `json:"isbn"`
-		Language         []string `json:"language"`
-		Subject          []string `json:"subject"`
-		RatingsAverage   float64  `json:"ratings_average"`
-		RatingsCount     int      `json:"ratings_count"`
-	} `json:"docs"`
+	Docs []openLibraryBookDoc `json:"docs"`
+}
+
+type openLibraryBookSearcher interface {
+	Search(context.Context, string, int) (providers.Payload, error)
+	SearchByTitleAuthor(context.Context, string, string, int) (providers.Payload, error)
 }
 
 func (s *Service) DiscoverBook(ctx context.Context, request Request, jobID int64) (Result, error) {
@@ -43,26 +51,22 @@ func (s *Service) DiscoverBook(ctx context.Context, request Request, jobID int64
 	if err != nil {
 		return Result{}, err
 	}
-	payload, err := openlibrary.NewCached(s.runtime.Config.Providers.OpenLibrary, resolver).Search(ctx, request.Query, max(request.Limit*3, 20))
+	client := openlibrary.NewCached(s.runtime.Config.Providers.OpenLibrary, resolver)
+	searchLimit := max(request.Limit*3, 20)
+	docs, warnings, err := searchOpenLibraryBookDocs(ctx, client, request, searchLimit)
 	if err != nil {
 		return Result{}, err
 	}
-	if payload.StatusCode != http.StatusOK {
-		return Result{}, &providers.StatusError{Provider: "openlibrary", StatusCode: payload.StatusCode}
-	}
-	var source openLibrarySearch
-	if err = json.Unmarshal(payload.Body, &source); err != nil {
-		return Result{}, err
-	}
 	candidates := []Candidate{}
-	for index, value := range source.Docs {
+	for _, value := range docs {
 		if !publicationSubjectsMatch(request.Kind, value.Subject) {
 			continue
 		}
-		key := strings.ToUpper(strings.TrimPrefix(value.Key, "/works/"))
-		if key == "" || value.Title == "" {
+		key, valid := openlibrary.CanonicalKey(value.Key)
+		if !valid || !strings.HasSuffix(key, "W") || strings.TrimSpace(value.Title) == "" {
 			continue
 		}
+		index := len(candidates)
 		c := Candidate{ProviderScore: max(1, 100-index*3), Identity: ExternalID{Provider: "openlibrary", Namespace: "work", Value: key}, Display: Display{Title: value.Title, Type: request.Kind, Year: value.FirstPublishYear, Authors: value.AuthorName, EditionCount: value.EditionCount, ISBNs: value.ISBN, Languages: value.Language}, Resolution: Resolution{Kind: request.Kind, Provider: "openlibrary", Namespace: "work", Value: key}}
 		if len(c.Display.ISBNs) > 20 {
 			c.Display.ISBNs = c.Display.ISBNs[:20]
@@ -81,13 +85,146 @@ func (s *Service) DiscoverBook(ctx context.Context, request Request, jobID int64
 		candidates = append(candidates, c)
 	}
 	sortCandidates(candidates)
-	if len(candidates) > request.Limit {
-		candidates = candidates[:request.Limit]
+	recommended, candidates := presentCandidates(candidates, request.Limit)
+	return Result{SchemaVersion: SchemaVersion, Kind: request.Kind, Query: request.Query, Status: "completed", Recommendation: recommended, Candidates: candidates, Providers: []string{"openlibrary"}, ObservedAt: time.Now().UTC(), Warnings: warnings}, nil
+}
+
+func searchOpenLibraryBookDocs(ctx context.Context, client openLibraryBookSearcher, request Request, limit int) ([]openLibraryBookDoc, []string, error) {
+	payload, err := client.Search(ctx, request.Query, limit)
+	if err != nil {
+		return nil, nil, err
 	}
-	for i := range candidates {
-		candidates[i].Rank = i + 1
+	if payload.StatusCode != http.StatusOK {
+		return nil, nil, &providers.StatusError{Provider: "openlibrary", StatusCode: payload.StatusCode}
 	}
-	return Result{SchemaVersion: SchemaVersion, Kind: request.Kind, Query: request.Query, Status: "completed", Recommendation: recommendation(candidates), Candidates: candidates, Providers: []string{"openlibrary"}, ObservedAt: time.Now().UTC()}, nil
+	var broad openLibrarySearch
+	if err := json.Unmarshal(payload.Body, &broad); err != nil {
+		return nil, nil, fmt.Errorf("decode Open Library broad book search: %w", err)
+	}
+	authors := bookHintAuthors(request)
+	if len(authors) == 0 || bookSearchHasAllAuthors(broad.Docs, authors) {
+		return mergeOpenLibraryBookDocs(broad.Docs), nil, nil
+	}
+
+	author := mostDistinctiveBookAuthor(authors)
+	structured, structuredErr := client.SearchByTitleAuthor(ctx, request.Query, author, limit)
+	if structuredErr != nil {
+		return mergeOpenLibraryBookDocs(broad.Docs), []string{warnStructuredBookSearch(ctx, author, structuredErr)}, nil
+	}
+	if structured.StatusCode != http.StatusOK {
+		statusErr := &providers.StatusError{Provider: "openlibrary", StatusCode: structured.StatusCode}
+		return mergeOpenLibraryBookDocs(broad.Docs), []string{warnStructuredBookSearch(ctx, author, statusErr)}, nil
+	}
+	var qualified openLibrarySearch
+	if err := json.Unmarshal(structured.Body, &qualified); err != nil {
+		decodeErr := fmt.Errorf("decode Open Library structured book search: %w", err)
+		return mergeOpenLibraryBookDocs(broad.Docs), []string{warnStructuredBookSearch(ctx, author, decodeErr)}, nil
+	}
+	return mergeOpenLibraryBookDocs(qualified.Docs, broad.Docs), nil, nil
+}
+
+func warnStructuredBookSearch(ctx context.Context, author string, err error) string {
+	slog.WarnContext(ctx, "supplemental Open Library structured book discovery failed", "author", author, "error", err)
+	return "openlibrary.structured_search: " + err.Error()
+}
+
+func bookHintAuthors(request Request) []string {
+	if len(request.Hints.Authors) > 0 {
+		return request.Hints.Authors
+	}
+	return request.Hints.Artists
+}
+
+func mostDistinctiveBookAuthor(authors []string) string {
+	best := ""
+	for _, author := range authors {
+		if len([]rune(normalizedText(author))) > len([]rune(normalizedText(best))) {
+			best = author
+		}
+	}
+	return best
+}
+
+func bookSearchHasAllAuthors(docs []openLibraryBookDoc, hints []string) bool {
+	for _, doc := range docs {
+		key, valid := openlibrary.CanonicalKey(doc.Key)
+		if !valid || !strings.HasSuffix(key, "W") || strings.TrimSpace(doc.Title) == "" {
+			continue
+		}
+		matched := 0
+		for _, hint := range hints {
+			for _, author := range doc.AuthorName {
+				if normalizedText(hint) == normalizedText(author) {
+					matched++
+					break
+				}
+			}
+		}
+		if matched == len(hints) {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeOpenLibraryBookDocs(groups ...[]openLibraryBookDoc) []openLibraryBookDoc {
+	indexes := make(map[string]int)
+	merged := make([]openLibraryBookDoc, 0)
+	for _, docs := range groups {
+		for _, doc := range docs {
+			key, valid := openlibrary.CanonicalKey(doc.Key)
+			if !valid || !strings.HasSuffix(key, "W") {
+				continue
+			}
+			doc.Key = "/works/" + key
+			if index, exists := indexes[key]; exists {
+				merged[index] = mergeOpenLibraryBookDoc(merged[index], doc)
+				continue
+			}
+			indexes[key] = len(merged)
+			merged = append(merged, doc)
+		}
+	}
+	return merged
+}
+
+func mergeOpenLibraryBookDoc(primary, supplemental openLibraryBookDoc) openLibraryBookDoc {
+	if strings.TrimSpace(primary.Title) == "" {
+		primary.Title = supplemental.Title
+	}
+	if strings.TrimSpace(primary.Subtitle) == "" {
+		primary.Subtitle = supplemental.Subtitle
+	}
+	primary.AuthorKey = mergeBookStrings(primary.AuthorKey, supplemental.AuthorKey, normalizedText)
+	primary.AuthorName = mergeBookStrings(primary.AuthorName, supplemental.AuthorName, normalizedText)
+	primary.ISBN = mergeBookStrings(primary.ISBN, supplemental.ISBN, normalizeBookID)
+	primary.Language = mergeBookStrings(primary.Language, supplemental.Language, normalizedText)
+	primary.Subject = mergeBookStrings(primary.Subject, supplemental.Subject, normalizedText)
+	if primary.FirstPublishYear == 0 {
+		primary.FirstPublishYear = supplemental.FirstPublishYear
+	}
+	primary.EditionCount = max(primary.EditionCount, supplemental.EditionCount)
+	if supplemental.RatingsCount > primary.RatingsCount {
+		primary.RatingsAverage = supplemental.RatingsAverage
+		primary.RatingsCount = supplemental.RatingsCount
+	}
+	return primary
+}
+
+func mergeBookStrings(primary, supplemental []string, key func(string) string) []string {
+	seen := make(map[string]bool, len(primary)+len(supplemental))
+	result := make([]string, 0, len(primary)+len(supplemental))
+	for _, values := range [][]string{primary, supplemental} {
+		for _, value := range values {
+			identity := key(value)
+			if identity == "" || seen[identity] {
+				continue
+			}
+			seen[identity] = true
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func publicationSubjectsMatch(kind string, subjects []string) bool {
@@ -122,20 +259,17 @@ func scoreBook(r Request, c *Candidate) {
 	score += w
 	c.Evidence = append(c.Evidence, Evidence{Field: "title", Outcome: o, Weight: round(w), Detail: c.Display.Title})
 	if r.Hints.Year > 0 {
-		w, o = -.06, "mismatch"
+		w, o = 0, "mismatch"
 		d := abs(r.Hints.Year - c.Display.Year)
 		if d == 0 {
-			w, o = .14, "exact"
+			w, o = .1, "exact"
 		} else if d <= 1 {
-			w, o = .06, "near"
+			w, o = .04, "near"
 		}
 		score += w
-		c.Evidence = append(c.Evidence, Evidence{Field: "first_publish_year", Outcome: o, Weight: w, Detail: strconv.Itoa(c.Display.Year)})
+		c.Evidence = append(c.Evidence, Evidence{Field: "first_publish_year", Outcome: o, Weight: round(w), Detail: strconv.Itoa(c.Display.Year)})
 	}
-	authors := r.Hints.Authors
-	if len(authors) == 0 {
-		authors = r.Hints.Artists
-	}
+	authors := bookHintAuthors(r)
 	if len(authors) > 0 {
 		matched := 0
 		for _, hint := range authors {
@@ -146,7 +280,9 @@ func scoreBook(r Request, c *Candidate) {
 				}
 			}
 		}
-		w = .18 * float64(matched) / float64(len(authors))
+		// Author evidence is identity-bearing for a work, while a folder year
+		// often describes the audiobook edition rather than first publication.
+		w = .25 * float64(matched) / float64(len(authors))
 		score += w
 		c.Evidence = append(c.Evidence, Evidence{Field: "authors", Outcome: fmt.Sprintf("%d_of_%d", matched, len(authors)), Weight: round(w), Detail: strings.Join(c.Display.Authors, ", ")})
 	}

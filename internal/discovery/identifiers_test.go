@@ -77,6 +77,24 @@ func TestISBNNormalization(t *testing.T) {
 	}
 }
 
+func TestOpenLibraryIdentifierNormalizationAndValidation(t *testing.T) {
+	t.Parallel()
+	request := NormalizeRequest(Request{Kind: KindBookWork, Identifiers: []Identifier{
+		{Scheme: "openlibrary", Value: "https://openlibrary.org/works/ol27482w"},
+		{Scheme: "openlibrary", Value: "/works/OL27482W"},
+	}})
+	if len(request.Identifiers) != 1 || request.Identifiers[0].Value != "OL27482W" || !ValidIdentifierValue(request.Identifiers[0]) {
+		t.Fatalf("equivalent Open Library work keys did not converge: %#v", request.Identifiers)
+	}
+	if ValidIdentifierValue(Identifier{Scheme: "openlibrary", Value: "/works/not-a-key"}) {
+		t.Fatal("invalid Open Library work key passed provider routing validation")
+	}
+	root, ok := directIngestionRoot(KindBookWork, request.Identifiers[0])
+	if !ok || root.Value != "OL27482W" || root.Namespace != "work" {
+		t.Fatalf("canonical Open Library key did not reach work ingestion: %+v", root)
+	}
+}
+
 func TestArtistReleaseIdentifiersRequireDurableIdentityCheck(t *testing.T) {
 	request := NormalizeRequest(Request{Kind: KindArtist, Hints: Hints{Releases: []ReleaseHint{{Title: "Vault Playlist, Vol. 1", Identifiers: []Identifier{{Scheme: "musicbrainz", Value: "ffd21680-ae04-4e8b-8523-0a5c1001627b"}}}}}})
 	if !hasArtistReleaseIdentityEvidence(request) {

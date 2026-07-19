@@ -17,6 +17,41 @@ import (
 
 var keyPattern = regexp.MustCompile(`^OL[0-9]+[WMA]$`)
 
+// CanonicalKey accepts the key shapes Open Library emits in API payloads and
+// URLs while keeping one opaque identity for persistence and routing.
+func CanonicalKey(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if parsed, err := url.Parse(value); err == nil && parsed.IsAbs() {
+		if !strings.EqualFold(parsed.Hostname(), "openlibrary.org") {
+			return "", false
+		}
+		value = parsed.Path
+	}
+	value = strings.Trim(value, "/")
+	parts := strings.Split(value, "/")
+	expectedSuffix := ""
+	if len(parts) == 2 {
+		switch strings.ToLower(parts[0]) {
+		case "works":
+			expectedSuffix = "W"
+		case "books":
+			expectedSuffix = "M"
+		case "authors":
+			expectedSuffix = "A"
+		default:
+			return "", false
+		}
+		value = parts[1]
+	} else if len(parts) != 1 {
+		return "", false
+	}
+	value = strings.ToUpper(strings.TrimSpace(value))
+	if !keyPattern.MatchString(value) || expectedSuffix != "" && !strings.HasSuffix(value, expectedSuffix) {
+		return "", false
+	}
+	return value, true
+}
+
 type Client struct {
 	config config.OpenLibraryConfig
 	http   *providers.HTTPClient
@@ -40,11 +75,30 @@ func (c *Client) Search(ctx context.Context, query string, limit int) (providers
 	if query == "" {
 		return providers.Payload{}, fmt.Errorf("Open Library search query is required")
 	}
+	return c.search(ctx, url.Values{"q": {query}}, url.QueryEscape(query), limit)
+}
+
+// SearchByTitleAuthor uses Open Library's structured fields so a common title
+// cannot crowd the requested author's work out of the bounded q= result set.
+// It deliberately does not constrain publication year: audiobook folder years
+// frequently identify an edition rather than the work's first publication.
+func (c *Client) SearchByTitleAuthor(ctx context.Context, title, author string, limit int) (providers.Payload, error) {
+	title = strings.TrimSpace(title)
+	author = strings.TrimSpace(author)
+	if title == "" || author == "" {
+		return providers.Payload{}, fmt.Errorf("Open Library structured search requires title and author")
+	}
+	values := url.Values{"title": {title}, "author": {author}}
+	return c.search(ctx, values, values.Encode(), limit)
+}
+
+func (c *Client) search(ctx context.Context, values url.Values, recordID string, limit int) (providers.Payload, error) {
 	if limit < 1 || limit > 100 {
 		limit = 20
 	}
-	values := url.Values{"q": {query}, "limit": {strconv.Itoa(limit)}, "fields": {"key,title,subtitle,author_key,author_name,first_publish_year,edition_key,edition_count,isbn,language,subject,cover_i,ratings_average,ratings_count"}}
-	return c.get(ctx, "/search.json", values, providers.Payload{Provider: "openlibrary", ProviderNamespace: "work_search", ProviderRecordID: query}, 6*time.Hour)
+	values.Set("limit", strconv.Itoa(limit))
+	values.Set("fields", "key,title,subtitle,author_key,author_name,first_publish_year,edition_key,edition_count,isbn,language,subject,cover_i,ratings_average,ratings_count")
+	return c.get(ctx, "/search.json", values, providers.Payload{Provider: "openlibrary", ProviderNamespace: "work_search", ProviderRecordID: recordID}, 6*time.Hour)
 }
 func (c *Client) LookupISBN(ctx context.Context, isbn string) (providers.Payload, error) {
 	isbn = strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(isbn)))
@@ -54,8 +108,8 @@ func (c *Client) LookupISBN(ctx context.Context, isbn string) (providers.Payload
 	return c.get(ctx, "/isbn/"+url.PathEscape(isbn)+".json", nil, providers.Payload{Provider: "openlibrary", ProviderNamespace: "isbn_lookup", ProviderRecordID: isbn}, 12*time.Hour)
 }
 func (c *Client) Collect(ctx context.Context, id providers.Identifier) ([]providers.Payload, error) {
-	value := strings.ToUpper(strings.TrimSpace(id.Value))
-	if id.Provider != "openlibrary" || !keyPattern.MatchString(value) {
+	value, valid := CanonicalKey(id.Value)
+	if id.Provider != "openlibrary" || !valid {
 		return nil, fmt.Errorf("Open Library collector requires a valid Open Library key")
 	}
 	suffix := map[string]string{"work": "W", "edition": "M", "author": "A"}[id.Namespace]
@@ -70,8 +124,9 @@ func (c *Client) Collect(ctx context.Context, id providers.Identifier) ([]provid
 	return []providers.Payload{p}, nil
 }
 func (c *Client) Editions(ctx context.Context, work string, limit int) (providers.Payload, error) {
-	work = strings.ToUpper(strings.TrimSpace(work))
-	if !keyPattern.MatchString(work) || !strings.HasSuffix(work, "W") {
+	var valid bool
+	work, valid = CanonicalKey(work)
+	if !valid || !strings.HasSuffix(work, "W") {
 		return providers.Payload{}, fmt.Errorf("invalid Open Library work key")
 	}
 	if limit < 1 || limit > 100 {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HeyaMedia/HeyaMetadata/internal/providers/openlibrary"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -138,6 +139,9 @@ func ValidIdentifierValue(identifier Identifier) bool {
 	case "apple", "deezer", "discogs", "discogs_release", "discogs_master":
 		number, err := strconv.ParseInt(value, 10, 64)
 		return err == nil && number > 0
+	case "openlibrary":
+		_, valid := openlibrary.CanonicalKey(value)
+		return valid
 	default:
 		return true
 	}

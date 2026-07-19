@@ -1093,8 +1093,8 @@ func (s *Service) bookRootsByISBN(ctx context.Context, kind, isbn string, jobID 
 	}
 	result := []ingestionRoot{}
 	for _, work := range envelope.Works {
-		key := strings.ToUpper(strings.TrimPrefix(strings.TrimSpace(work.Key), "/works/"))
-		if strings.HasPrefix(key, "OL") && strings.HasSuffix(key, "W") {
+		key, valid := openlibrary.CanonicalKey(work.Key)
+		if valid && strings.HasSuffix(key, "W") {
 			result = append(result, ingestionRoot{Kind: kind, Provider: "openlibrary", Namespace: "work", Value: key})
 		}
 	}
