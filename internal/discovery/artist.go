@@ -266,7 +266,7 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 	candidates = dedupeExistingArtistCandidates(candidates)
 	candidates = filterWeakArtistCandidates(request, candidates)
 	var convergence *ArtistIdentityConvergence
-	candidates, convergence, err = s.consolidatePersistedArtistCandidates(ctx, request, candidates)
+	candidates, convergence, err = s.consolidatePersistedArtistCandidates(ctx, request, candidates, jobID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -628,8 +628,41 @@ type artistReleaseBridgeChecker func(context.Context, artistReleaseBridge) (bool
 // joins both sides through the same release-group UUID. Search names and
 // title/year matches only select which hard evidence to inspect; they never
 // establish identity, and no two unclaimed roots are collapsed here.
-func (s *Service) consolidatePersistedArtistCandidates(ctx context.Context, request Request, values []Candidate) ([]Candidate, *ArtistIdentityConvergence, error) {
-	return consolidateArtistCandidatesWithBridge(ctx, request, values, s.persistedArtistReleaseBridge)
+func (s *Service) consolidatePersistedArtistCandidates(ctx context.Context, request Request, values []Candidate, jobID int64) ([]Candidate, *ArtistIdentityConvergence, error) {
+	check := artistReleaseBridgeWithEvidence(s.persistedArtistReleaseBridge, func(ctx context.Context, bridge artistReleaseBridge) error {
+		// Discovery often encounters an established Apple/Deezer artist before
+		// its MusicBrainz catalog has ever been materialized. In that state the
+		// strict persisted bridge below cannot exist yet, and thousands of
+		// exact-name + exact-release matches become permanent human review.
+		// Build the missing release evidence against the existing entity, then
+		// ask the same persisted barcode/ISRC/tracklist proof again. SyncArtist
+		// does not claim the candidate MBID: without a strong release bridge it
+		// leaves that provider root unresolved and this discovery stays reviewable.
+		_, err := musiccatalog.SyncArtist(ctx, s.runtime, bridge.EntityID, bridge.MusicBrainz.Artist.Value, jobID,
+			musiccatalog.ReleaseEvidence{
+				Provider:  bridge.Storefront.Release.Provider,
+				Namespace: bridge.Storefront.Release.Namespace,
+				ID:        bridge.Storefront.Release.Value,
+			})
+		if err != nil {
+			return fmt.Errorf("build artist convergence evidence: %w", err)
+		}
+		return nil
+	})
+	return consolidateArtistCandidatesWithBridge(ctx, request, values, check)
+}
+
+func artistReleaseBridgeWithEvidence(check artistReleaseBridgeChecker, build func(context.Context, artistReleaseBridge) error) artistReleaseBridgeChecker {
+	return func(ctx context.Context, bridge artistReleaseBridge) (bool, error) {
+		matched, err := check(ctx, bridge)
+		if err != nil || matched || build == nil {
+			return matched, err
+		}
+		if err := build(ctx, bridge); err != nil {
+			return false, err
+		}
+		return check(ctx, bridge)
+	}
 }
 
 func consolidateArtistCandidatesWithBridge(ctx context.Context, request Request, values []Candidate, check artistReleaseBridgeChecker) ([]Candidate, *ArtistIdentityConvergence, error) {

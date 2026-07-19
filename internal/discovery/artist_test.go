@@ -110,6 +110,35 @@ func TestPersistedReleaseClaimsAnchorMusicBrainzToExistingArtist(t *testing.T) {
 	}
 }
 
+func TestArtistReleaseBridgeBuildsMissingEvidenceBeforeSecondProof(t *testing.T) {
+	checks := 0
+	builds := 0
+	checker := artistReleaseBridgeWithEvidence(func(context.Context, artistReleaseBridge) (bool, error) {
+		checks++
+		return checks > 1, nil
+	}, func(context.Context, artistReleaseBridge) error {
+		builds++
+		return nil
+	})
+	matched, err := checker(t.Context(), artistReleaseBridge{})
+	if err != nil || !matched || checks != 2 || builds != 1 {
+		t.Fatalf("matched=%v checks=%d builds=%d err=%v", matched, checks, builds, err)
+	}
+
+	checks, builds = 0, 0
+	checker = artistReleaseBridgeWithEvidence(func(context.Context, artistReleaseBridge) (bool, error) {
+		checks++
+		return true, nil
+	}, func(context.Context, artistReleaseBridge) error {
+		builds++
+		return nil
+	})
+	matched, err = checker(t.Context(), artistReleaseBridge{})
+	if err != nil || !matched || checks != 1 || builds != 0 {
+		t.Fatalf("existing proof rebuilt: matched=%v checks=%d builds=%d err=%v", matched, checks, builds, err)
+	}
+}
+
 func TestTitleYearAndNewRootsNeverConsolidateArtists(t *testing.T) {
 	hint := ReleaseHint{Title: "Greatest Hits", Year: 2020}
 	request := NormalizeRequest(Request{Kind: KindArtist, Query: "Example", Hints: Hints{Releases: []ReleaseHint{hint}}})
