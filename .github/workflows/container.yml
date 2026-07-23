@@ -22,10 +22,10 @@ jobs:
       matrix:
         include:
           - platform: linux/amd64
-            runner: ubuntu-24.04
+            runner: blacksmith-8vcpu-ubuntu-2404
             artifact: amd64
           - platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            runner: blacksmith-8vcpu-ubuntu-2404-arm
             artifact: arm64
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -95,7 +95,7 @@ jobs:
   publish:
     name: Publish multi-architecture manifest
     needs: build
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read
       packages: write
