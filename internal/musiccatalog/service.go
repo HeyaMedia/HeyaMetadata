@@ -142,7 +142,10 @@ func SyncArtist(ctx context.Context, runtime *platform.Runtime, artistEntityID, 
 		all = append(all, selected[provider]...)
 	}
 	result.Candidates = len(all)
-	clusters := clusterCandidates(all)
+	clusters, err := clusterCandidates(ctx, all)
+	if err != nil {
+		return result, err
+	}
 	clusters = enrichClustersWithDetailEvidence(ctx, runtime, clusters, jobID)
 	_, _ = runtime.DB.Exec(ctx, `UPDATE artist_catalog_promotions SET state='superseded',updated_at=now() WHERE artist_entity_id=$1`, artistEntityID)
 	promoteProviderOnlyClusters(ctx, runtime, artistEntityID, clusters)
@@ -850,10 +853,16 @@ func storefrontCatalogPlausible(values, anchors []candidate) bool {
 	return overlapping > 0 && len(values) <= 2*max(overlapping, len(anchors))+5
 }
 
-func clusterCandidates(values []candidate) []cluster {
+// clusterCandidates checks ctx per candidate so a pathological catalog cannot
+// outlive the job deadline: River can only cancel between cooperative checks,
+// and an abandoned goroutine here previously spun at full CPU for hours.
+func clusterCandidates(ctx context.Context, values []candidate) ([]cluster, error) {
 	sort.SliceStable(values, func(i, j int) bool { return providerRank(values[i].Provider) < providerRank(values[j].Provider) })
 	out := []cluster{}
 	for _, v := range values {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		type match struct {
 			index      int
 			reason     string
@@ -902,7 +911,7 @@ func clusterCandidates(values []candidate) []cluster {
 			out[matched].Sources = append(out[matched].Sources, v)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func hasSource(group cluster, value candidate) bool {
@@ -1366,12 +1375,18 @@ func coalesceClustersByIssuedTracks(ctx context.Context, runtime *platform.Runti
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return coalesceClustersWithIssuedTrackEvidence(clusters, evidence), nil
+	return coalesceClustersWithIssuedTrackEvidence(ctx, clusters, evidence)
 }
 
-func coalesceClustersWithIssuedTrackEvidence(clusters []cluster, evidence issuedTrackEvidence) []cluster {
+// coalesceClustersWithIssuedTrackEvidence checks ctx per cluster for the same
+// reason clusterCandidates does: the pairwise release and track comparisons
+// underneath must not outlive the job deadline.
+func coalesceClustersWithIssuedTrackEvidence(ctx context.Context, clusters []cluster, evidence issuedTrackEvidence) ([]cluster, error) {
 	result := make([]cluster, 0, len(clusters))
 	for _, group := range clusters {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		matched := -1
 		for i := range result {
 			if releaseConceptCandidates(result[i], group) && issuedReleasesOverlap(evidence[result[i].TargetID], evidence[group.TargetID]) {
@@ -1397,7 +1412,7 @@ func coalesceClustersWithIssuedTrackEvidence(clusters []cluster, evidence issued
 		result[matched].BridgeReason = "issued_release_track_overlap"
 		result[matched].BridgeConfidence = .96
 	}
-	return result
+	return result, nil
 }
 
 func releaseConceptCandidates(a, b cluster) bool {

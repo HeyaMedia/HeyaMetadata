@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -95,9 +96,43 @@ func StripEditionAnnotations(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
+// Deriving release keys runs regex normalization, Kagome tokenization, and
+// Unidecode per title, while catalog reconciliation compares candidates
+// pairwise — the same title is asked for its keys hundreds of times per sync.
+// Keys are memoized behind a mutex; at the cap the map is discarded wholesale
+// because the derivation is pure and cheap to redo one title at a time.
+const releaseKeyCacheLimit = 1 << 14
+
+var releaseKeyCache = struct {
+	sync.Mutex
+	entries map[string][]string
+}{entries: map[string][]string{}}
+
+func releaseKeys(title string, year int) []string {
+	cacheKey := strconv.Itoa(year) + "\x00" + title
+	releaseKeyCache.Lock()
+	keys, ok := releaseKeyCache.entries[cacheKey]
+	releaseKeyCache.Unlock()
+	if ok {
+		return keys
+	}
+	keys = computeReleaseKeys(title, year)
+	releaseKeyCache.Lock()
+	if len(releaseKeyCache.entries) >= releaseKeyCacheLimit {
+		clear(releaseKeyCache.entries)
+	}
+	releaseKeyCache.entries[cacheKey] = keys
+	releaseKeyCache.Unlock()
+	return keys
+}
+
 // ReleaseKeys returns direct, edition-neutral, and cross-script comparison
 // keys. Year zero deliberately permits comparison when a provider omits dates.
 func ReleaseKeys(title string, year int) []string {
+	return slices.Clone(releaseKeys(title, year))
+}
+
+func computeReleaseKeys(title string, year int) []string {
 	keys := []string{}
 	add := func(value string) {
 		key := normalized(value)
@@ -133,8 +168,8 @@ func EquivalentRelease(left string, leftYear int, right string, rightYear int) b
 	if leftYear > 0 && rightYear > 0 && leftYear != rightYear {
 		return false
 	}
-	for _, a := range ReleaseKeys(left, leftYear) {
-		for _, b := range ReleaseKeys(right, rightYear) {
+	for _, a := range releaseKeys(left, leftYear) {
+		for _, b := range releaseKeys(right, rightYear) {
 			if a == b {
 				return true
 			}

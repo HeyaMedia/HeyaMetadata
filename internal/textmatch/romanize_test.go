@@ -36,3 +36,15 @@ func TestReleaseKeysNormalizeUnicodeComposition(t *testing.T) {
 		t.Fatal("canonically equivalent Unicode titles did not match")
 	}
 }
+
+func TestReleaseKeysMemoizationIsInvisibleToCallers(t *testing.T) {
+	first := ReleaseKeys("初夏 (Deluxe Edition)", 2024)
+	first[0] = "mutated by caller"
+	second := ReleaseKeys("初夏 (Deluxe Edition)", 2024)
+	if second[0] == "mutated by caller" {
+		t.Fatal("cached keys leaked to caller by reference")
+	}
+	if !EquivalentRelease("初夏", 2024, "Shoka (Deluxe Edition)", 2024) {
+		t.Fatal("cache hit changed the comparison result")
+	}
+}
