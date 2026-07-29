@@ -106,21 +106,43 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 	// before consulting looser external-ID history. This lets a refresh split a
 	// previously merged episode without whichever half sorts first stealing the
 	// legacy UUID from the half it originally represented.
-	existingEpisodeIDsByIdentity := make(map[string]string, len(record.Episodes))
-	reservedEpisodeIdentities := make(map[string]string, len(record.Episodes))
+	identityKeys := make([]string, 0, len(record.Episodes))
 	for i := range record.Episodes {
 		normalizeEpisode(&record.Episodes[i])
-		identityKey := episodeIdentityKey(record.Episodes[i])
-		var id string
-		err := tx.QueryRow(ctx, `SELECT id::text FROM episodic_episodes WHERE show_entity_id=$1 AND identity_key=$2`, showID, identityKey).Scan(&id)
-		if err != nil && err != pgx.ErrNoRows {
-			return fmt.Errorf("find episode identity %q: %w", identityKey, err)
+		identityKeys = append(identityKeys, episodeIdentityKey(record.Episodes[i]))
+	}
+	existingEpisodeIDsByIdentity := make(map[string]string, len(record.Episodes))
+	reservedEpisodeIdentities := make(map[string]string, len(record.Episodes))
+	if len(identityKeys) > 0 {
+		rows, err := tx.Query(ctx, `SELECT identity_key,id::text FROM episodic_episodes WHERE show_entity_id=$1 AND identity_key=ANY($2::text[])`, showID, identityKeys)
+		if err != nil {
+			return fmt.Errorf("find episode identities: %w", err)
 		}
-		if id != "" {
+		for rows.Next() {
+			var identityKey, id string
+			if err := rows.Scan(&identityKey, &id); err != nil {
+				rows.Close()
+				return err
+			}
 			existingEpisodeIDsByIdentity[identityKey] = id
 			reservedEpisodeIdentities[id] = identityKey
 		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
 	}
+	// One set-based probe replaces a lookup per external ID. The map then
+	// tracks this run's own writes so later episodes observe the same table
+	// state the per-row statements used to produce.
+	episodeIDsByExternal, err := episodeIDsForExternals(ctx, tx, showID, record.Episodes)
+	if err != nil {
+		return err
+	}
+	externalEpisodeIDs := make([]string, 0, len(record.Episodes)*2)
+	externalProviders := make([]string, 0, len(record.Episodes)*2)
+	externalNamespaces := make([]string, 0, len(record.Episodes)*2)
+	externalValues := make([]string, 0, len(record.Episodes)*2)
 	allocatedEpisodeIDs := make(map[string]struct{}, len(record.Episodes))
 	for i := range record.Episodes {
 		episode := &record.Episodes[i]
@@ -137,11 +159,7 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 			if id != "" {
 				break
 			}
-			var candidateID string
-			err := tx.QueryRow(ctx, `SELECT episode_id::text FROM episodic_episode_external_ids WHERE show_entity_id=$1 AND provider=$2 AND namespace=$3 AND normalized_value=$4`, showID, strings.ToLower(external.Provider), strings.ToLower(external.Namespace), strings.ToLower(strings.TrimSpace(external.Value))).Scan(&candidateID)
-			if err != nil && err != pgx.ErrNoRows {
-				return err
-			}
+			candidateID := episodeIDsByExternal[externalKey(external)]
 			if candidateID == "" {
 				continue
 			}
@@ -169,11 +187,71 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 			if external.Value == "" {
 				continue
 			}
-			if _, err := tx.Exec(ctx, `INSERT INTO episodic_episode_external_ids(episode_id,show_entity_id,provider,namespace,normalized_value)VALUES($1,$2,$3,$4,$5)ON CONFLICT(show_entity_id,provider,namespace,normalized_value)DO UPDATE SET episode_id=EXCLUDED.episode_id`, id, showID, strings.ToLower(external.Provider), strings.ToLower(external.Namespace), strings.ToLower(strings.TrimSpace(external.Value))); err != nil {
-				return err
-			}
+			episodeIDsByExternal[externalKey(external)] = id
+			externalEpisodeIDs = append(externalEpisodeIDs, id)
+			externalProviders = append(externalProviders, strings.ToLower(external.Provider))
+			externalNamespaces = append(externalNamespaces, strings.ToLower(external.Namespace))
+			externalValues = append(externalValues, strings.ToLower(strings.TrimSpace(external.Value)))
 		}
 	}
+	if len(externalEpisodeIDs) > 0 {
+		// DISTINCT ON with descending ordinality reproduces the last-write-wins
+		// order of the former per-row upserts; without it a duplicated external
+		// ID inside one batch fails with "cannot affect row a second time".
+		if _, err := tx.Exec(ctx, `INSERT INTO episodic_episode_external_ids(episode_id,show_entity_id,provider,namespace,normalized_value)
+			SELECT DISTINCT ON (provider,namespace,normalized_value) episode_id,$1,provider,namespace,normalized_value
+			FROM unnest($2::uuid[],$3::text[],$4::text[],$5::text[]) WITH ORDINALITY AS t(episode_id,provider,namespace,normalized_value,ordinality)
+			ORDER BY provider,namespace,normalized_value,ordinality DESC
+			ON CONFLICT(show_entity_id,provider,namespace,normalized_value) DO UPDATE SET episode_id=EXCLUDED.episode_id`,
+			showID, externalEpisodeIDs, externalProviders, externalNamespaces, externalValues); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func externalKey(external ExternalID) string {
+	return strings.ToLower(external.Provider) + "\x00" + strings.ToLower(external.Namespace) + "\x00" + strings.ToLower(strings.TrimSpace(external.Value))
+}
+
+func episodeIDsForExternals(ctx context.Context, tx pgx.Tx, showID string, episodes []Episode) (map[string]string, error) {
+	providers := []string{}
+	namespaces := []string{}
+	values := []string{}
+	for _, episode := range episodes {
+		for _, external := range episode.ExternalIDs {
+			if external.Value == "" {
+				continue
+			}
+			providers = append(providers, strings.ToLower(external.Provider))
+			namespaces = append(namespaces, strings.ToLower(external.Namespace))
+			values = append(values, strings.ToLower(strings.TrimSpace(external.Value)))
+		}
+	}
+	result := make(map[string]string, len(values))
+	if len(values) == 0 {
+		return result, nil
+	}
+	rows, err := tx.Query(ctx, `SELECT lookup.provider,lookup.namespace,lookup.value,ext.episode_id::text FROM unnest($2::text[],$3::text[],$4::text[]) AS lookup(provider,namespace,value) JOIN episodic_episode_external_ids ext ON ext.show_entity_id=$1 AND ext.provider=lookup.provider AND ext.namespace=lookup.namespace AND ext.normalized_value=lookup.value`, showID, providers, namespaces, values)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var provider, namespace, value, episodeID string
+		if err := rows.Scan(&provider, &namespace, &value, &episodeID); err != nil {
+			return nil, err
+		}
+		result[provider+"\x00"+namespace+"\x00"+value] = episodeID
+	}
+	return result, rows.Err()
+}
+
+// finalizeResources writes season and episode documents and prunes rows that
+// left the projection. It runs after artwork materialization so documents
+// carry image IDs; persistResources has already allocated every row ID, so
+// re-running allocation here would only repeat its statements.
+func finalizeResources(ctx context.Context, tx pgx.Tx, showID string, record *NormalizedRecord) error {
 	sortEpisodes(record.Episodes)
 	seasonByID := map[string]*Season{}
 	reportedEpisodeCounts := map[string]int{}
@@ -184,6 +262,8 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 		record.Seasons[i].AiredEpisodeCount = 0
 		seasonByID[record.Seasons[i].ID] = &record.Seasons[i]
 	}
+	episodeIDs := make([]string, 0, len(record.Episodes))
+	episodeDocuments := make([]string, 0, len(record.Episodes))
 	for i := range record.Episodes {
 		episode := &record.Episodes[i]
 		if season := seasonByID[episode.SeasonID]; season != nil {
@@ -194,7 +274,11 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 			}
 		}
 		body, _ := json.Marshal(episode)
-		if _, err := tx.Exec(ctx, `UPDATE episodic_episodes SET document=$2,updated_at=now() WHERE id=$1`, episode.ID, body); err != nil {
+		episodeIDs = append(episodeIDs, episode.ID)
+		episodeDocuments = append(episodeDocuments, string(body))
+	}
+	if len(episodeIDs) > 0 {
+		if _, err := tx.Exec(ctx, `UPDATE episodic_episodes e SET document=t.document,updated_at=now() FROM unnest($1::uuid[],$2::jsonb[]) AS t(id,document) WHERE e.id=t.id`, episodeIDs, episodeDocuments); err != nil {
 			return err
 		}
 	}
@@ -210,17 +294,13 @@ func persistResources(ctx context.Context, tx pgx.Tx, showID, kind string, recor
 	for _, season := range record.Seasons {
 		seasonResourceIDs = append(seasonResourceIDs, season.ID)
 	}
-	episodeResourceIDs := make([]string, 0, len(record.Episodes))
-	for _, episode := range record.Episodes {
-		episodeResourceIDs = append(episodeResourceIDs, episode.ID)
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM image_candidates WHERE entity_id=$1 AND ownership_scope='episode' AND owner_resource_id IS NOT NULL AND NOT(owner_resource_id=ANY($2::uuid[]))`, showID, episodeResourceIDs); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM image_candidates WHERE entity_id=$1 AND ownership_scope='episode' AND owner_resource_id IS NOT NULL AND NOT(owner_resource_id=ANY($2::uuid[]))`, showID, episodeIDs); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM image_candidates WHERE entity_id=$1 AND ownership_scope='season' AND owner_resource_id IS NOT NULL AND NOT(owner_resource_id=ANY($2::uuid[]))`, showID, seasonResourceIDs); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM episodic_episodes WHERE show_entity_id=$1 AND NOT(id=ANY($2::uuid[]))`, showID, episodeResourceIDs); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM episodic_episodes WHERE show_entity_id=$1 AND NOT(id=ANY($2::uuid[]))`, showID, episodeIDs); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM episodic_seasons WHERE show_entity_id=$1 AND NOT(id=ANY($2::uuid[]))`, showID, seasonResourceIDs); err != nil {

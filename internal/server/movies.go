@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/HeyaMedia/HeyaMetadata/internal/accessstats"
 	animeservice "github.com/HeyaMedia/HeyaMetadata/internal/anime"
@@ -1083,9 +1084,55 @@ func searchAllEntities(ctx context.Context, runtime *platform.Runtime, input *se
 	// conflict handling is required.
 	value := query
 	candidateLimit := max(500, limit*20)
-	rows, err := runtime.DB.Query(ctx, `WITH search_settings AS MATERIALIZED (
-		SELECT set_config('pg_trgm.similarity_threshold','0.25',true)
-	), matches AS (
+	// The trigram similarity threshold is pinned per connection in
+	// platform.Open; a per-query set_config CTE only applied when the planner
+	// happened to execute it before the GIN scan read the GUC.
+	//
+	// Similarity-ranked prefix and fuzzy tiers compute similarity() for every
+	// matching row before their LIMIT. A one- or two-character query prefixes
+	// a large fraction of search_names (multi-second sorts for "a"), and
+	// trigram matching needs three characters to mean anything, so short
+	// queries take an index-ordered prefix tier ranked by source quality.
+	broadTiers := `
+		UNION ALL
+		SELECT prefix.entity_id,2,prefix.score,prefix.source_quality FROM (
+			SELECT name.entity_id,similarity(name.normalized_value,lower(unaccent($1))) AS score,name.source_quality
+			FROM search_names name
+			JOIN search_entities filter_entity ON filter_entity.entity_id=name.entity_id AND ($8='' OR filter_entity.kind=$8)
+			WHERE name.normalized_value LIKE lower(unaccent($1))||'%' AND name.normalized_value<>lower(unaccent($1))
+			  AND name.normalized_value >= lower(unaccent($1))
+			  AND name.normalized_value < lower(unaccent($1))||chr(1114111)
+			ORDER BY score DESC,name.source_quality DESC
+			LIMIT $9
+		) prefix
+		UNION ALL
+		SELECT fuzzy.entity_id,3,fuzzy.score,fuzzy.source_quality FROM (
+			SELECT name.entity_id,similarity(name.normalized_value,lower(unaccent($1))) AS score,name.source_quality
+			FROM search_names name
+			JOIN search_entities filter_entity ON filter_entity.entity_id=name.entity_id AND ($8='' OR filter_entity.kind=$8)
+			WHERE name.normalized_value % lower(unaccent($1)) AND name.normalized_value NOT LIKE lower(unaccent($1))||'%'
+			ORDER BY score DESC,name.source_quality DESC
+			LIMIT $9
+		) fuzzy`
+	if utf8.RuneCountInString(query) < 3 {
+		// The explicit >= / < pair gives the btree a runtime range to seek
+		// into — a bare LIKE against a STABLE expression is only a filter, so
+		// an ordered scan for a late prefix like "z" walked the entire index.
+		// LIKE stays as the exact predicate inside the bounded range.
+		broadTiers = `
+		UNION ALL
+		SELECT prefix.entity_id,2,0.5::double precision,prefix.source_quality FROM (
+			SELECT name.entity_id,name.source_quality
+			FROM search_names name
+			JOIN search_entities filter_entity ON filter_entity.entity_id=name.entity_id AND ($8='' OR filter_entity.kind=$8)
+			WHERE name.normalized_value LIKE lower(unaccent($1))||'%' AND name.normalized_value<>lower(unaccent($1))
+			  AND name.normalized_value >= lower(unaccent($1))
+			  AND name.normalized_value < lower(unaccent($1))||chr(1114111)
+			ORDER BY name.normalized_value
+			LIMIT $9
+		) prefix`
+	}
+	rows, err := runtime.DB.Query(ctx, `WITH matches AS (
 		SELECT claim.entity_id,0 AS tier,1::double precision AS score,1000 AS source_quality
 		FROM external_id_claims claim
 		JOIN search_entities filter_entity ON filter_entity.entity_id=claim.entity_id AND ($8='' OR filter_entity.kind=$8)
@@ -1094,26 +1141,7 @@ func searchAllEntities(ctx context.Context, runtime *platform.Runtime, input *se
 		SELECT name.entity_id,1,1::double precision,name.source_quality
 		FROM search_names name
 		JOIN search_entities filter_entity ON filter_entity.entity_id=name.entity_id AND ($8='' OR filter_entity.kind=$8)
-		WHERE name.normalized_value=lower(unaccent($1))
-		UNION ALL
-		SELECT prefix.entity_id,2,prefix.score,prefix.source_quality FROM (
-			SELECT name.entity_id,similarity(name.normalized_value,lower(unaccent($1))) AS score,name.source_quality
-			FROM search_names name
-			JOIN search_entities filter_entity ON filter_entity.entity_id=name.entity_id AND ($8='' OR filter_entity.kind=$8)
-			WHERE name.normalized_value LIKE lower(unaccent($1))||'%' AND name.normalized_value<>lower(unaccent($1))
-			ORDER BY score DESC,name.source_quality DESC
-			LIMIT $9
-		) prefix
-		UNION ALL
-		SELECT fuzzy.entity_id,3,fuzzy.score,fuzzy.source_quality FROM (
-			SELECT name.entity_id,similarity(name.normalized_value,lower(unaccent($1))) AS score,name.source_quality
-			FROM search_names name
-			CROSS JOIN search_settings
-			JOIN search_entities filter_entity ON filter_entity.entity_id=name.entity_id AND ($8='' OR filter_entity.kind=$8)
-			WHERE name.normalized_value % lower(unaccent($1)) AND name.normalized_value NOT LIKE lower(unaccent($1))||'%'
-			ORDER BY score DESC,name.source_quality DESC
-			LIMIT $9
-		) fuzzy
+		WHERE name.normalized_value=lower(unaccent($1))`+broadTiers+`
 	), ranked AS (SELECT DISTINCT ON (entity_id) entity_id,tier,score,source_quality FROM matches ORDER BY entity_id,tier,score DESC,source_quality DESC)
 	SELECT se.summary FROM ranked JOIN search_entities se ON se.entity_id=ranked.entity_id
 	WHERE ($3=0 OR se.release_year=$3) AND ($4='' OR EXISTS(SELECT 1 FROM unnest(se.genres) genre WHERE lower(genre)=lower($4))) AND ($5='' OR upper($5)=ANY(se.countries)) AND ($6='' OR lower($6)=ANY(se.languages)) AND ($7='' OR se.status=lower($7)) AND ($8='' OR se.kind=$8)

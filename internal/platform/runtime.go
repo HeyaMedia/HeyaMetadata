@@ -28,6 +28,17 @@ func Open(ctx context.Context, cfg config.Config) (*Runtime, error) {
 	poolConfig.MinIdleConns = 1
 	poolConfig.MaxConnLifetime = time.Hour
 	poolConfig.MaxConnIdleTime = 15 * time.Minute
+	// pgx caches named prepared statements, and after five executions Postgres
+	// may switch them to generic plans. Many request-path queries use the
+	// `($1='' OR col=$1)` optional-filter idiom, whose generic plan cannot
+	// constant-fold the branch and degrades to sequential scans — endpoints
+	// got slower per connection as it warmed up. Custom plans keep the
+	// parameter values visible to the planner on every execution.
+	poolConfig.ConnConfig.RuntimeParams["plan_cache_mode"] = "force_custom_plan"
+	// Session-scoped trigram threshold for search: the per-query set_config
+	// CTE only takes effect if the planner happens to execute it before the
+	// GIN scan reads the GUC, so pin it at the connection instead.
+	poolConfig.ConnConfig.RuntimeParams["pg_trgm.similarity_threshold"] = "0.25"
 	database, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return nil, fmt.Errorf("open database pool: %w", err)

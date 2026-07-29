@@ -17,9 +17,12 @@ import (
 )
 
 const (
-	libraryStatsCacheKey           = "heya:metadata:v2:library-stats"
-	libraryStatsRefreshLockKey     = libraryStatsCacheKey + ":refresh"
-	libraryStatsFreshFor           = 5 * time.Minute
+	libraryStatsCacheKey       = "heya:metadata:v2:library-stats"
+	libraryStatsRefreshLockKey = libraryStatsCacheKey + ":refresh"
+	// Recomputing stats costs ~10s of sequential scans over the biggest
+	// tables, evicting much of shared_buffers each time; coverage numbers on
+	// a dashboard do not need five-minute freshness.
+	libraryStatsFreshFor           = time.Hour
 	libraryStatsCacheRetention     = 24 * time.Hour
 	movieCollectionsCacheKey       = "heya:metadata:v2:movie-collections"
 	movieCollectionsRefreshLockKey = movieCollectionsCacheKey + ":refresh"
@@ -266,7 +269,11 @@ func computeLibraryStats(ctx context.Context, runtime *platform.Runtime) (*stats
 	if err = runtime.DB.QueryRow(ctx, `SELECT count(*),count(*)FILTER(WHERE materialization_state='ready')FROM image_candidates`).Scan(&out.Body.Images, &out.Body.Materialized); err != nil {
 		return nil, err
 	}
-	if err = runtime.DB.QueryRow(ctx, `SELECT count(*)FROM normalized_records`).Scan(&out.Body.ProviderRecords); err != nil {
+	// normalized_records is the largest table in the database (millions of
+	// rows, gigabytes of heap); an exact count takes double-digit seconds and
+	// floods the buffer cache, while the planner's estimate is within a
+	// fraction of a percent on an autovacuumed table.
+	if err = runtime.DB.QueryRow(ctx, `SELECT reltuples::bigint FROM pg_class WHERE oid='normalized_records'::regclass`).Scan(&out.Body.ProviderRecords); err != nil {
 		return nil, err
 	}
 	if err = runtime.DB.QueryRow(ctx, `SELECT count(*)FILTER(WHERE fresh_until>now()),count(*)FILTER(WHERE fresh_until<=now())FROM api_documents WHERE document_kind='detail'`).Scan(&out.Body.Fresh, &out.Body.Stale); err != nil {

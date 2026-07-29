@@ -373,7 +373,7 @@ func PersistMany(ctx context.Context, runtime *platform.Runtime, def Definition,
 	if len(record.Credits) > 50 {
 		record.Credits = record.Credits[:50]
 	}
-	if err := persistResources(ctx, tx, entityID, def.Kind, &record); err != nil {
+	if err := finalizeResources(ctx, tx, entityID, &record); err != nil {
 		return Result{}, err
 	}
 	doc := Document{SchemaVersion: 1, ProjectionVersion: version, ID: entityID, Kind: def.Kind, Slug: slug, Display: display, ExternalIDs: record.ExternalIDs, Data: Data{Titles: record.Titles, Overview: record.Overview, Overviews: record.Overviews, Classification: Classification{Format: record.Format, Status: record.Status, Language: record.Language, Countries: countries, Genres: genres, SourceMaterial: record.SourceMaterial}, Lifecycle: Lifecycle{StartDate: record.StartDate, EndDate: record.EndDate}, RuntimeMinutes: record.RuntimeMinutes, EpisodeCount: record.EpisodeCount, SeasonCount: max(record.SeasonCount, len(record.Seasons)), Networks: record.Networks, Studios: record.Studios, Organizations: record.Organizations, Keywords: record.Keywords, Seasons: record.Seasons, Episodes: record.Episodes, Images: publicImages, Ratings: record.Ratings, Credits: record.Credits, Links: record.Links, Videos: record.Videos, Certifications: record.Certifications, Recommendations: record.Recommendations}, Freshness: fresh, Provenance: map[string][]SourceRef{"identity": refs, "data": refs}}
