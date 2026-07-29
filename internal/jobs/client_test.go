@@ -31,7 +31,7 @@ func TestPriorityBandsReserveCapacityForInteractiveWork(t *testing.T) {
 	if opts := (RecordingEvidenceRefreshArgs{RecordingID: "id"}).InsertOpts(); opts.Queue != MusicQueue || opts.Priority != PriorityScheduled {
 		t.Fatalf("recording evidence queue/priority: %s/%d", opts.Queue, opts.Priority)
 	}
-	if opts := (ArtistCatalogSyncArgs{ArtistEntityID: "entity", MusicBrainzID: "mbid"}).InsertOpts(); opts.Queue != MusicQueue || opts.Priority != PriorityCatalog {
+	if opts := (ArtistCatalogSyncArgs{ArtistEntityID: "entity", MusicBrainzID: "mbid"}).InsertOpts(); opts.Queue != MusicCatalogQueue || opts.Priority != PriorityCatalog {
 		t.Fatalf("artist catalog queue/priority: %s/%d", opts.Queue, opts.Priority)
 	}
 	if opts := (ArtistCatalogSchedulerArgs{}).InsertOpts(); opts.Queue != river.QueueDefault || opts.Priority != PriorityScheduled {
@@ -65,6 +65,9 @@ func TestDomainAndImageQueuesHaveIndependentConcurrency(t *testing.T) {
 			t.Errorf("%s queue workers: %d", queue, got)
 		}
 	}
+	if got := queues[MusicCatalogQueue].MaxWorkers; got != 2 {
+		t.Errorf("music catalog queue workers: %d", got)
+	}
 }
 
 func TestMetadataJobsRouteToDomainQueues(t *testing.T) {
@@ -76,7 +79,7 @@ func TestMetadataJobsRouteToDomainQueues(t *testing.T) {
 	}{
 		{"movie", (MovieIngestArgs{}).InsertOpts().Queue, MovieQueue},
 		{"artist", (ArtistIngestArgs{}).InsertOpts().Queue, MusicQueue},
-		{"artist catalog", (ArtistCatalogSyncArgs{}).InsertOpts().Queue, MusicQueue},
+		{"artist catalog", (ArtistCatalogSyncArgs{}).InsertOpts().Queue, MusicCatalogQueue},
 		{"release group", (ReleaseGroupIngestArgs{}).InsertOpts().Queue, MusicQueue},
 		{"release", (ReleaseIngestArgs{}).InsertOpts().Queue, MusicQueue},
 		{"recording", (RecordingIngestArgs{}).InsertOpts().Queue, MusicQueue},

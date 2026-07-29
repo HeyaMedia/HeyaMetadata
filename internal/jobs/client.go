@@ -93,6 +93,7 @@ func queueConfig(maxWorkers, imageMaxWorkers int) map[string]river.QueueConfig {
 	return map[string]river.QueueConfig{
 		river.QueueDefault: {MaxWorkers: maxWorkers},
 		MusicQueue:         {MaxWorkers: maxWorkers},
+		MusicCatalogQueue:  {MaxWorkers: 2},
 		MovieQueue:         {MaxWorkers: maxWorkers},
 		TVQueue:            {MaxWorkers: maxWorkers},
 		AnimeQueue:         {MaxWorkers: maxWorkers},

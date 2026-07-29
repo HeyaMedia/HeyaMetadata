@@ -29,7 +29,7 @@ type ArtistCatalogSyncArgs struct {
 func (ArtistCatalogSyncArgs) Kind() string { return ArtistCatalogSyncKind }
 func (ArtistCatalogSyncArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
-		Queue:       MusicQueue,
+		Queue:       MusicCatalogQueue,
 		Priority:    PriorityCatalog,
 		MaxAttempts: 5,
 		UniqueOpts:  river.UniqueOpts{ByArgs: true, ByState: activeJobStates()},

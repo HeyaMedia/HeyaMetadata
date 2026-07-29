@@ -4,10 +4,15 @@ import "github.com/riverqueue/river"
 
 const (
 	MusicQueue = "music"
-	MovieQueue = "movie"
-	TVQueue    = "tv"
-	AnimeQueue = "anime"
-	BooksQueue = "books"
+	// MusicCatalogQueue isolates artist catalog syncs: they run for around a
+	// minute each and River serves strict priority within a queue, so leaving
+	// them in MusicQueue lets a refresh wave occupy every slot and starve the
+	// scheduled release-group and recording work behind it indefinitely.
+	MusicCatalogQueue = "music_catalog"
+	MovieQueue        = "movie"
+	TVQueue           = "tv"
+	AnimeQueue        = "anime"
+	BooksQueue        = "books"
 
 	// Legacy/shared queues remain configured during rolling upgrades so work
 	// enqueued by the previous release can drain safely. Migration 0056 moves
