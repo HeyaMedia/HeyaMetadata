@@ -3,6 +3,7 @@ package images
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -171,5 +172,69 @@ func TestFetchSourceTranscodesAdvertisedOversizedImage(t *testing.T) {
 	}
 	if width != 96 || height != 144 {
 		t.Fatalf("dimensions: %dx%d", width, height)
+	}
+}
+
+func TestFetchSourceRequestsTMDBRasterDerivativeForSVG(t *testing.T) {
+	t.Parallel()
+	source := image.NewNRGBA(image.Rect(0, 0, 96, 32))
+	var raster bytes.Buffer
+	if err := png.Encode(&raster, source); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{
+		runtime: &platform.Runtime{},
+		client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			if got, want := request.URL.Path, "/t/p/original/logo.png"; got != want {
+				t.Fatalf("requested path: got %q want %q", got, want)
+			}
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Header:        http.Header{"Content-Type": []string{"image/png"}},
+				ContentLength: int64(raster.Len()),
+				Body:          io.NopCloser(bytes.NewReader(raster.Bytes())),
+				Request:       request,
+			}, nil
+		})},
+	}
+	sourceURL, err := url.Parse("https://image.tmdb.org/t/p/original/logo.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, mediaType, err := service.fetchSource(context.Background(), "tmdb", sourceURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mediaType != "image/png" {
+		t.Fatalf("media type: %q", mediaType)
+	}
+	width, height, err := inspectImage(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if width != 96 || height != 32 {
+		t.Fatalf("dimensions: %dx%d", width, height)
+	}
+}
+
+func TestFetchSourceClassifiesUnsupportedContentAsPermanent(t *testing.T) {
+	t.Parallel()
+	service := &Service{
+		runtime: &platform.Runtime{},
+		client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				ContentLength: 0,
+				Body:          io.NopCloser(bytes.NewReader(nil)),
+				Request:       request,
+			}, nil
+		})},
+	}
+	sourceURL, err := url.Parse("https://r2.theaudiodb.com/images/media/artist/logo/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.fetchSource(context.Background(), "audiodb", sourceURL); !errors.Is(err, ErrUnsupportedImage) {
+		t.Fatalf("expected unsupported image error, got %v", err)
 	}
 }

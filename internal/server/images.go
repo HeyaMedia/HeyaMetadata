@@ -81,6 +81,9 @@ func registerImages(api huma.API, runtime *platform.Runtime) {
 		if errors.Is(err, images.ErrNotFound) {
 			return nil, huma.Error404NotFound("image not found")
 		}
+		if errors.Is(err, images.ErrUnsupportedImage) {
+			return nil, huma.Error422UnprocessableEntity("image source is not supported")
+		}
 		if !errors.Is(err, images.ErrNotReady) {
 			return nil, err
 		}
@@ -101,6 +104,9 @@ func registerImages(api huma.API, runtime *platform.Runtime) {
 		}
 		if errors.Is(err, images.ErrNotFound) {
 			return nil, huma.Error404NotFound("image not found")
+		}
+		if errors.Is(err, images.ErrUnsupportedImage) {
+			return nil, huma.Error422UnprocessableEntity("image source is not supported")
 		}
 		if !errors.Is(err, images.ErrNotReady) {
 			return nil, err

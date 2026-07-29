@@ -77,7 +77,7 @@ func NewImageMaterializeWorker(runtime *platform.Runtime) *ImageMaterializeWorke
 }
 func (w *ImageMaterializeWorker) Work(ctx context.Context, job *river.Job[ImageMaterializeArgs]) error {
 	_, err := w.service.Materialize(ctx, job.Args.ImageID)
-	if errors.Is(err, images.ErrNotFound) {
+	if errors.Is(err, images.ErrNotFound) || errors.Is(err, images.ErrUnsupportedImage) {
 		return river.JobCancel(err)
 	}
 	if errors.Is(err, images.ErrInProgress) {
@@ -100,7 +100,7 @@ func NewImageVariantWorker(runtime *platform.Runtime) *ImageVariantWorker {
 
 func (w *ImageVariantWorker) Work(ctx context.Context, job *river.Job[ImageVariantArgs]) error {
 	_, err := w.service.MaterializeVariant(ctx, job.Args.ImageID, job.Args.Width)
-	if errors.Is(err, images.ErrNotFound) {
+	if errors.Is(err, images.ErrNotFound) || errors.Is(err, images.ErrUnsupportedImage) {
 		return river.JobCancel(err)
 	}
 	if errors.Is(err, images.ErrInProgress) {

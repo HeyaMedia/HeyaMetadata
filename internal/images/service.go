@@ -39,10 +39,11 @@ const (
 var oversizedTransformSlot = make(chan struct{}, 1)
 
 var (
-	ErrNotFound       = errors.New("image not found")
-	ErrNotReady       = errors.New("image is not materialized")
-	ErrInProgress     = errors.New("image materialization is already in progress")
-	ErrSourceTooLarge = errors.New("image source exceeds the byte limit")
+	ErrNotFound         = errors.New("image not found")
+	ErrNotReady         = errors.New("image is not materialized")
+	ErrInProgress       = errors.New("image materialization is already in progress")
+	ErrSourceTooLarge   = errors.New("image source exceeds the byte limit")
+	ErrUnsupportedImage = errors.New("unsupported image source")
 )
 
 type Service struct {
@@ -83,15 +84,22 @@ func (s *Service) ensureOriginal(ctx context.Context, id string) (asset Asset, b
 		SET materialization_state='working',materialization_error=NULL,materialization_attempted_at=now()
 		WHERE candidate.id=$1
 		  AND candidate.materialization_state IN ('pending','failed')
+		  AND NOT (
+			candidate.materialization_state='failed'
+			AND COALESCE(candidate.materialization_error,'') LIKE 'unsupported image source:%'
+		  )
 		RETURNING provider,source_url`, id).Scan(&provider, &sourceURL)
 	if err == pgx.ErrNoRows {
-		var state string
-		readErr := s.runtime.DB.QueryRow(ctx, `SELECT materialization_state FROM image_candidates WHERE id=$1`, id).Scan(&state)
+		var state, materializationError string
+		readErr := s.runtime.DB.QueryRow(ctx, `SELECT materialization_state,COALESCE(materialization_error,'') FROM image_candidates WHERE id=$1`, id).Scan(&state, &materializationError)
 		if readErr == pgx.ErrNoRows {
 			return Asset{}, nil, ErrNotFound
 		}
 		if readErr != nil {
 			return Asset{}, nil, readErr
+		}
+		if isPersistedUnsupportedImage(materializationError) {
+			return Asset{}, nil, ErrUnsupportedImage
 		}
 		if state == "ready" {
 			existing, existingBody, readErr := s.Read(ctx, id)
@@ -145,7 +153,8 @@ func (s *Service) ensureOriginal(ctx context.Context, id string) (asset Asset, b
 }
 
 func (s *Service) fetchSource(ctx context.Context, provider string, source *url.URL) ([]byte, string, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source.String(), nil)
+	requestSource := providerFetchSource(provider, source)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestSource.String(), nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -169,8 +178,8 @@ func (s *Service) fetchSource(ctx context.Context, provider string, source *url.
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, "", fmt.Errorf("image source returned HTTP %d", response.StatusCode)
 	}
-	if declared := strings.ToLower(strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0])); declared != "" && !strings.HasPrefix(declared, "image/") {
-		return nil, "", fmt.Errorf("source declared non-image content type %s", declared)
+	if declared := strings.ToLower(strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0])); declared != "" && normalizedImageType(declared) == "" {
+		return nil, "", fmt.Errorf("%w: source declared content type %s", ErrUnsupportedImage, declared)
 	}
 	if response.ContentLength > MaxSourceDownloadBytes {
 		return nil, "", fmt.Errorf("image exceeds %d byte hard limit: %w", MaxSourceDownloadBytes, ErrSourceTooLarge)
@@ -185,9 +194,10 @@ func (s *Service) fetchSource(ctx context.Context, provider string, source *url.
 	if int64(len(body)) > MaxOriginalBytes {
 		return transcodeOversizedSource(ctx, body, response.Body)
 	}
-	mediaType := normalizedImageType(http.DetectContentType(body))
+	detected := http.DetectContentType(body)
+	mediaType := normalizedImageType(detected)
 	if mediaType == "" {
-		return nil, "", fmt.Errorf("source is not a supported image")
+		return nil, "", fmt.Errorf("%w: detected content type %s", ErrUnsupportedImage, detected)
 	}
 	return body, mediaType, nil
 }
@@ -285,13 +295,16 @@ func (s *Service) MaterializeVariant(ctx context.Context, id string, requestedWi
 
 func (s *Service) Read(ctx context.Context, id string) (Asset, []byte, error) {
 	var asset Asset
-	var state string
-	err := s.runtime.DB.QueryRow(ctx, `SELECT id,COALESCE(object_key,''),COALESCE(media_type,''),COALESCE(blob_checksum,''),COALESCE(byte_size,0),COALESCE(materialized_width,0),COALESCE(materialized_height,0),materialization_state FROM image_candidates WHERE id=$1`, id).Scan(&asset.ID, &asset.ObjectKey, &asset.MediaType, &asset.Checksum, &asset.ByteSize, &asset.Width, &asset.Height, &state)
+	var state, materializationError string
+	err := s.runtime.DB.QueryRow(ctx, `SELECT id,COALESCE(object_key,''),COALESCE(media_type,''),COALESCE(blob_checksum,''),COALESCE(byte_size,0),COALESCE(materialized_width,0),COALESCE(materialized_height,0),materialization_state,COALESCE(materialization_error,'') FROM image_candidates WHERE id=$1`, id).Scan(&asset.ID, &asset.ObjectKey, &asset.MediaType, &asset.Checksum, &asset.ByteSize, &asset.Width, &asset.Height, &state, &materializationError)
 	if err == pgx.ErrNoRows {
 		return Asset{}, nil, ErrNotFound
 	}
 	if err != nil {
 		return Asset{}, nil, err
+	}
+	if isPersistedUnsupportedImage(materializationError) {
+		return Asset{}, nil, ErrUnsupportedImage
 	}
 	if state != "ready" || asset.ObjectKey == "" {
 		return Asset{}, nil, ErrNotReady
@@ -320,12 +333,16 @@ func (s *Service) ReadVariant(ctx context.Context, id string, requestedWidth int
 			AND v.width=LEAST($4,c.materialized_width)
 		WHERE c.id=$1 AND c.materialization_state='ready'`, id, VariantFormat, TransformVersion, requestedWidth).Scan(&asset.ID, &asset.ObjectKey, &asset.MediaType, &asset.Checksum, &asset.ByteSize, &asset.Width, &asset.Height)
 	if errors.Is(err, pgx.ErrNoRows) {
-		var exists bool
-		if checkErr := s.runtime.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM image_candidates WHERE id=$1)`, id).Scan(&exists); checkErr != nil {
+		var state, materializationError string
+		checkErr := s.runtime.DB.QueryRow(ctx, `SELECT materialization_state,COALESCE(materialization_error,'') FROM image_candidates WHERE id=$1`, id).Scan(&state, &materializationError)
+		if errors.Is(checkErr, pgx.ErrNoRows) {
+			return Asset{}, nil, ErrNotFound
+		}
+		if checkErr != nil {
 			return Asset{}, nil, checkErr
 		}
-		if !exists {
-			return Asset{}, nil, ErrNotFound
+		if isPersistedUnsupportedImage(materializationError) {
+			return Asset{}, nil, ErrUnsupportedImage
 		}
 		return Asset{}, nil, ErrNotReady
 	}
@@ -350,7 +367,13 @@ func (s *Service) Candidates(ctx context.Context, entityID, class string) ([]Ent
 		       COALESCE(width,0),COALESCE(height,0),provider,
 		       COALESCE(provider_score,0),materialization_state
 		FROM image_candidates
-		WHERE entity_id=$1 AND ownership_scope='entity' AND ($2='' OR class=$2)
+		WHERE entity_id=$1
+		  AND ownership_scope='entity'
+		  AND ($2='' OR class=$2)
+		  AND NOT (
+			materialization_state='failed'
+			AND COALESCE(materialization_error,'') LIKE 'unsupported image source:%'
+		  )
 		ORDER BY class,id
 		LIMIT 2000`, entityID, strings.ToLower(strings.TrimSpace(class)))
 	if err != nil {
@@ -390,6 +413,21 @@ func validateSourceURL(value *url.URL, allowHTTP bool) error {
 	}
 	return nil
 }
+
+func providerFetchSource(provider string, source *url.URL) *url.URL {
+	if source == nil || !strings.EqualFold(provider, "tmdb") || !strings.HasSuffix(strings.ToLower(source.Path), ".svg") {
+		return source
+	}
+	rasterSource := *source
+	rasterSource.Path = source.Path[:len(source.Path)-len(".svg")] + ".png"
+	rasterSource.RawPath = ""
+	return &rasterSource
+}
+
+func isPersistedUnsupportedImage(message string) bool {
+	return strings.HasPrefix(message, ErrUnsupportedImage.Error()+":")
+}
+
 func providerHostAllowed(provider, host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	allowed := map[string][]string{
