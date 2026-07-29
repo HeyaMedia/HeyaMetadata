@@ -6,10 +6,12 @@ const route = useRoute()
 const api = useHeyaApi()
 const id = computed(() => route.params.id as string)
 
-const { data: collection, pending, error } = await useAsyncData(
-  'collection',
+// Keyed per collection so A → B → back serves A from the session cache
+// instead of both collections fighting over one static slot.
+const { data: collection, pending, error } = useLazyAsyncData(
+  () => `collection:${id.value}`,
   () => api.collection(id.value),
-  { watch: [id] },
+  { getCachedData: sessionCached },
 )
 
 const members = computed(() =>

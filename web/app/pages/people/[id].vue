@@ -9,15 +9,16 @@ const route = useRoute()
 const api = useHeyaApi()
 const id = computed(() => route.params.id as string)
 
-const { data, pending, error, refresh } = await useAsyncData(
+const { data, pending, error, refresh } = useLazyAsyncData(
   () => `person-doc:${id.value}`,
   () => api.person(id.value),
   { getCachedData: sessionCached },
 )
 
 // Canonical filmography comes from the paginated /persons/{id}/credits endpoint
-// rather than the person document's embedded preview.
-const { data: filmography } = await useAsyncData(
+// rather than the person document's embedded preview. Lazy on both slots: the
+// hero paints from the person document alone, and the filmography fills in.
+const { data: filmography } = useLazyAsyncData(
   () => `person-credits:${id.value}`,
   () => api.allPersonCredits(id.value).catch(() => null),
   { getCachedData: sessionCached },

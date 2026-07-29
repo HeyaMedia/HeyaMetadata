@@ -37,11 +37,14 @@ const gridShape = computed<CardShape>(() => (props.lockKind && props.kind ? card
 
 // ---- Category cards (browse landing) --------------------------------------
 // One stats call for live counts plus a shallow latest() per domain for the
-// collage. Skipped entirely on locked domain pages.
-const { data: catData, pending: catPending } = await useAsyncData(
-  () => `browse-categories:${props.lockKind ? props.kind : 'all'}:${localeSignature.value}`,
+// collage. Skipped entirely on locked domain pages and whenever a query,
+// kind, or all=1 hides the landing — the collage renders only there, so an
+// eleven-call batch for it must never gate the grid. showLanding is part of
+// the key so clearing filters refetches instead of reusing the empty slot.
+const { data: catData, pending: catPending } = useLazyAsyncData(
+  () => `browse-categories:${props.lockKind ? props.kind : showLanding.value ? 'landing' : 'hidden'}:${localeSignature.value}`,
   async () => {
-    if (props.lockKind) return { counts: {} as Record<string, number>, samples: {} as Record<string, Array<string | undefined>>, total: 0 }
+    if (props.lockKind || !showLanding.value) return { counts: {} as Record<string, number>, samples: {} as Record<string, Array<string | undefined>>, total: 0 }
     const [stats, ...lists] = await Promise.all([
       api.stats().catch(() => ({} as LibraryStats)),
       ...BROWSE_CATEGORIES.map(kind => api.latest(kind, 4).then(r => r.results ?? []).catch(() => [])),
@@ -73,7 +76,7 @@ const totalEntities = computed(() => catData.value?.total ?? 0)
 // ---- Flat grid ------------------------------------------------------------
 // The key carries every query input, so each page/sort/filter combination gets
 // its own session-cached slot and back/forward restores instantly.
-const { data, pending, error } = await useAsyncData(
+const { data, pending, error } = useLazyAsyncData(
   () => `browse:${effectiveKind.value || 'all'}:${sort.value}:${offset.value}:${q.value}:${localeSignature.value}`,
   () => api.browse({ kind: effectiveKind.value, sort: sort.value, offset: offset.value, limit: LIMIT, q: q.value }),
   { default: () => ({ results: [], total: 0, offset: 0, limit: LIMIT }), getCachedData: sessionCached },

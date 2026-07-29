@@ -137,19 +137,19 @@ export function useHeyaApi() {
     return request(`${BASE}/entities/${id}/relations?${params}`)
   }
 
+  // Page one reveals the total, so the remaining pages can fetch in parallel
+  // instead of chaining one round trip per hundred rows.
   async function allEntityRelations(id: string, type?: string): Promise<RelationsResponse> {
     const limit = 100
-    const relations: RelationsResponse['relations'] = []
-    let offset = 0
-    let total = 0
-    do {
-      const page = await entityRelations(id, { type, limit, offset })
-      const items = page.relations ?? []
-      relations.push(...items)
-      total = page.total ?? relations.length
-      offset += items.length
-      if (!items.length) break
-    } while (offset < total)
+    const first = await entityRelations(id, { type, limit, offset: 0 })
+    const relations = [...(first.relations ?? [])]
+    const total = first.total ?? relations.length
+    if (relations.length > 0 && relations.length < total) {
+      const offsets: number[] = []
+      for (let offset = relations.length; offset < total; offset += limit) offsets.push(offset)
+      const pages = await Promise.all(offsets.map(offset => entityRelations(id, { type, limit, offset })))
+      for (const page of pages) relations.push(...(page.relations ?? []))
+    }
     return { relations, total, offset: 0, limit: relations.length }
   }
 
@@ -174,23 +174,20 @@ export function useHeyaApi() {
   }
 
   // Fetches the full filmography across pages. Detail-page scale (hundreds, not
-  // thousands), so a bounded accumulation is fine.
+  // thousands), so a bounded accumulation is fine; pages after the first load
+  // in parallel because the first response carries the total.
   async function allPersonCredits(personEntityId: string): Promise<PersonCreditsResponse> {
     const limit = 100
-    const credits: PersonCreditsResponse['credits'] = []
-    let offset = 0
-    let total = 0
-    let person: PersonCreditsResponse['person'] = {}
-    do {
-      const page = await personCredits(personEntityId, { offset, limit })
-      person = page.person ?? person
-      const items = page.credits ?? []
-      credits.push(...items)
-      total = page.total ?? credits.length
-      offset += items.length
-      if (!items.length) break
-    } while (offset < total)
-    return { person, credits, total }
+    const first = await personCredits(personEntityId, { offset: 0, limit })
+    const credits = [...(first.credits ?? [])]
+    const total = first.total ?? credits.length
+    if (credits.length > 0 && credits.length < total) {
+      const offsets: number[] = []
+      for (let offset = credits.length; offset < total; offset += limit) offsets.push(offset)
+      const pages = await Promise.all(offsets.map(offset => personCredits(personEntityId, { offset, limit })))
+      for (const page of pages) credits.push(...(page.credits ?? []))
+    }
+    return { person: first.person ?? {}, credits, total }
   }
 
   function season(id: string): Promise<SeasonResource> {

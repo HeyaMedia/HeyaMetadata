@@ -6,10 +6,10 @@ useSeoMeta({
 })
 
 const api = useHeyaApi()
-const { data, pending } = await useAsyncData(
+const { data, pending } = useLazyAsyncData(
   'collections',
   () => api.collections().then(r => r.collections ?? []),
-  { default: () => [] },
+  { default: () => [], getCachedData: sessionCached },
 )
 
 const filmTotal = computed(() =>

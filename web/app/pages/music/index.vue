@@ -21,7 +21,7 @@ const SECTIONS: Section[] = [
   { key: 'recording', kind: 'recording', title: 'Recordings', shape: 'square' },
 ]
 
-const { data, pending } = await useAsyncData(() => `music:${localeSignature.value}`, async () => {
+const { data, pending } = useLazyAsyncData(() => `music:${localeSignature.value}`, async () => {
   const lists = await Promise.all(
     SECTIONS.map(section => api.browse({ kind: section.kind, sort: 'updated', limit: 18 }).then(r => r.results ?? []).catch(() => [])),
   )

@@ -218,6 +218,12 @@ img { max-width: 100%; }
   scrollbar-color: #394247 transparent;
 }
 .rail-track > * { flex: 0 0 auto; scroll-snap-align: start; }
+/* Virtualize off-screen rail cells like MediaShelf does; the home page mounts
+   ~100 cards across its rails and only a dozen are ever visible at once. */
+.rail-track.is-poster > * { content-visibility: auto; contain-intrinsic-size: auto 310px; }
+.rail-track.is-portrait > * { content-visibility: auto; contain-intrinsic-size: auto 255px; }
+.rail-track.is-square > * { content-visibility: auto; contain-intrinsic-size: auto 250px; }
+.rail-track.is-landscape > * { content-visibility: auto; contain-intrinsic-size: auto 205px; }
 .rail-track::-webkit-scrollbar { height: 8px; }
 .rail-track::-webkit-scrollbar-thumb { background: #313a3f; border-radius: 10px; }
 .rail-track::-webkit-scrollbar-track { background: transparent; }

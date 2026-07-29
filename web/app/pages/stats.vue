@@ -9,7 +9,7 @@ useSeoMeta({
 
 // Coverage/debugging page — real totals, not social proof. Charts are CSS-native.
 const api = useHeyaApi()
-const { data: stats, pending } = await useAsyncData('stats', () => api.stats(), { default: () => ({}), getCachedData: sessionCached })
+const { data: stats, pending } = useLazyAsyncData('stats', () => api.stats(), { default: () => ({}), getCachedData: sessionCached })
 
 const kindRows = computed(() =>
   Object.entries(stats.value?.kinds ?? {})

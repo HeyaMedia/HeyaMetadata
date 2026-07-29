@@ -9,7 +9,7 @@ const id = computed(() => route.params.id as string)
 const { languages, signature } = useLocale()
 const localeSignature = computed(signature)
 
-const { data, pending, error } = await useAsyncData(
+const { data, pending, error } = useLazyAsyncData(
   () => `episode:${id.value}:${localeSignature.value}`,
   () => api.episode(id.value),
   { getCachedData: sessionCached },
@@ -24,8 +24,10 @@ const title = computed(() => preferredText(ep.value.titles, languages()) || form
 // authoritative parent link.
 const seasonId = computed(() => ep.value.season_id as string | undefined)
 // Keyed like the standalone season page so navigating episode → season (or
-// between episodes of one season) reuses the already-fetched resource.
-const { data: seasonResource } = await useAsyncData(
+// between episodes of one season) reuses the already-fetched resource. The
+// reactive key refires this once the episode document reveals season_id, so
+// neither fetch blocks the initial paint.
+const { data: seasonResource } = useLazyAsyncData(
   () => `season:${seasonId.value || 'none'}:${localeSignature.value}`,
   () => seasonId.value ? api.season(seasonId.value) : Promise.resolve(null),
   { getCachedData: sessionCached },

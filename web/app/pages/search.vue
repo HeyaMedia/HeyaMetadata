@@ -21,7 +21,9 @@ const kindConfig = computed(() => kindMeta(kind.value))
 const canDiscover = computed(() => !!kindConfig.value?.discoverable)
 const localeSignature = computed(signature)
 
-const { data: searchData, pending } = await useAsyncData(
+// Lazy: the hero copy, search box, and kind selector are static and should
+// paint immediately; the template already renders a pending skeleton.
+const { data: searchData, pending } = useLazyAsyncData(
   () => `search:${q.value}:${kind.value}:${localeSignature.value}`,
   () => (q.value ? api.search(q.value, kind.value, 30) : Promise.resolve({ results: [] })),
   { default: () => ({ results: [] }), getCachedData: sessionCached },

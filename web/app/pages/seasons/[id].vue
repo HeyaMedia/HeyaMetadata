@@ -7,7 +7,7 @@ const id = computed(() => route.params.id as string)
 const { languages, signature } = useLocale()
 const localeSignature = computed(signature)
 
-const { data, pending, error } = await useAsyncData(
+const { data, pending, error } = useLazyAsyncData(
   () => `season:${id.value}:${localeSignature.value}`,
   () => api.season(id.value),
   { getCachedData: sessionCached },
