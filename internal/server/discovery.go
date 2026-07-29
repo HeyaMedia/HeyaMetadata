@@ -125,12 +125,12 @@ func registerDiscovery(api huma.API, runtime *platform.Runtime) {
 			if handled {
 				if result.Kind == discovery.KindArtist && result.EntityID != "" {
 					releaseEvidence := jobs.ArtistCatalogReleaseEvidence(request)
-					if len(releaseEvidence) > 0 {
+					if jobs.ArtistCatalogRefreshRequested(request) {
 						mbid, lookupErr := jobs.AcceptedMusicBrainzArtistID(ctx, runtime, result.EntityID)
 						if lookupErr != nil {
 							return nil, lookupErr
 						}
-						if enqueueErr := jobs.InsertArtistCatalog(ctx, client, result.EntityID, mbid, releaseEvidence...); enqueueErr != nil {
+						if _, enqueueErr := jobs.InsertArtistCatalogRefresh(ctx, runtime, client, result.EntityID, mbid, releaseEvidence...); enqueueErr != nil {
 							return nil, enqueueErr
 						}
 					}

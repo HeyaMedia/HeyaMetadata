@@ -17,10 +17,11 @@ import (
 var musicBrainzIdentifierPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 type claimTarget struct {
-	EntityKind string
-	Provider   string
-	Namespace  string
-	ViaWork    bool
+	EntityKind      string
+	Provider        string
+	Namespace       string
+	ViaWork         bool
+	ViaReleaseGroup bool
 }
 
 // ResolveKnownIdentifiers is a local-only identity check. It never contacts an
@@ -116,7 +117,7 @@ func hasArtistReleaseIdentityEvidence(request Request) bool {
 				continue
 			}
 			switch identifier.Scheme {
-			case "musicbrainz", "apple", "deezer", "discogs_release", "discogs_master":
+			case "musicbrainz", "musicbrainz_release_group", "musicbrainz_release", "apple", "deezer", "discogs_release", "discogs_master":
 				return true
 			}
 		}
@@ -134,7 +135,7 @@ func ValidIdentifierValue(identifier Identifier) bool {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(identifier.Scheme)) {
-	case "musicbrainz":
+	case "musicbrainz", "musicbrainz_artist", "musicbrainz_release_group", "musicbrainz_release", "musicbrainz_recording":
 		return musicBrainzIdentifierPattern.MatchString(strings.ToLower(value))
 	case "apple", "deezer", "discogs", "discogs_release", "discogs_master":
 		number, err := strconv.ParseInt(value, 10, 64)
@@ -161,11 +162,50 @@ func baseIdentifierResult(request Request) Result {
 
 func (s *Service) resolveClaim(ctx context.Context, target claimTarget, value string) (string, error) {
 	var entityID string
+	if target.ViaReleaseGroup {
+		return s.resolveMusicBrainzReleaseGroupByRelease(ctx, value)
+	}
 	if target.ViaWork {
 		err := s.runtime.DB.QueryRow(ctx, `SELECT edition.work_entity_id::text FROM external_id_claims claim JOIN canonical_book_editions edition ON edition.entity_id=claim.entity_id JOIN entities work ON work.id=edition.work_entity_id AND work.kind=$1 AND work.deleted_at IS NULL WHERE claim.entity_kind=$2 AND claim.provider=$3 AND claim.namespace=$4 AND claim.normalized_value=$5 AND claim.state='accepted'`, target.EntityKind, editionKindFor(target.EntityKind), target.Provider, target.Namespace, value).Scan(&entityID)
 		return entityID, err
 	}
 	err := s.runtime.DB.QueryRow(ctx, `SELECT claim.entity_id::text FROM external_id_claims claim JOIN entities entity ON entity.id=claim.entity_id AND entity.kind=$1 AND entity.deleted_at IS NULL WHERE claim.entity_kind=$1 AND claim.provider=$2 AND claim.namespace=$3 AND claim.normalized_value=$4 AND claim.state='accepted'`, target.EntityKind, target.Provider, target.Namespace, value).Scan(&entityID)
+	return entityID, err
+}
+
+func (s *Service) resolveMusicBrainzReleaseGroupByRelease(ctx context.Context, value string) (string, error) {
+	var entityID string
+	err := s.runtime.DB.QueryRow(ctx, `
+		SELECT release_group_claim.entity_id::text
+		FROM external_id_claims release_claim
+		JOIN entities release_entity
+		  ON release_entity.id=release_claim.entity_id
+		 AND release_entity.kind='release'
+		 AND release_entity.deleted_at IS NULL
+		JOIN external_id_claims release_group_reference
+		  ON release_group_reference.entity_id=release_claim.entity_id
+		 AND release_group_reference.entity_kind='release'
+		 AND release_group_reference.provider='musicbrainz'
+		 AND release_group_reference.namespace='release_group'
+		 AND release_group_reference.state='accepted'
+		JOIN external_id_claims release_group_claim
+		  ON release_group_claim.entity_kind='release_group'
+		 AND release_group_claim.provider='musicbrainz'
+		 AND release_group_claim.namespace='release_group'
+		 AND release_group_claim.normalized_value=release_group_reference.normalized_value
+		 AND release_group_claim.state='accepted'
+		JOIN entities release_group_entity
+		  ON release_group_entity.id=release_group_claim.entity_id
+		 AND release_group_entity.kind='release_group'
+		 AND release_group_entity.deleted_at IS NULL
+		WHERE release_claim.entity_kind='release'
+		  AND release_claim.provider='musicbrainz'
+		  AND release_claim.namespace='release'
+		  AND release_claim.normalized_value=$1
+		  AND release_claim.state='accepted'
+		LIMIT 1`,
+		value,
+	).Scan(&entityID)
 	return entityID, err
 }
 
@@ -190,6 +230,28 @@ func claimTargetFor(kind string, identifier Identifier) (claimTarget, bool) {
 	case "musicbrainz":
 		target.Provider = "musicbrainz"
 		target.Namespace = map[string]string{KindArtist: "artist", KindReleaseGroup: "release_group", "release": "release", KindRecording: "recording"}[kind]
+	case "musicbrainz_artist":
+		target.Provider, target.Namespace = "musicbrainz", "artist"
+		if kind != KindArtist {
+			target.EntityKind = ""
+		}
+	case "musicbrainz_release_group":
+		target.Provider, target.Namespace = "musicbrainz", "release_group"
+		if kind != KindReleaseGroup {
+			target.EntityKind = ""
+		}
+	case "musicbrainz_release":
+		target.Provider, target.Namespace = "musicbrainz", "release"
+		if kind == KindReleaseGroup {
+			target.ViaReleaseGroup = true
+		} else if kind != "release" {
+			target.EntityKind = ""
+		}
+	case "musicbrainz_recording":
+		target.Provider, target.Namespace = "musicbrainz", "recording"
+		if kind != KindRecording {
+			target.EntityKind = ""
+		}
 	case "tmdb":
 		target.Provider = "tmdb"
 		target.Namespace = map[string]string{KindMovie: "movie", KindTVShow: "tv", KindAnime: "tv", "person": "person"}[kind]

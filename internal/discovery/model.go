@@ -76,6 +76,7 @@ type ReleaseHint struct {
 	Title       string       `json:"title"`
 	Year        int          `json:"year,omitempty"`
 	Type        string       `json:"type,omitempty"`
+	Changed     bool         `json:"changed,omitempty"`
 	Identifiers []Identifier `json:"identifiers,omitempty" maxItems:"20"`
 }
 type Evidence struct {

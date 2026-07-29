@@ -92,7 +92,12 @@ func (w *DiscoverySearchWorker) Work(ctx context.Context, job *river.Job[Discove
 				return lookupErr
 			}
 			enqueueRecordingsAwaitingArtist(ctx, w.runtime, river.ClientFromContext[pgx.Tx](ctx), "musicbrainz", mbid, identifierResult.EntityID)
-			if enqueueErr := InsertArtistCatalog(ctx, river.ClientFromContext[pgx.Tx](ctx), identifierResult.EntityID, mbid, ArtistCatalogReleaseEvidence(run.Request)...); enqueueErr != nil {
+			releaseEvidence := ArtistCatalogReleaseEvidence(run.Request)
+			if ArtistCatalogRefreshRequested(run.Request) {
+				if _, enqueueErr := InsertArtistCatalogRefresh(ctx, w.runtime, river.ClientFromContext[pgx.Tx](ctx), identifierResult.EntityID, mbid, releaseEvidence...); enqueueErr != nil {
+					return fmt.Errorf("enqueue changed artist catalog: %w", enqueueErr)
+				}
+			} else if enqueueErr := InsertArtistCatalog(ctx, river.ClientFromContext[pgx.Tx](ctx), identifierResult.EntityID, mbid, releaseEvidence...); enqueueErr != nil {
 				return fmt.Errorf("enqueue discovered artist catalog: %w", enqueueErr)
 			}
 		}
@@ -159,7 +164,12 @@ func (w *DiscoverySearchWorker) Work(ctx context.Context, job *river.Job[Discove
 			return lookupErr
 		}
 		enqueueRecordingsAwaitingArtist(ctx, w.runtime, river.ClientFromContext[pgx.Tx](ctx), "musicbrainz", mbid, result.EntityID)
-		if enqueueErr := InsertArtistCatalog(ctx, river.ClientFromContext[pgx.Tx](ctx), result.EntityID, mbid, ArtistCatalogReleaseEvidence(run.Request)...); enqueueErr != nil {
+		releaseEvidence := ArtistCatalogReleaseEvidence(run.Request)
+		if ArtistCatalogRefreshRequested(run.Request) {
+			if _, enqueueErr := InsertArtistCatalogRefresh(ctx, w.runtime, river.ClientFromContext[pgx.Tx](ctx), result.EntityID, mbid, releaseEvidence...); enqueueErr != nil {
+				return fmt.Errorf("enqueue changed artist catalog: %w", enqueueErr)
+			}
+		} else if enqueueErr := InsertArtistCatalog(ctx, river.ClientFromContext[pgx.Tx](ctx), result.EntityID, mbid, releaseEvidence...); enqueueErr != nil {
 			return fmt.Errorf("enqueue discovered artist catalog: %w", enqueueErr)
 		}
 	}
@@ -187,6 +197,10 @@ func ArtistCatalogReleaseEvidence(request discovery.Request) []musiccatalog.Rele
 			value := musiccatalog.ReleaseEvidence{Provider: identifier.Scheme, Namespace: "album", ID: identifier.Value}
 			switch identifier.Scheme {
 			case "apple", "deezer":
+			case "musicbrainz_release_group":
+				value.Provider, value.Namespace = "musicbrainz", "release_group"
+			case "musicbrainz_release":
+				value.Provider, value.Namespace = "musicbrainz", "release"
 			case "discogs_release":
 				value.Provider, value.Namespace = "discogs", "release"
 			case "discogs_master":
@@ -212,6 +226,18 @@ func ArtistCatalogReleaseEvidence(request discovery.Request) []musiccatalog.Rele
 		return result[i].ID < result[j].ID
 	})
 	return result
+}
+
+func ArtistCatalogRefreshRequested(request discovery.Request) bool {
+	if request.Kind != discovery.KindArtist {
+		return false
+	}
+	for _, release := range request.Hints.Releases {
+		if release.Changed {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldFailDiscoveryRun(job *river.Job[DiscoverySearchArgs], workErr error) bool {

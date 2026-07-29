@@ -54,6 +54,9 @@ func TestIdentifierClaimTargetsStayBehindCanonicalKinds(t *testing.T) {
 		{KindTVShow, Identifier{Scheme: "tvdb", Value: "81189"}, claimTarget{EntityKind: KindTVShow, Provider: "tvdb", Namespace: "series"}},
 		{KindAnime, Identifier{Scheme: "myanimelist", Value: "1"}, claimTarget{EntityKind: KindAnime, Provider: "myanimelist", Namespace: "anime"}},
 		{KindArtist, Identifier{Scheme: "musicbrainz", Value: "e134b52f-2e9e-4734-9bc3-bea9648d1fa1"}, claimTarget{EntityKind: KindArtist, Provider: "musicbrainz", Namespace: "artist"}},
+		{KindArtist, Identifier{Scheme: "musicbrainz_artist", Value: "e134b52f-2e9e-4734-9bc3-bea9648d1fa1"}, claimTarget{EntityKind: KindArtist, Provider: "musicbrainz", Namespace: "artist"}},
+		{KindReleaseGroup, Identifier{Scheme: "musicbrainz_release_group", Value: "f3f3577a-6ea1-4219-8aa7-b4a61c799a15"}, claimTarget{EntityKind: KindReleaseGroup, Provider: "musicbrainz", Namespace: "release_group"}},
+		{KindReleaseGroup, Identifier{Scheme: "musicbrainz_release", Value: "34e7ff03-8160-4d4f-a407-03f2c6510a2e"}, claimTarget{EntityKind: KindReleaseGroup, Provider: "musicbrainz", Namespace: "release", ViaReleaseGroup: true}},
 		{KindBookWork, Identifier{Scheme: "isbn", Value: "9780261102217"}, claimTarget{EntityKind: KindBookWork, Provider: "isbn", Namespace: "isbn13", ViaWork: true}},
 	}
 	for _, test := range tests {
@@ -67,6 +70,31 @@ func TestIdentifierClaimTargetsStayBehindCanonicalKinds(t *testing.T) {
 	}
 	if _, ok := claimTargetFor(KindMovie, Identifier{Scheme: "musicbrainz", Value: "irrelevant"}); ok {
 		t.Fatal("a music identifier must not be interpreted for movies")
+	}
+}
+
+func TestMusicBrainzNamespacesRemainDistinct(t *testing.T) {
+	t.Parallel()
+	request := NormalizeRequest(Request{
+		Kind: KindReleaseGroup,
+		Identifiers: []Identifier{
+			{Scheme: "musicbrainz_release_group", Value: "F3F3577A-6EA1-4219-8AA7-B4A61C799A15"},
+			{Scheme: "musicbrainz_album", Value: "34E7FF03-8160-4D4F-A407-03F2C6510A2E"},
+		},
+	})
+	if len(request.Identifiers) != 2 {
+		t.Fatalf("identifiers = %#v", request.Identifiers)
+	}
+	if request.Identifiers[0].Scheme != "musicbrainz_release" || request.Identifiers[1].Scheme != "musicbrainz_release_group" {
+		t.Fatalf("MusicBrainz namespaces collapsed: %#v", request.Identifiers)
+	}
+	release, ok := directIngestionRoot(KindReleaseGroup, request.Identifiers[0])
+	if !ok || release.Namespace != "release" {
+		t.Fatalf("issued release root = %#v, %v", release, ok)
+	}
+	group, ok := directIngestionRoot(KindReleaseGroup, request.Identifiers[1])
+	if !ok || group.Namespace != "release_group" {
+		t.Fatalf("release-group root = %#v, %v", group, ok)
 	}
 }
 
@@ -96,7 +124,7 @@ func TestOpenLibraryIdentifierNormalizationAndValidation(t *testing.T) {
 }
 
 func TestArtistReleaseIdentifiersRequireDurableIdentityCheck(t *testing.T) {
-	request := NormalizeRequest(Request{Kind: KindArtist, Hints: Hints{Releases: []ReleaseHint{{Title: "Vault Playlist, Vol. 1", Identifiers: []Identifier{{Scheme: "musicbrainz", Value: "ffd21680-ae04-4e8b-8523-0a5c1001627b"}}}}}})
+	request := NormalizeRequest(Request{Kind: KindArtist, Hints: Hints{Releases: []ReleaseHint{{Title: "Vault Playlist, Vol. 1", Identifiers: []Identifier{{Scheme: "musicbrainz_release", Value: "ffd21680-ae04-4e8b-8523-0a5c1001627b"}}}}}})
 	if !hasArtistReleaseIdentityEvidence(request) {
 		t.Fatal("MusicBrainz release identity evidence must bypass the synchronous known-ID shortcut")
 	}

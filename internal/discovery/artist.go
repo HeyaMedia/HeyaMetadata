@@ -384,7 +384,8 @@ func normalizeIdentifier(identifier Identifier) Identifier {
 		"apple_artist": "apple", "apple_music_artist": "apple", "itunes_artist": "apple",
 		"deezer_artist": "deezer", "discogs_artist": "discogs",
 		"mal": "myanimelist", "mal_id": "myanimelist", "mbid": "musicbrainz",
-		"musicbrainz_id": "musicbrainz", "thetvdb": "tvdb", "tmdb_id": "tmdb",
+		"musicbrainz_album": "musicbrainz_release", "musicbrainz_id": "musicbrainz",
+		"thetvdb": "tvdb", "tmdb_id": "tmdb",
 		"tvdb_id": "tvdb", "tvmaze_id": "tvmaze",
 	}
 	if canonical, ok := aliases[scheme]; ok {
@@ -393,7 +394,7 @@ func normalizeIdentifier(identifier Identifier) Identifier {
 	identifier.Scheme = scheme
 	identifier.Value = strings.TrimSpace(identifier.Value)
 	switch identifier.Scheme {
-	case "imdb", "musicbrainz":
+	case "imdb", "musicbrainz", "musicbrainz_artist", "musicbrainz_release_group", "musicbrainz_release", "musicbrainz_recording":
 		identifier.Value = strings.ToLower(identifier.Value)
 	case "isbn":
 		identifier.Value = strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(identifier.Value))
@@ -415,6 +416,8 @@ func normalizeReleaseIdentifiers(values []Identifier) []Identifier {
 	for _, identifier := range values {
 		scheme := strings.ToLower(strings.TrimSpace(identifier.Scheme))
 		switch scheme {
+		case "musicbrainz_album":
+			scheme = "musicbrainz_release"
 		case "itunes_album", "apple_album", "apple_music_album":
 			scheme = "apple"
 		case "deezer_album":

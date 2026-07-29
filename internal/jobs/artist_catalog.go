@@ -23,7 +23,7 @@ const (
 type ArtistCatalogSyncArgs struct {
 	ArtistEntityID  string                         `json:"artist_entity_id" river:"unique"`
 	MusicBrainzID   string                         `json:"musicbrainz_id" river:"unique"`
-	ReleaseEvidence []musiccatalog.ReleaseEvidence `json:"release_evidence,omitempty" river:"unique"`
+	ReleaseEvidence []musiccatalog.ReleaseEvidence `json:"release_evidence,omitempty"`
 }
 
 func (ArtistCatalogSyncArgs) Kind() string { return ArtistCatalogSyncKind }
@@ -43,6 +43,37 @@ func InsertArtistCatalog(ctx context.Context, client *river.Client[pgx.Tx], arti
 		ReleaseEvidence: releaseEvidence,
 	}, nil)
 	return err
+}
+
+// InsertArtistCatalogRefresh keeps a newly observed release responsive without
+// turning every scan into another complete storefront/MusicBrainz catalog
+// crawl. The normal seven-day scheduler remains authoritative; this is only a
+// bounded one-per-artist refresh window for explicit caller change signals.
+func InsertArtistCatalogRefresh(ctx context.Context, runtime *platform.Runtime, client *river.Client[pgx.Tx], artistEntityID, musicBrainzID string, releaseEvidence ...musiccatalog.ReleaseEvidence) (bool, error) {
+	var recentlyRefreshed bool
+	err := runtime.DB.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM artist_catalog_sync_runs
+			WHERE artist_entity_id=$1
+			  AND state='completed'
+			  AND completed_at >= $2
+		) OR EXISTS(
+			SELECT 1
+			FROM river_job
+			WHERE kind=$3
+			  AND args->>'artist_entity_id'=$1
+			  AND state IN ('available','pending','retryable','running','scheduled')
+		)`,
+		artistEntityID, time.Now().UTC().Add(-24*time.Hour), ArtistCatalogSyncKind,
+	).Scan(&recentlyRefreshed)
+	if err != nil {
+		return false, err
+	}
+	if recentlyRefreshed {
+		return false, nil
+	}
+	return true, InsertArtistCatalog(ctx, client, artistEntityID, musicBrainzID, releaseEvidence...)
 }
 
 type ArtistCatalogSyncWorker struct {
@@ -81,15 +112,6 @@ func (w *ArtistCatalogSyncWorker) Work(ctx context.Context, job *river.Job[Artis
 		"public_clusters", result.PublicClusters,
 	)
 
-	client := river.ClientFromContext[pgx.Tx](ctx)
-	for _, group := range result.ReleaseGroups {
-		if _, err := client.Insert(ctx, ReleaseGroupIngestArgs{
-			MusicBrainzID: group.ID,
-			Reason:        "artist_catalog",
-		}, &river.InsertOpts{Queue: MusicQueue, Priority: PriorityScheduled}); err != nil {
-			return fmt.Errorf("enqueue release group %s: %w", group.ID, err)
-		}
-	}
 	return nil
 }
 

@@ -33,6 +33,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tvmaze"
 	"github.com/HeyaMedia/HeyaMetadata/internal/recordings"
 	"github.com/HeyaMedia/HeyaMetadata/internal/releasegroups"
+	"github.com/HeyaMedia/HeyaMetadata/internal/releases"
 	"github.com/HeyaMedia/HeyaMetadata/internal/tvshows"
 	"github.com/jackc/pgx/v5"
 )
@@ -294,6 +295,9 @@ func sortedIngestionRoots(values map[string]ingestionRoot) []ingestionRoot {
 }
 
 func (s *Service) resolveIngestionRootClaim(ctx context.Context, root ingestionRoot) (string, error) {
+	if root.Kind == KindReleaseGroup && root.Provider == "musicbrainz" && root.Namespace == "release" {
+		return s.resolveMusicBrainzReleaseGroupByRelease(ctx, root.Value)
+	}
 	var entityID string
 	err := s.runtime.DB.QueryRow(ctx, `SELECT claim.entity_id::text FROM external_id_claims claim JOIN entities entity ON entity.id=claim.entity_id AND entity.kind=$1 AND entity.deleted_at IS NULL WHERE claim.entity_kind=$1 AND claim.provider=$2 AND claim.namespace=$3 AND claim.normalized_value=$4 AND claim.state='accepted'`, root.Kind, root.Provider, root.Namespace, root.Value).Scan(&entityID)
 	return entityID, err
@@ -366,14 +370,14 @@ func (s *Service) artistReleaseEvidenceFromHints(ctx context.Context, hints []Re
 				continue
 			}
 			switch identifier.Scheme {
-			case "musicbrainz", "apple", "deezer", "discogs_release", "discogs_master":
+			case "musicbrainz", "musicbrainz_release_group", "musicbrainz_release", "apple", "deezer", "discogs_release", "discogs_master":
 				pending = append(pending, pendingLookup{hint: hint, identifier: identifier})
 			}
 		}
 	}
 	releasePriority := func(scheme string) int {
 		switch scheme {
-		case "musicbrainz":
+		case "musicbrainz", "musicbrainz_release_group", "musicbrainz_release":
 			return 0
 		case "apple":
 			return 1
@@ -403,7 +407,7 @@ func (s *Service) artistReleaseEvidenceFromHints(ctx context.Context, hints []Re
 		var matched bool
 		var lookupErr error
 		switch identifier.Scheme {
-		case "musicbrainz":
+		case "musicbrainz", "musicbrainz_release_group", "musicbrainz_release":
 			lookupErr = loadMusicBrainz()
 			if lookupErr == nil {
 				evidence, matched, lookupErr = artistReleaseEvidenceFromMusicBrainz(ctx, musicBrainzClient, hint, identifier)
@@ -578,7 +582,14 @@ func artistReleaseEvidenceFromMusicBrainz(ctx context.Context, client *musicbrai
 			} `json:"artist"`
 		} `json:"artist-credit"`
 	}
-	for _, namespace := range []string{"release_group", "release"} {
+	namespaces := []string{"release_group", "release"}
+	switch identifier.Scheme {
+	case "musicbrainz_release_group":
+		namespaces = []string{"release_group"}
+	case "musicbrainz_release":
+		namespaces = []string{"release"}
+	}
+	for _, namespace := range namespaces {
 		payloads, err := client.Collect(ctx, providers.Identifier{Provider: "musicbrainz", Namespace: namespace, Value: identifier.Value})
 		if err != nil {
 			return artistReleaseEvidence{}, false, err
@@ -829,7 +840,15 @@ func directIngestionRoot(kind string, identifier Identifier) (ingestionRoot, boo
 		root.Provider, root.Namespace = "deezer", "artist"
 	case kind == KindReleaseGroup && identifier.Scheme == "musicbrainz":
 		root.Provider, root.Namespace = "musicbrainz", "release_group"
+	case kind == KindReleaseGroup && identifier.Scheme == "musicbrainz_release_group":
+		root.Provider, root.Namespace = "musicbrainz", "release_group"
+	case kind == KindReleaseGroup && identifier.Scheme == "musicbrainz_release":
+		root.Provider, root.Namespace = "musicbrainz", "release"
 	case kind == KindRecording && identifier.Scheme == "musicbrainz":
+		root.Provider, root.Namespace = "musicbrainz", "recording"
+	case kind == KindArtist && identifier.Scheme == "musicbrainz_artist":
+		root.Provider, root.Namespace = "musicbrainz", "artist"
+	case kind == KindRecording && identifier.Scheme == "musicbrainz_recording":
 		root.Provider, root.Namespace = "musicbrainz", "recording"
 	case kind == KindMusicalWork && identifier.Scheme == "openopus":
 		root.Provider, root.Namespace = "openopus", "work"
@@ -1154,6 +1173,44 @@ func (s *Service) ingestRoot(ctx context.Context, root ingestionRoot, jobID int6
 		}
 		return result.EntityID, err
 	case KindReleaseGroup:
+		if root.Provider == "musicbrainz" && root.Namespace == "release" {
+			release, err := releases.NewService(s.runtime).IngestMusicBrainzWithCredentials(ctx, root.Value, jobID, credentials)
+			if err != nil {
+				return "", err
+			}
+			releaseGroupID := ""
+			for _, identifier := range release.Detail.ExternalIDs {
+				if identifier.Provider == "musicbrainz" && identifier.Namespace == "release_group" {
+					releaseGroupID = identifier.Value
+					break
+				}
+			}
+			if releaseGroupID == "" {
+				return "", fmt.Errorf("MusicBrainz release %s has no release-group identity", root.Value)
+			}
+			groupRoot := ingestionRoot{Kind: KindReleaseGroup, Provider: "musicbrainz", Namespace: "release_group", Value: releaseGroupID}
+			groupEntityID, resolveErr := s.resolveIngestionRootClaim(ctx, groupRoot)
+			if errors.Is(resolveErr, pgx.ErrNoRows) {
+				groupEntityID, resolveErr = s.ingestRoot(ctx, groupRoot, jobID, credentials)
+			}
+			if resolveErr != nil {
+				return "", resolveErr
+			}
+			_, err = s.runtime.DB.Exec(ctx, `
+				UPDATE entity_relations
+				SET target_entity_id=$1
+				WHERE source_entity_id=$2
+				  AND source_kind='release_group'
+				  AND target_kind='release'
+				  AND relation_type='editions'
+				  AND provider='musicbrainz'
+				  AND namespace='release'
+				  AND provider_value=$3
+				  AND state='accepted'`,
+				release.EntityID, groupEntityID, root.Value,
+			)
+			return groupEntityID, err
+		}
 		result, err := releasegroups.NewService(s.runtime).IngestMusicBrainz(ctx, root.Value, jobID, credentials)
 		return result.EntityID, err
 	case KindRecording:

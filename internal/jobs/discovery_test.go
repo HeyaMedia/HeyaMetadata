@@ -13,11 +13,28 @@ import (
 func TestArtistCatalogReleaseEvidenceKeepsSupportedExactReleaseIDs(t *testing.T) {
 	t.Parallel()
 	request := discovery.NormalizeRequest(discovery.Request{Kind: discovery.KindArtist, Hints: discovery.Hints{Releases: []discovery.ReleaseHint{
-		{Title: "Freaks Out", Identifiers: []discovery.Identifier{{Scheme: "itunes_album", Value: "1630125755"}, {Scheme: "deezer_album", Value: "123"}, {Scheme: "spotify", Value: "ignored"}}},
+		{Title: "Freaks Out", Changed: true, Identifiers: []discovery.Identifier{
+			{Scheme: "itunes_album", Value: "1630125755"},
+			{Scheme: "deezer_album", Value: "123"},
+			{Scheme: "musicbrainz_release_group", Value: "f3f3577a-6ea1-4219-8aa7-b4a61c799a15"},
+			{Scheme: "musicbrainz_release", Value: "34e7ff03-8160-4d4f-a407-03f2c6510a2e"},
+			{Scheme: "spotify", Value: "ignored"},
+		}},
 	}}})
 	got := ArtistCatalogReleaseEvidence(request)
-	if len(got) != 2 || got[0].Provider != "apple" || got[0].Namespace != "album" || got[0].ID != "1630125755" || got[1].Provider != "deezer" || got[1].ID != "123" {
+	if len(got) != 4 ||
+		got[0].Provider != "apple" || got[0].Namespace != "album" || got[0].ID != "1630125755" ||
+		got[1].Provider != "deezer" || got[1].ID != "123" ||
+		got[2].Provider != "musicbrainz" || got[2].Namespace != "release" ||
+		got[3].Provider != "musicbrainz" || got[3].Namespace != "release_group" {
 		t.Fatalf("release evidence: %#v", got)
+	}
+	if !ArtistCatalogRefreshRequested(request) {
+		t.Fatal("changed release did not request a bounded catalog refresh")
+	}
+	request.Hints.Releases[0].Changed = false
+	if ArtistCatalogRefreshRequested(request) {
+		t.Fatal("ordinary artist evidence requested a change refresh")
 	}
 }
 

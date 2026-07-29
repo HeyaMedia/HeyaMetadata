@@ -60,7 +60,6 @@ type cluster struct {
 	AlternateTargets []string
 }
 type Result struct {
-	ReleaseGroups  []ReleaseGroup
 	Pages          int
 	Candidates     int
 	Gated          int
@@ -166,9 +165,6 @@ func SyncArtist(ctx context.Context, runtime *platform.Runtime, artistEntityID, 
 	}
 	if err := reconcilePromotions(ctx, runtime, artistEntityID); err != nil {
 		return result, err
-	}
-	for _, c := range mb {
-		result.ReleaseGroups = append(result.ReleaseGroups, ReleaseGroup{ID: c.ID, Title: c.Title, FirstRelease: c.Date, PrimaryType: c.Kind})
 	}
 	_, err = runtime.DB.Exec(ctx, `UPDATE artist_catalog_sync_runs SET state='completed',pages=$2,release_groups=$3,error=NULL,completed_at=now()WHERE river_job_id=$1`, jobID, result.Pages, result.Clusters)
 	return result, err
