@@ -18,6 +18,67 @@ func TestArtistHintsPromoteCorrectAmbiguousCandidate(t *testing.T) {
 		t.Fatalf("hints did not separate candidates: jp=%+v de=%+v", japanese, german)
 	}
 }
+
+func TestArtistCandidatePresentationRetainsActionableUpstreamFacts(t *testing.T) {
+	tags := rankedArtistTags([]artistSearchTag{
+		{Name: "visual kei", Count: 1},
+		{Name: "symphonic metal", Count: 2},
+		{Name: "ignored", Count: 0},
+		{Name: "Power Metal", Count: 1},
+	}, 3)
+	if strings.Join(tags, ",") != "symphonic metal,Power Metal,visual kei" {
+		t.Fatalf("ranked tags = %#v", tags)
+	}
+
+	var apple appleArtistSearch
+	if err := json.Unmarshal([]byte(`{"results":[{"wrapperType":"artist","artistId":1,"artistName":"Unlucky Morpheus","artistType":"Artist","primaryGenreName":"Metal"}]}`), &apple); err != nil {
+		t.Fatal(err)
+	}
+	appleDisplay := appleArtistDisplay(apple.Results[0])
+	if appleDisplay.Name != "Unlucky Morpheus" || appleDisplay.Type != "artist" || strings.Join(appleDisplay.Genres, ",") != "Metal" {
+		t.Fatalf("Apple presentation = %+v", appleDisplay)
+	}
+
+	var deezer deezerArtistSearch
+	if err := json.Unmarshal([]byte(`{"data":[{"id":14633177,"name":"Unlucky Morpheus","type":"artist","picture_xl":"http://cdn-images.dzcdn.net/artist.jpg","nb_album":28,"nb_fan":4707}]}`), &deezer); err != nil {
+		t.Fatal(err)
+	}
+	deezerDisplay := deezerArtistDisplay(deezer.Data[0])
+	if deezerDisplay.ImageURL != "https://cdn-images.dzcdn.net/artist.jpg" || deezerDisplay.ImageWidth != 1000 || deezerDisplay.ImageHeight != 1000 {
+		t.Fatalf("Deezer artwork = %+v", deezerDisplay)
+	}
+	if deezerDisplay.ReleaseCount != 28 || deezerDisplay.FanCount != 4707 || deezerDisplay.Type != "artist" {
+		t.Fatalf("Deezer presentation = %+v", deezerDisplay)
+	}
+
+	body, err := json.Marshal(Candidate{
+		Display:    deezerDisplay,
+		Identity:   ExternalID{Provider: "deezer", Namespace: "artist", Value: "14633177"},
+		Resolution: Resolution{Kind: KindArtist, Provider: "deezer", Namespace: "artist", Value: "14633177"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"image_url":"https://cdn-images.dzcdn.net/artist.jpg"`) {
+		t.Fatalf("candidate presentation is missing from JSON: %s", body)
+	}
+	for _, forbidden := range []string{`"provider"`, `"namespace"`, `"identity"`, `"resolution"`} {
+		if strings.Contains(string(body), forbidden) {
+			t.Fatalf("candidate leaked private routing %s: %s", forbidden, body)
+		}
+	}
+}
+
+func TestCandidateImageRejectsNonHTTPSource(t *testing.T) {
+	imageURL, width, height := candidateImage(
+		candidateImageSource{URL: "javascript:alert(1)", Width: 1000, Height: 1000},
+		candidateImageSource{URL: "https://images.example.test/artist.jpg", Width: 500, Height: 500},
+	)
+	if imageURL != "https://images.example.test/artist.jpg" || width != 500 || height != 500 {
+		t.Fatalf("candidate image = %q %dx%d", imageURL, width, height)
+	}
+}
+
 func TestRecommendationRequiresMargin(t *testing.T) {
 	values := []Candidate{{Confidence: .91}, {Confidence: .86}}
 	if got := recommendation(values); got != "ambiguous" {

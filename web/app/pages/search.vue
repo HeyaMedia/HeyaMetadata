@@ -37,6 +37,7 @@ const results = computed(() => searchData.value?.results ?? [])
 const discovering = ref(false)
 const discoveryError = ref('')
 const candidates = ref<DiscoveryCandidate[]>([])
+const hasCandidateArtwork = computed(() => candidates.value.some(candidate => !!candidate.display?.image_url))
 const resolvingRef = ref('')
 // Kind reported by discovery, used only to pick the canonical detail route.
 const resolvedKind = ref('')
@@ -77,7 +78,39 @@ async function runDiscovery() {
 
 function candidateSubtitle(candidate: DiscoveryCandidate) {
   const display = candidate.display ?? {}
-  return [display.year, titleCase(display.type), formatValue(display.artists)].filter(Boolean).join(' · ')
+  let activeDates = ''
+  if (display.begin_date) {
+    activeDates = display.end_date
+      ? `${display.begin_date}–${display.end_date}`
+      : display.ended ? display.begin_date : `${display.begin_date}–present`
+  }
+  return [
+    display.year,
+    titleCase(display.type),
+    display.area || display.country,
+    activeDates,
+    formatValue(display.artists),
+  ].filter(Boolean).join(' · ')
+}
+
+function candidateAliases(candidate: DiscoveryCandidate) {
+  const name = candidate.display?.name?.toLocaleLowerCase()
+  return (candidate.display?.aliases ?? [])
+    .filter(alias => alias.toLocaleLowerCase() !== name)
+    .slice(0, 3)
+    .join(', ')
+}
+
+function candidateMetrics(candidate: DiscoveryCandidate) {
+  const display = candidate.display ?? {}
+  return [
+    display.release_count ? `${formatCount(display.release_count)} releases` : '',
+    display.fan_count ? `${formatCount(display.fan_count)} fans` : '',
+  ].filter(Boolean).join(' · ')
+}
+
+function candidateInitial(candidate: DiscoveryCandidate) {
+  return (candidate.display?.name || candidate.display?.title || '?').trim().charAt(0).toLocaleUpperCase()
 }
 
 async function resolveCandidate(candidate: DiscoveryCandidate) {
@@ -134,13 +167,29 @@ async function resolveCandidate(candidate: DiscoveryCandidate) {
 
       <section v-if="candidates.length" class="candidates">
         <h3 class="candidates__title">{{ candidates.length }} candidates need selection</h3>
-        <article v-for="candidate in candidates" :key="candidate.candidate_ref" class="candidate">
+        <article v-for="candidate in candidates" :key="candidate.candidate_ref" class="candidate" :class="{ 'candidate--with-art': hasCandidateArtwork }">
           <div class="candidate__rank">{{ String(candidate.rank).padStart(2, '0') }}</div>
+          <div v-if="hasCandidateArtwork" class="candidate__art" :class="{ 'candidate__art--empty': !candidate.display.image_url }">
+            <img
+              v-if="candidate.display.image_url"
+              :src="candidate.display.image_url"
+              :alt="candidate.display.name || candidate.display.title || 'Candidate artwork'"
+              loading="lazy"
+              referrerpolicy="no-referrer"
+            >
+            <span v-else>{{ candidateInitial(candidate) }}</span>
+          </div>
           <div class="candidate__main">
             <div class="candidate__head">
               <h4>{{ formatValue(candidate.display.title || candidate.display.name) || 'Untitled' }}</h4>
             </div>
             <p v-if="candidateSubtitle(candidate)" class="candidate__sub">{{ candidateSubtitle(candidate) }}</p>
+            <p v-if="candidate.display.disambiguation" class="candidate__description">{{ candidate.display.disambiguation }}</p>
+            <div v-if="candidate.display.genres?.length" class="candidate__genres">
+              <span v-for="genre in candidate.display.genres.slice(0, 6)" :key="genre">{{ genre }}</span>
+            </div>
+            <p v-if="candidateAliases(candidate)" class="candidate__detail">Also known as {{ candidateAliases(candidate) }}</p>
+            <p v-if="candidateMetrics(candidate)" class="candidate__detail">{{ candidateMetrics(candidate) }}</p>
             <div v-if="candidate.evidence?.length" class="candidate__evidence">
               <span v-for="(fact, index) in candidate.evidence.slice(0, 4)" :key="index">
                 <i :class="{ negative: fact.weight < 0 }" />{{ formatKey(fact.field) }}: {{ formatValue(fact.outcome) }}
@@ -197,12 +246,27 @@ async function resolveCandidate(candidate: DiscoveryCandidate) {
   padding: 1.25rem 0.25rem;
   border-bottom: 1px solid var(--line);
 }
+.candidate--with-art { grid-template-columns: 2.5rem 5rem 1fr auto auto; }
 .candidate__rank { color: #4d585d; font-family: var(--font-mono); font-size: 0.72rem; }
+.candidate__art {
+  overflow: hidden;
+  width: 5rem;
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  background: #15191b;
+}
+.candidate__art img { width: 100%; height: 100%; object-fit: cover; }
+.candidate__art--empty { display: grid; place-items: center; color: #536066; font-family: var(--font-mono); font-size: 1.4rem; }
 .candidate__main { min-width: 0; }
 .candidate__head { display: flex; align-items: baseline; gap: 0.8rem; }
 .candidate__provider { color: var(--gold); font-family: var(--font-mono); font-size: 0.58rem; text-transform: uppercase; }
 .candidate__head h4 { overflow: hidden; margin: 0; font-size: 1rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .candidate__sub { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.7rem; }
+.candidate__description { margin: 0.35rem 0 0; color: #b6c0c4; font-size: 0.72rem; line-height: 1.4; }
+.candidate__genres { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.55rem; }
+.candidate__genres span { padding: 0.18rem 0.4rem; border: 1px solid #354045; border-radius: 999px; color: #9eaaaf; font-size: 0.58rem; }
+.candidate__detail { margin: 0.35rem 0 0; color: #768187; font-size: 0.62rem; line-height: 1.4; }
 .candidate__evidence { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.55rem; color: #768187; font-size: 0.62rem; }
 .candidate__evidence span { display: flex; align-items: center; gap: 0.35rem; }
 .candidate__evidence i { width: 0.3rem; height: 0.3rem; border-radius: 50%; background: var(--green); }
@@ -212,8 +276,11 @@ async function resolveCandidate(candidate: DiscoveryCandidate) {
 .candidate__confidence span { color: var(--muted-2); font-size: 0.55rem; text-transform: uppercase; }
 
 @media (max-width: 720px) {
-  .candidate { grid-template-columns: 2rem 1fr auto; }
+  .candidate { grid-template-columns: 2rem 1fr; gap: 0.9rem; }
+  .candidate--with-art { grid-template-columns: 2rem 4rem 1fr; }
+  .candidate__art { width: 4rem; }
   .candidate__confidence { display: none; }
   .candidate > .btn { grid-column: 2 / -1; justify-self: start; }
+  .candidate--with-art > .btn { grid-column: 3 / -1; }
 }
 </style>

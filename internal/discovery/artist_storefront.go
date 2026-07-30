@@ -16,6 +16,34 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+type appleArtistSearch struct {
+	Results []appleArtistSearchHit `json:"results"`
+}
+
+type appleArtistSearchHit struct {
+	WrapperType      string `json:"wrapperType"`
+	ArtistID         int64  `json:"artistId"`
+	ArtistName       string `json:"artistName"`
+	ArtistType       string `json:"artistType"`
+	PrimaryGenreName string `json:"primaryGenreName"`
+}
+
+type deezerArtistSearch struct {
+	Data []deezerArtistSearchHit `json:"data"`
+}
+
+type deezerArtistSearchHit struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	Type          string `json:"type"`
+	Picture       string `json:"picture"`
+	PictureMedium string `json:"picture_medium"`
+	PictureBig    string `json:"picture_big"`
+	PictureXL     string `json:"picture_xl"`
+	ReleaseCount  int    `json:"nb_album"`
+	FanCount      int64  `json:"nb_fan"`
+}
+
 func (s *Service) discoverStorefrontArtistCandidates(ctx context.Context, request Request, jobID int64) ([]Candidate, []string, error) {
 	result := []Candidate{}
 	providersUsed := []string{}
@@ -49,15 +77,7 @@ func (s *Service) discoverAppleArtists(ctx context.Context, request Request, job
 	if payload.StatusCode != http.StatusOK {
 		return nil, &providers.StatusError{Provider: "apple", StatusCode: payload.StatusCode}
 	}
-	var envelope struct {
-		Results []struct {
-			WrapperType      string `json:"wrapperType"`
-			ArtistID         int64  `json:"artistId"`
-			ArtistName       string `json:"artistName"`
-			ArtistType       string `json:"artistType"`
-			PrimaryGenreName string `json:"primaryGenreName"`
-		} `json:"results"`
-	}
+	var envelope appleArtistSearch
 	if err := json.Unmarshal(payload.Body, &envelope); err != nil {
 		return nil, err
 	}
@@ -85,7 +105,7 @@ func (s *Service) discoverAppleArtists(ctx context.Context, request Request, job
 		candidate := Candidate{
 			ProviderScore:        providerScore,
 			Identity:             artistIdentity,
-			Display:              Display{Name: hit.ArtistName, Type: normalizeType(hit.ArtistType)},
+			Display:              appleArtistDisplay(hit),
 			MatchedReleases:      matched,
 			Resolution:           Resolution{Kind: KindArtist, Provider: "apple", Namespace: "artist", Value: id},
 			artistReleaseMatches: matchedIdentities,
@@ -113,12 +133,7 @@ func (s *Service) discoverDeezerArtists(ctx context.Context, request Request, jo
 	if payload.StatusCode != http.StatusOK {
 		return nil, &providers.StatusError{Provider: "deezer", StatusCode: payload.StatusCode}
 	}
-	var envelope struct {
-		Data []struct {
-			ID   int64  `json:"id"`
-			Name string `json:"name"`
-		} `json:"data"`
-	}
+	var envelope deezerArtistSearch
 	if err := json.Unmarshal(payload.Body, &envelope); err != nil {
 		return nil, err
 	}
@@ -144,7 +159,7 @@ func (s *Service) discoverDeezerArtists(ctx context.Context, request Request, jo
 		candidate := Candidate{
 			ProviderScore:        providerScore,
 			Identity:             artistIdentity,
-			Display:              Display{Name: hit.Name},
+			Display:              deezerArtistDisplay(hit),
 			MatchedReleases:      matched,
 			Resolution:           Resolution{Kind: KindArtist, Provider: "deezer", Namespace: "artist", Value: id},
 			artistReleaseMatches: matchedIdentities,
@@ -156,6 +171,28 @@ func (s *Service) discoverDeezerArtists(ctx context.Context, request Request, jo
 		result = append(result, candidate)
 	}
 	return result, nil
+}
+
+func appleArtistDisplay(hit appleArtistSearchHit) Display {
+	genres := []string{}
+	if genre := strings.TrimSpace(hit.PrimaryGenreName); genre != "" {
+		genres = append(genres, genre)
+	}
+	return Display{Name: hit.ArtistName, Type: normalizeType(hit.ArtistType), Genres: genres}
+}
+
+func deezerArtistDisplay(hit deezerArtistSearchHit) Display {
+	imageURL, imageWidth, imageHeight := candidateImage(
+		candidateImageSource{URL: hit.PictureXL, Width: 1000, Height: 1000},
+		candidateImageSource{URL: hit.PictureBig, Width: 500, Height: 500},
+		candidateImageSource{URL: hit.PictureMedium, Width: 250, Height: 250},
+		candidateImageSource{URL: hit.Picture},
+	)
+	return Display{
+		Name: hit.Name, Type: normalizeType(hit.Type),
+		ImageURL: imageURL, ImageWidth: imageWidth, ImageHeight: imageHeight,
+		ReleaseCount: hit.ReleaseCount, FanCount: hit.FanCount,
+	}
 }
 
 func matchedCatalogReleaseHints(hints []ReleaseHint, catalog []musiccatalog.IdentityRelease, artist ExternalID) ([]ReleaseHint, []artistReleaseMatch) {

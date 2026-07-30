@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,6 +26,17 @@ import (
 type Service struct{ runtime *platform.Runtime }
 
 func NewService(runtime *platform.Runtime) *Service { return &Service{runtime: runtime} }
+
+type artistSearchTag struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+type candidateImageSource struct {
+	URL    string
+	Width  int
+	Height int
+}
 
 type mbArtistSearch struct {
 	Artists []struct {
@@ -46,6 +58,7 @@ type mbArtistSearch struct {
 		Aliases []struct {
 			Name string `json:"name"`
 		} `json:"aliases"`
+		Tags []artistSearchTag `json:"tags"`
 	} `json:"artists"`
 }
 type mbReleaseSearch struct {
@@ -240,7 +253,7 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 			}
 		}
 		aliases = cleanSorted(aliases)
-		display := Display{Name: value.Name, SortName: value.SortName, Disambiguation: value.Disambiguation, Type: normalizeType(value.Type), Country: strings.ToUpper(value.Country), BeginDate: value.LifeSpan.Begin, EndDate: value.LifeSpan.End, Ended: value.LifeSpan.Ended, Aliases: aliases}
+		display := Display{Name: value.Name, SortName: value.SortName, Disambiguation: value.Disambiguation, Type: normalizeType(value.Type), Country: strings.ToUpper(value.Country), BeginDate: value.LifeSpan.Begin, EndDate: value.LifeSpan.End, Ended: value.LifeSpan.Ended, Aliases: aliases, Genres: rankedArtistTags(value.Tags, 6)}
 		if value.Area != nil {
 			display.Area = value.Area.Name
 		}
@@ -282,6 +295,43 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 	recommended, candidates := presentCandidates(candidates, request.Limit)
 	result := Result{SchemaVersion: SchemaVersion, Kind: KindArtist, Query: request.Query, Status: "completed", Recommendation: recommended, Candidates: candidates, Providers: providersUsed, ObservedAt: time.Now().UTC(), ArtistConvergence: convergence}
 	return result, nil
+}
+
+func rankedArtistTags(values []artistSearchTag, limit int) []string {
+	values = append([]artistSearchTag(nil), values...)
+	sort.SliceStable(values, func(i, j int) bool {
+		if values[i].Count != values[j].Count {
+			return values[i].Count > values[j].Count
+		}
+		return strings.ToLower(values[i].Name) < strings.ToLower(values[j].Name)
+	})
+	result := make([]string, 0, min(limit, len(values)))
+	seen := map[string]bool{}
+	for _, value := range values {
+		name := strings.TrimSpace(value.Name)
+		key := strings.ToLower(name)
+		if name == "" || value.Count <= 0 || seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, name)
+		if len(result) == limit {
+			break
+		}
+	}
+	return result
+}
+
+func candidateImage(values ...candidateImageSource) (string, int, int) {
+	for _, value := range values {
+		parsed, err := url.Parse(strings.TrimSpace(value.URL))
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			continue
+		}
+		parsed.Scheme = "https"
+		return parsed.String(), value.Width, value.Height
+	}
+	return "", 0, 0
 }
 
 func NormalizeRequest(request Request) Request {

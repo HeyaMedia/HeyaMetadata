@@ -4,7 +4,7 @@ package discovery
 
 import "time"
 
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 const (
 	KindMovie        = "movie"
@@ -117,6 +117,12 @@ type Display struct {
 	EndDate        string          `json:"end_date,omitempty"`
 	Ended          *bool           `json:"ended,omitempty"`
 	Aliases        []string        `json:"aliases,omitempty"`
+	Genres         []string        `json:"genres,omitempty"`
+	ImageURL       string          `json:"image_url,omitempty" format:"uri"`
+	ImageWidth     int             `json:"image_width,omitempty"`
+	ImageHeight    int             `json:"image_height,omitempty"`
+	ReleaseCount   int             `json:"release_count,omitempty"`
+	FanCount       int64           `json:"fan_count,omitempty"`
 	DurationMS     int64           `json:"duration_ms,omitempty"`
 	ISRCs          []string        `json:"isrcs,omitempty"`
 	Releases       []ReleaseHint   `json:"releases,omitempty"`

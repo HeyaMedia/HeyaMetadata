@@ -409,12 +409,33 @@ export interface EpisodeResource {
 /** Provider-transparent discovery candidate. The only actionable field is the
  * opaque candidate_ref, passed back to POST /resolutions. No provider identity,
  * existing-entity shortcut, or provider-shaped resolution object is exposed. */
+export interface DiscoveryCandidateDisplay {
+  name?: string
+  title?: string
+  disambiguation?: string
+  type?: string
+  country?: string
+  area?: string
+  year?: number
+  begin_date?: string
+  end_date?: string
+  ended?: boolean
+  artists?: Array<{ name: string; join?: string }>
+  aliases?: string[]
+  genres?: string[]
+  image_url?: string
+  image_width?: number
+  image_height?: number
+  release_count?: number
+  fan_count?: number
+}
+
 export interface DiscoveryCandidate {
   candidate_ref: string
   rank: number
   confidence: number
   match: string
-  display: Record<string, any>
+  display: DiscoveryCandidateDisplay
   evidence?: Array<Record<string, any>>
 }
 

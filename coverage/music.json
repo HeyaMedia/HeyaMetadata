@@ -9,6 +9,13 @@
       "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d", "discogs": "82730", "deezer": "1", "apple": "136975", "wikidata": "Q1299"}, "expected_providers": ["musicbrainz"]}, {"name": "Alicia Keys", "external_ids": {"musicbrainz": "8ef1df30-ae4f-4dbd-9351-1a32b208a01e", "deezer": "228", "apple": "316069"}, "expected_providers": ["musicbrainz", "apple", "deezer"]}]
     },
     {
+      "id": "music.artist.discovery.presentation", "kind": "artist", "category": "capability",
+      "description": "Ambiguous artist discovery candidates expose presentation-only type, area, lifecycle, aliases, genres, provider metrics, and an HTTPS artist image when the search source supplies one. Selection remains an opaque candidate reference and never exposes provider routing identity.",
+      "providers": ["musicbrainz", "apple", "deezer"],
+      "projection": {"document": "discovery", "path": "candidates.display"},
+      "references": [{"name": "Unlucky Morpheus", "external_ids": {"musicbrainz": "a6fd2c10-cc3e-41f2-8323-28851e6a48f0", "deezer": "14633177"}, "expected_providers": ["musicbrainz", "deezer"]}]
+    },
+    {
       "id": "music.artist.names.localized", "kind": "artist", "category": "fact",
       "description": "Display, sort, legal, credited, translated, native-script, search-hint, and historical names retain locale and type.",
       "providers": ["musicbrainz", "discogs", "wikidata", "apple", "deezer", "lastfm"],
