@@ -4,13 +4,13 @@
     {
       "id": "music.artist.identity.external_ids", "kind": "artist", "category": "relationship",
       "description": "Explicit cross-provider artist IDs become provenance-bearing claims only after their private ingestion roots converge. A new MusicBrainz root can attach to an existing storefront artist when an accepted storefront artist claim and exact release evidence prove the bridge: preferably through accepted canonical release claims, or during interactive discovery through a bounded check of the credited MusicBrainz release group and at most five exact editions using shared barcode, ISRC trackset, ordered tracklist plus duration evidence, or a complete ordered album tracklist of at least four tracks. The full artist catalog remains background enrichment and never blocks discovery; matching names, titles, years, short track titles, or two unclaimed roots never suffice. MusicBrainz, Apple, Deezer, and Discogs release credits corroborate artist identity even when an artist ID is already known; collaborators on a matching release remain separate credited artists and never become competing identity roots, while an exact release credited exclusively to another artist remains reviewable conflicting evidence. Role-bearing production contributors such as producers, mixers, composers, and engineers never participate in artist identity routing. Malformed provider values remain unused evidence and never enter provider, cache, catalog, or identity-storage paths; foreign provider records are quarantined from the wrong projection, and one authoritative MusicBrainz artist may consolidate duplicate storefront roots it explicitly links. Wikidata items remain descriptive evidence because one item may cover several distinct stage-name artists; when an item lists multiple MusicBrainz artists, its projected labels are scoped to the current canonical artist. Names only filter structured provider candidates and never create or merge identity.",
-      "providers": ["musicbrainz", "discogs", "deezer", "apple", "wikidata", "lastfm"],
+      "providers": ["musicbrainz", "discogs", "deezer", "apple", "spotify", "tidal", "wikidata", "lastfm"],
       "projection": {"document": "detail", "path": "external_ids"},
       "references": [{"name": "The Beatles", "external_ids": {"musicbrainz": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d", "discogs": "82730", "deezer": "1", "apple": "136975", "wikidata": "Q1299"}, "expected_providers": ["musicbrainz"]}, {"name": "Alicia Keys", "external_ids": {"musicbrainz": "8ef1df30-ae4f-4dbd-9351-1a32b208a01e", "deezer": "228", "apple": "316069"}, "expected_providers": ["musicbrainz", "apple", "deezer"]}]
     },
     {
       "id": "music.artist.discovery.presentation", "kind": "artist", "category": "capability",
-      "description": "Ambiguous artist discovery candidates expose presentation-only type, area, lifecycle, aliases, genres, provider metrics, and an HTTPS artist image when the search source supplies one. Selection remains an opaque candidate reference and never exposes provider routing identity.",
+      "description": "Artist discovery expands a bounded set of exact-name MusicBrainz hits with their authoritative URL relationships before selection. Explicitly linked Apple and Deezer search roots collapse into the MusicBrainz identity and contribute presentation-only type, area, lifecycle, aliases, genres, provider metrics, and an HTTPS artist image. Genuinely ambiguous identities remain separate, and selection uses an opaque candidate reference without exposing provider routing identity.",
       "providers": ["musicbrainz", "apple", "deezer"],
       "projection": {"document": "discovery", "path": "candidates.display"},
       "references": [{"name": "Unlucky Morpheus", "external_ids": {"musicbrainz": "a6fd2c10-cc3e-41f2-8323-28851e6a48f0", "deezer": "14633177"}, "expected_providers": ["musicbrainz", "deezer"]}]
@@ -119,6 +119,13 @@
       "providers": ["system", "musicbrainz"],
       "projection": {"document": "detail", "path": "kind"},
       "references": [{"name": "Abbey Road", "external_ids": {"musicbrainz": "9162580e-5df4-32de-80cc-f45a8d8a9b1d"}, "expected_providers": ["system"]}]
+    },
+    {
+      "id": "music.release_group.identity.external_ids", "kind": "release_group", "category": "relationship",
+      "description": "MusicBrainz URL relationships for Discogs, Apple Music, Deezer, Spotify, and Tidal albums become typed external identity claims and feed supported storefront enrichment instead of remaining passive links.",
+      "providers": ["musicbrainz", "discogs", "apple", "deezer", "spotify", "tidal"],
+      "projection": {"document": "detail", "path": "external_ids"},
+      "references": [{"name": "Abbey Road", "external_ids": {"musicbrainz": "9162580e-5df4-32de-80cc-f45a8d8a9b1d"}, "expected_providers": ["musicbrainz"]}]
     },
     {
       "id": "music.release_group.images", "kind": "release_group", "category": "fact",

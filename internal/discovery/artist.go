@@ -183,7 +183,7 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 		return Result{}, fmt.Errorf("discovery query is required")
 	}
 	base := musicbrainz.New(s.runtime.Config.Providers.MusicBrainz)
-	resolver, err := providercache.New(s.runtime, "musicbrainz-discovery/v1", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
+	resolver, err := providercache.New(s.runtime, "musicbrainz-discovery/v2", base.Capability().RawRetention, base.Capability().ResponseCache, jobID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -276,6 +276,11 @@ func (s *Service) DiscoverArtist(ctx context.Context, request Request, jobID int
 		candidates = append(candidates, storefrontCandidates...)
 		providersUsed = append(providersUsed, storefrontProviders...)
 	}
+	explicitLinks, relationshipErrors := collectExplicitMusicBrainzArtistLinks(ctx, client, request, candidates)
+	for _, relationshipErr := range relationshipErrors {
+		slog.WarnContext(ctx, "supplemental artist relationship lookup failed", "error", relationshipErr)
+	}
+	candidates = consolidateExplicitMusicBrainzArtistLinks(candidates, explicitLinks)
 	candidates = dedupeExistingArtistCandidates(candidates)
 	candidates = filterWeakArtistCandidates(request, candidates)
 	var convergence *ArtistIdentityConvergence

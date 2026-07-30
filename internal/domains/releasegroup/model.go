@@ -5,7 +5,7 @@ import "time"
 
 const (
 	NormalizedSchemaVersion      = 1
-	MusicBrainzNormalizerVersion = "musicbrainz-release-group/v1"
+	MusicBrainzNormalizerVersion = "musicbrainz-release-group/v2"
 	WikidataNormalizerVersion    = "wikidata-release-group/v1"
 	DiscogsNormalizerVersion     = "discogs-master/v1"
 	DiscogsReleaseVersion        = "discogs-release/v2"

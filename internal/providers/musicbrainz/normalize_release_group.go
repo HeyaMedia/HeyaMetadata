@@ -13,6 +13,7 @@ import (
 )
 
 var allMusicAlbumPattern = regexp.MustCompile(`^mw[0-9]+$`)
+var streamingAlbumIDPattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
 
 type releaseGroupResponse struct {
 	ID               string         `json:"id"`
@@ -129,6 +130,20 @@ func releaseGroupIdentityFromURL(raw string) (rgdomain.IdentityCandidate, bool) 
 	switch {
 	case host == "discogs.com" && len(parts) >= 2 && parts[0] == "master" && numericSuffix.MatchString(parts[1]):
 		candidate.Provider, candidate.Namespace, candidate.NormalizedValue = "discogs", "master", parts[1]
+	case host == "deezer.com" && len(parts) >= 2 && parts[len(parts)-2] == "album" && numericSuffix.MatchString(parts[len(parts)-1]):
+		candidate.Provider, candidate.Namespace, candidate.NormalizedValue = "deezer", "album", parts[len(parts)-1]
+	case host == "music.apple.com" || host == "itunes.apple.com":
+		for index := len(parts) - 1; index >= 0; index-- {
+			value := strings.TrimPrefix(parts[index], "id")
+			if numericSuffix.MatchString(value) {
+				candidate.Provider, candidate.Namespace, candidate.NormalizedValue = "apple", "album", value
+				break
+			}
+		}
+	case host == "open.spotify.com" && len(parts) >= 2 && parts[0] == "album" && streamingAlbumIDPattern.MatchString(parts[1]):
+		candidate.Provider, candidate.Namespace, candidate.NormalizedValue = "spotify", "album", parts[1]
+	case (host == "tidal.com" || host == "listen.tidal.com") && len(parts) >= 2 && parts[len(parts)-2] == "album" && numericSuffix.MatchString(parts[len(parts)-1]):
+		candidate.Provider, candidate.Namespace, candidate.NormalizedValue = "tidal", "album", parts[len(parts)-1]
 	case host == "wikidata.org" && len(parts) >= 2 && parts[0] == "wiki" && wikidataItemPattern.MatchString(strings.ToUpper(parts[1])):
 		candidate.Provider, candidate.Namespace, candidate.NormalizedValue = "wikidata", "entity", strings.ToUpper(parts[1])
 	case host == "allmusic.com" && len(parts) >= 2 && parts[0] == "album":
