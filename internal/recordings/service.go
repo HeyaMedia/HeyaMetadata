@@ -20,6 +20,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providercache"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
+	"github.com/HeyaMedia/HeyaMetadata/internal/semanticchange"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -161,6 +162,8 @@ func (s *Service) persist(ctx context.Context, record releasedomain.NormalizedRe
 	if err := persistArtistCreditRelations(ctx, tx, entityID, recording.ArtistCredits, record.ProviderRecord); err != nil {
 		return Result{}, err
 	}
+	var previousDocument []byte
+	_ = tx.QueryRow(ctx, `SELECT document FROM canonical_recordings WHERE entity_id=$1`, entityID).Scan(&previousDocument)
 	var version int64
 	if err := tx.QueryRow(ctx, `UPDATE entities SET canonical_version=canonical_version+1,updated_at=now() WHERE id=$1 RETURNING canonical_version`, entityID).Scan(&version); err != nil {
 		return Result{}, err
@@ -200,7 +203,9 @@ func (s *Service) persist(ctx context.Context, record releasedomain.NormalizedRe
 		change = "created"
 	}
 	changedScopes := []string{"identity", "detail", "credits", "relations", "search"}
-	_, _ = tx.Exec(ctx, `INSERT INTO change_outbox(entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id)VALUES($1,'recording',$2,$3,$4,$5,$6,NULLIF($7,0))`, entityID, slug, change, changedScopes, version, record.ProviderRecord.PrimaryObservationID, jobID)
+	if created || !semanticchange.Equal(previousDocument, docBody) {
+		_, _ = tx.Exec(ctx, `INSERT INTO change_outbox(entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id)VALUES($1,'recording',$2,$3,$4,$5,$6,NULLIF($7,0))`, entityID, slug, change, changedScopes, version, record.ProviderRecord.PrimaryObservationID, jobID)
+	}
 	if jobID > 0 {
 		_, _ = tx.Exec(ctx, `UPDATE recording_ingestion_runs SET entity_id=$2,state='completed',completed_at=now(),error=NULL WHERE river_job_id=$1`, jobID, entityID)
 	}

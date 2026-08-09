@@ -34,6 +34,7 @@ import (
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/musicbrainz"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/tidal"
 	"github.com/HeyaMedia/HeyaMetadata/internal/providers/wikidata"
+	"github.com/HeyaMedia/HeyaMetadata/internal/semanticchange"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -998,6 +999,8 @@ func (s *Service) mergeWithPreferred(ctx context.Context, normalizedIDs []string
 			imageIDs[artistdomain.ImageKey(input.Record.ProviderRecord.Provider, image)] = imageID
 		}
 	}
+	var previousDocument []byte
+	_ = tx.QueryRow(ctx, `SELECT document FROM canonical_artists WHERE entity_id=$1`, entityID).Scan(&previousDocument)
 	var version int64
 	if err := tx.QueryRow(ctx, `UPDATE entities SET canonical_version=canonical_version+1,updated_at=now() WHERE id=$1 RETURNING canonical_version`, entityID).Scan(&version); err != nil {
 		return Result{}, err
@@ -1060,8 +1063,10 @@ func (s *Service) mergeWithPreferred(ctx context.Context, normalizedIDs []string
 	if topTracksChanged {
 		changedScopes = append(changedScopes, "top_tracks")
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO change_outbox (entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id) VALUES ($1,'artist',$2,$3,$4,$5,$6,$7)`, entityID, slug, changeType, changedScopes, version, mergedSuccessful[0].ProviderRecord.PrimaryObservationID, nullableJob(jobID)); err != nil {
-		return Result{}, err
+	if created || topTracksChanged || !semanticchange.Equal(previousDocument, detailJSON) {
+		if _, err := tx.Exec(ctx, `INSERT INTO change_outbox (entity_id,entity_kind,slug,change_type,changed_scopes,projection_version,provider_observation_id,river_job_id) VALUES ($1,'artist',$2,$3,$4,$5,$6,$7)`, entityID, slug, changeType, changedScopes, version, mergedSuccessful[0].ProviderRecord.PrimaryObservationID, nullableJob(jobID)); err != nil {
+			return Result{}, err
+		}
 	}
 	for _, retiredID := range retiredEntityIDs {
 		var retiredSlug string
