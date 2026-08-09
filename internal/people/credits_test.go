@@ -45,6 +45,16 @@ func TestEquivalentCreditCollapsesCrossProviderSelfRoles(t *testing.T) {
 	}
 }
 
+func TestEquivalentCreditCollapsesSameProviderExpandedCastRole(t *testing.T) {
+	t.Parallel()
+	short := CanonicalCredit{PersonEntityID: "annie-murphy", Provider: "tvdb", ProviderPersonID: "123", DisplayName: "Annie Murphy", CreditType: "cast", Character: "Allison"}
+	expanded := short
+	expanded.Character = "Allison McRobert"
+	if !equivalentCredit(short, expanded, 2) {
+		t.Fatal("same-provider abbreviated and expanded cast roles were not collapsed")
+	}
+}
+
 func TestEquivalentCreditPreservesDistinctIdentitiesAndRoles(t *testing.T) {
 	t.Parallel()
 	base := CanonicalCredit{PersonEntityID: "person-a", Provider: "tmdb", ProviderPersonID: "1958624", DisplayName: "Ben Joiner", CreditType: "crew", Department: "Camera", Job: "Director of Photography"}
@@ -66,6 +76,11 @@ func TestEquivalentCreditPreservesDistinctIdentitiesAndRoles(t *testing.T) {
 	otherCharacter.Character = "Character B"
 	if equivalentCredit(differentCharacter, otherCharacter, 2) {
 		t.Fatal("genuinely different cast roles were collapsed")
+	}
+	sameProviderOtherCharacter := otherCharacter
+	sameProviderOtherCharacter.Provider = differentCharacter.Provider
+	if equivalentCredit(differentCharacter, sameProviderOtherCharacter, 2) {
+		t.Fatal("genuinely different same-provider cast roles were collapsed")
 	}
 	genericSelf := differentCharacter
 	genericSelf.Provider = "tvdb"

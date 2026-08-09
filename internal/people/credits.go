@@ -100,6 +100,11 @@ func equivalentCredit(left, right CanonicalCredit, specificCastRoleCount int) bo
 	leftDepartment, rightDepartment := normalizedRole(left.Department), normalizedRole(right.Department)
 	leftJob, rightJob := normalizedRole(left.Job), normalizedRole(right.Job)
 	if left.Provider == right.Provider {
+		if left.CreditType == "cast" {
+			leftRole := semanticCastRole(leftCharacter, normalizedRole(left.DisplayName))
+			rightRole := semanticCastRole(rightCharacter, normalizedRole(right.DisplayName))
+			return compatibleCastRole(leftRole, rightRole, specificCastRoleCount)
+		}
 		return leftCharacter == rightCharacter && leftDepartment == rightDepartment && leftJob == rightJob
 	}
 	if left.CreditType == "cast" {
