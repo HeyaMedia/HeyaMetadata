@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -133,8 +134,8 @@ func releaseGroupIdentityFromURL(raw string) (rgdomain.IdentityCandidate, bool) 
 	case host == "deezer.com" && len(parts) >= 2 && parts[len(parts)-2] == "album" && numericSuffix.MatchString(parts[len(parts)-1]):
 		candidate.Provider, candidate.Namespace, candidate.NormalizedValue = "deezer", "album", parts[len(parts)-1]
 	case host == "music.apple.com" || host == "itunes.apple.com":
-		for index := len(parts) - 1; index >= 0; index-- {
-			value := strings.TrimPrefix(parts[index], "id")
+		for _, part := range slices.Backward(parts) {
+			value := strings.TrimPrefix(part, "id")
 			if numericSuffix.MatchString(value) {
 				candidate.Provider, candidate.Namespace, candidate.NormalizedValue = "apple", "album", value
 				break

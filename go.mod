@@ -1,6 +1,6 @@
 module github.com/HeyaMedia/HeyaMetadata
 
-go 1.26.4
+go 1.27.0
 
 require (
 	charm.land/lipgloss/v2 v2.0.5

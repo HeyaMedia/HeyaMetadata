@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -966,8 +967,7 @@ func (s *Service) tvMazeRootsByExternal(ctx context.Context, kind string, identi
 	if err != nil {
 		return nil, err
 	}
-	for index := len(payloads) - 1; index >= 0; index-- {
-		payload := payloads[index]
+	for _, payload := range slices.Backward(payloads) {
 		if payload.StatusCode == http.StatusNotFound {
 			continue
 		}

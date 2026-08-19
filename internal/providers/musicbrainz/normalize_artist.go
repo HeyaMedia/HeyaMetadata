@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -214,8 +215,8 @@ func identityFromURL(raw string) (artistdomain.IdentityCandidate, bool) {
 	case host == "deezer.com" && len(parts) >= 2 && parts[len(parts)-2] == "artist" && numericSuffix.MatchString(parts[len(parts)-1]):
 		candidate.Provider, candidate.NormalizedValue = "deezer", parts[len(parts)-1]
 	case (host == "music.apple.com" || host == "itunes.apple.com"):
-		for i := len(parts) - 1; i >= 0; i-- {
-			value := strings.TrimPrefix(parts[i], "id")
+		for _, part := range slices.Backward(parts) {
+			value := strings.TrimPrefix(part, "id")
 			if numericSuffix.MatchString(value) {
 				candidate.Provider, candidate.NormalizedValue = "apple", value
 				break

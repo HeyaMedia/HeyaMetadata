@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 )
 
@@ -73,9 +74,9 @@ func (resolver *ClientIPResolver) resolveForwardedFor(raw string, peer netip.Add
 
 	// Walk from the origin backwards and stop at the first untrusted hop. This
 	// ignores any client-supplied values prepended to a valid trusted chain.
-	for index := len(chain) - 1; index >= 0; index-- {
-		if !resolver.isTrusted(chain[index]) {
-			return chain[index], nil
+	for _, candidate := range slices.Backward(chain) {
+		if !resolver.isTrusted(candidate) {
+			return candidate, nil
 		}
 	}
 	return chain[0], nil

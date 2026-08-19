@@ -9,7 +9,7 @@ the [movie vertical slice](./docs/domains/movie.md), backed by the executable
 
 ## Development
 
-Requires Go 1.26.4 or newer, Bun, Docker,
+Requires Go 1.27 or newer, Bun, Docker,
 [mprocs](https://github.com/pvolok/mprocs), and
 [Air](https://github.com/air-verse/air). On macOS:
 
