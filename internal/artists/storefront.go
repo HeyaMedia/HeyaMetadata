@@ -51,10 +51,13 @@ func (s *Service) IngestApple(ctx context.Context, artistID string, riverJobID i
 	if err != nil {
 		return Result{}, err
 	}
+	artistName := preferredName(record)
+	slog.InfoContext(ctx, "artist profile fetched", "job_id", riverJobID, "provider", "apple", "provider_artist_id", artistID, "artist_name", artistName)
 	catalog, err := musiccatalog.AppleIdentityCatalog(recorded[0].Payload.Body, artistID)
 	if err != nil {
 		return Result{}, err
 	}
+	slog.InfoContext(ctx, "artist catalog fetched", "job_id", riverJobID, "provider", "apple", "provider_artist_id", artistID, "artist_name", artistName, "albums_fetched", len(catalog))
 	records, catalogs := s.collectStorefrontCounterpart(ctx, record, catalog, riverJobID, credentials)
 	return s.mergeStorefrontArtist(ctx, records, catalogs, riverJobID)
 }
@@ -92,7 +95,9 @@ func (s *Service) IngestDeezer(ctx context.Context, artistID string, riverJobID 
 	if err != nil {
 		return Result{}, err
 	}
-	catalog, err := collectDeezerIdentityCatalog(ctx, client, artistID)
+	artistName := preferredName(record)
+	slog.InfoContext(ctx, "artist profile fetched", "job_id", riverJobID, "provider", "deezer", "provider_artist_id", artistID, "artist_name", artistName)
+	catalog, err := collectDeezerIdentityCatalog(ctx, client, artistID, artistName, riverJobID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -100,7 +105,7 @@ func (s *Service) IngestDeezer(ctx context.Context, artistID string, riverJobID 
 	return s.mergeStorefrontArtist(ctx, records, catalogs, riverJobID)
 }
 
-func collectDeezerIdentityCatalog(ctx context.Context, client *deezer.Client, artistID string) ([]musiccatalog.IdentityRelease, error) {
+func collectDeezerIdentityCatalog(ctx context.Context, client *deezer.Client, artistID, artistName string, riverJobID int64) ([]musiccatalog.IdentityRelease, error) {
 	result := []musiccatalog.IdentityRelease{}
 	for index := 0; ; {
 		payload, err := client.ArtistAlbums(ctx, artistID, 200, index)
@@ -118,6 +123,17 @@ func collectDeezerIdentityCatalog(ctx context.Context, client *deezer.Client, ar
 			return nil, err
 		}
 		result = append(result, items...)
+		pageEnd := index + len(items)
+		slog.InfoContext(ctx, "artist catalog page fetched",
+			"job_id", riverJobID,
+			"provider", "deezer",
+			"provider_artist_id", artistID,
+			"artist_name", artistName,
+			"album_from", index+1,
+			"album_to", pageEnd,
+			"albums_fetched", len(items),
+			"albums_total", total,
+		)
 		index += len(items)
 		if len(items) == 0 || index >= total {
 			return result, nil
@@ -168,6 +184,7 @@ func (s *Service) collectStorefrontCounterpart(ctx context.Context, primary arti
 		return records, catalogs
 	}
 	name := preferredName(primary)
+	slog.InfoContext(ctx, "searching for storefront artist counterpart", "job_id", riverJobID, "provider", primary.ProviderRecord.Provider, "provider_artist_id", primary.ProviderRecord.Value, "artist_name", name, "catalog_releases", len(primaryCatalog))
 	var counterpart artistdomain.NormalizedRecordV1
 	var counterpartCatalog []musiccatalog.IdentityRelease
 	var overlap int
@@ -235,7 +252,7 @@ func (s *Service) matchDeezerArtist(ctx context.Context, name string, anchor []m
 			continue
 		}
 		id := fmt.Sprint(hit.ID)
-		catalog, err := collectDeezerIdentityCatalog(ctx, client, id)
+		catalog, err := collectDeezerIdentityCatalog(ctx, client, id, hit.Name, riverJobID)
 		if err != nil {
 			return artistdomain.NormalizedRecordV1{}, nil, 0, err
 		}

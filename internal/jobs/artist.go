@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -67,6 +68,13 @@ func (w *ArtistIngestWorker) Work(ctx context.Context, job *river.Job[ArtistInge
 	if provider == "" && job.Args.MusicBrainzID != "" {
 		provider, providerID = "musicbrainz", job.Args.MusicBrainzID
 	}
+	startedAt := time.Now()
+	slog.InfoContext(ctx, "artist ingestion started",
+		"job_id", job.ID,
+		"attempt", job.Attempt,
+		"provider", provider,
+		"provider_artist_id", providerID,
+	)
 	var result artists.Result
 	switch provider {
 	case "musicbrainz":
@@ -101,6 +109,14 @@ func (w *ArtistIngestWorker) Work(ctx context.Context, job *river.Job[ArtistInge
 	if err := InsertArtistCatalog(ctx, client, result.EntityID, mbid); err != nil {
 		return fmt.Errorf("enqueue artist catalog: %w", err)
 	}
+	slog.InfoContext(ctx, "artist ingestion completed",
+		"job_id", job.ID,
+		"attempt", job.Attempt,
+		"provider", provider,
+		"provider_artist_id", providerID,
+		"artist_entity_id", result.EntityID,
+		"duration_ms", time.Since(startedAt).Milliseconds(),
+	)
 	_ = providercredentials.Delete(context.WithoutCancel(ctx), w.runtime.Redis, job.Args.CredentialRef)
 	return nil
 }

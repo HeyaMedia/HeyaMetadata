@@ -20,6 +20,21 @@ const (
 	ArtistCatalogSchedulerKind = "artist_catalog_scheduler_v1"
 )
 
+const artistCatalogRefreshStatusQuery = `
+	SELECT EXISTS(
+		SELECT 1
+		FROM artist_catalog_sync_runs
+		WHERE artist_entity_id=$1
+		  AND state='completed'
+		  AND completed_at >= $2
+	) OR EXISTS(
+		SELECT 1
+		FROM river_job
+		WHERE kind=$3
+		  AND args->>'artist_entity_id'=$1::text
+		  AND state IN ('available','pending','retryable','running','scheduled')
+	)`
+
 type ArtistCatalogSyncArgs struct {
 	ArtistEntityID  string                         `json:"artist_entity_id" river:"unique"`
 	MusicBrainzID   string                         `json:"musicbrainz_id" river:"unique"`
@@ -51,24 +66,11 @@ func InsertArtistCatalog(ctx context.Context, client *river.Client[pgx.Tx], arti
 // bounded one-per-artist refresh window for explicit caller change signals.
 func InsertArtistCatalogRefresh(ctx context.Context, runtime *platform.Runtime, client *river.Client[pgx.Tx], artistEntityID, musicBrainzID string, releaseEvidence ...musiccatalog.ReleaseEvidence) (bool, error) {
 	var recentlyRefreshed bool
-	err := runtime.DB.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1
-			FROM artist_catalog_sync_runs
-			WHERE artist_entity_id=$1
-			  AND state='completed'
-			  AND completed_at >= $2
-		) OR EXISTS(
-			SELECT 1
-			FROM river_job
-			WHERE kind=$3
-			  AND args->>'artist_entity_id'=$1
-			  AND state IN ('available','pending','retryable','running','scheduled')
-		)`,
+	err := runtime.DB.QueryRow(ctx, artistCatalogRefreshStatusQuery,
 		artistEntityID, time.Now().UTC().Add(-24*time.Hour), ArtistCatalogSyncKind,
 	).Scan(&recentlyRefreshed)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("check recent artist catalog refresh for artist %s: %w", artistEntityID, err)
 	}
 	if recentlyRefreshed {
 		return false, nil

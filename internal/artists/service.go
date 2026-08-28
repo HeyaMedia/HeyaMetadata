@@ -172,6 +172,8 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 	if err != nil {
 		return Result{}, err
 	}
+	artistName := preferredName(spine)
+	slog.InfoContext(ctx, "artist profile fetched", "job_id", riverJobID, "provider", "musicbrainz", "provider_artist_id", mbid, "artist_name", artistName)
 	expectedLastFMNames := artistNames(spine)
 	known := []providers.Identifier{{Provider: "musicbrainz", Namespace: "artist", Value: mbid}}
 	for _, candidate := range spine.IdentityCandidates {
@@ -237,11 +239,26 @@ func (s *Service) IngestMusicBrainz(ctx context.Context, mbid string, riverJobID
 	failures := map[string]error{}
 	for _, step := range plan.Steps {
 		provider := step.Collector.Capability().Provider
+		collectStartedAt := time.Now()
+		slog.InfoContext(ctx, "fetching supplemental artist metadata",
+			"job_id", riverJobID,
+			"provider", provider,
+			"provider_artist_id", step.Identifier.Value,
+			"artist_name", artistName,
+		)
 		payloads, collectErr := step.Collector.Collect(ctx, step.Identifier)
 		if collectErr != nil {
 			failures[provider] = collectErr
 			continue
 		}
+		slog.InfoContext(ctx, "supplemental artist metadata fetched",
+			"job_id", riverJobID,
+			"provider", provider,
+			"provider_artist_id", step.Identifier.Value,
+			"artist_name", artistName,
+			"payloads_fetched", len(payloads),
+			"duration_ms", time.Since(collectStartedAt).Milliseconds(),
+		)
 		version := artistNormalizerVersion(provider)
 		recorded, recordErr := s.recordPayloads(ctx, payloads, version, step.Collector.Capability(), riverJobID)
 		if recordErr != nil || len(recorded) == 0 {

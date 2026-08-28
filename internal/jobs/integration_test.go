@@ -116,6 +116,51 @@ func TestIntegrationOutboxDrainerLoopsPastOneBatch(t *testing.T) {
 	}
 }
 
+func TestIntegrationArtistCatalogRefreshChecksActiveJSONArgument(t *testing.T) {
+	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
+		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local Postgres and Redis stack")
+	}
+	ctx := context.Background()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := platform.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+	client, err := NewClient(runtime, 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	slug := fmt.Sprintf("artist-catalog-refresh-integration-%d", time.Now().UnixNano())
+	var entityID string
+	if err := runtime.DB.QueryRow(ctx, `INSERT INTO entities(kind,slug)VALUES('artist',$1)RETURNING id`, slug).Scan(&entityID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = runtime.DB.Exec(context.Background(), `DELETE FROM river_job WHERE kind=$1 AND args->>'artist_entity_id'=$2`, ArtistCatalogSyncKind, entityID)
+		_, _ = runtime.DB.Exec(context.Background(), `DELETE FROM entities WHERE id=$1`, entityID)
+	})
+
+	enqueued, err := InsertArtistCatalogRefresh(ctx, runtime, client, entityID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enqueued {
+		t.Fatal("first artist catalog refresh was not enqueued")
+	}
+	enqueued, err = InsertArtistCatalogRefresh(ctx, runtime, client, entityID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enqueued {
+		t.Fatal("active artist catalog refresh was duplicated")
+	}
+}
+
 func TestIntegrationArtistMaterializationEnqueuesLegacyRecordingCredit(t *testing.T) {
 	if os.Getenv("HEYA_METADATA_INTEGRATION") != "1" {
 		t.Skip("set HEYA_METADATA_INTEGRATION=1 to use the local Postgres and Redis stack")
